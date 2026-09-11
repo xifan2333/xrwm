@@ -51,6 +51,7 @@ pub struct WindowItem {
     pub app_id: Option<String>,
     pub title: Option<String>,
     pub tags: u32,
+    pub floating: bool,
     pub x: i32,
     pub y: i32,
     pub width: u32,
@@ -135,7 +136,50 @@ impl AppData {
     }
 
     pub fn handle_manage_start(&mut self, proxy: &RiverWindowManagerV1) {
-        // 1. Remove closed windows
+        // 1. Remove closed windows, ending any interactive operation that was
+        //    still holding them (otherwise the pointer grab would leak).
+        let closed: Vec<RiverWindowV1> = self
+            .windows
+            .iter()
+            .filter(|w| w.closed)
+            .map(|w| w.proxy.clone())
+            .collect();
+        if !closed.is_empty() {
+            for seat in self.seats.values_mut() {
+                let op_target = match &seat.op {
+                    SeatOp::None => None,
+                    SeatOp::Move { proxy, .. } | SeatOp::Resize { proxy, .. } => {
+                        Some(proxy.clone())
+                    }
+                };
+                if let Some(target) = op_target {
+                    if closed.iter().any(|c| c == &target) {
+                        if let SeatOp::Resize { proxy, .. } = &seat.op {
+                            proxy.inform_resize_end();
+                        }
+                        seat.proxy.op_end();
+                        seat.op = SeatOp::None;
+                        seat.op_release = false;
+                        seat.op_dx = 0;
+                        seat.op_dy = 0;
+                    }
+                }
+                if seat
+                    .focused
+                    .as_ref()
+                    .is_some_and(|f| closed.iter().any(|c| c == f))
+                {
+                    seat.focused = None;
+                }
+                if seat
+                    .hovered
+                    .as_ref()
+                    .is_some_and(|h| closed.iter().any(|c| c == h))
+                {
+                    seat.hovered = None;
+                }
+            }
+        }
         self.windows.retain(|w| !w.closed);
 
         // 2. Remove disconnected outputs
@@ -162,11 +206,11 @@ impl AppData {
             .map(|out| out.usable_area)
             .unwrap_or(default_area);
 
-        // Filter visible windows on active tags
+        // Filter visible tiled windows on active tags (floating ones keep their own geometry)
         let visible_count = self
             .windows
             .iter()
-            .filter(|w| st.tag_state.is_view_visible(w.tags))
+            .filter(|w| !w.floating && st.tag_state.is_view_visible(w.tags))
             .count();
 
         let layout_engine = layout::MasterStackLayout;
@@ -179,30 +223,38 @@ impl AppData {
 
         let mut rect_idx = 0;
         for w in self.windows.iter_mut() {
-            if st.tag_state.is_view_visible(w.tags) {
-                if let Some(r) = rects.get(rect_idx) {
-                    w.x = r.x;
-                    w.y = r.y;
-                    w.width = r.width;
-                    w.height = r.height;
+            if !st.tag_state.is_view_visible(w.tags) {
+                continue;
+            }
 
-                    w.node.set_position(r.x, r.y);
-                    w.proxy.propose_dimensions(r.width as i32, r.height as i32);
-                    w.proxy.set_tiled(Edges::all());
-                    w.proxy.use_ssd();
+            if w.floating {
+                // Floating windows stay where the user put them.
+                w.node.set_position(w.x, w.y);
+                w.proxy.propose_dimensions(w.width as i32, w.height as i32);
+                w.proxy.set_tiled(Edges::empty());
+            } else if let Some(r) = rects.get(rect_idx) {
+                w.x = r.x;
+                w.y = r.y;
+                w.width = r.width;
+                w.height = r.height;
 
-                    let is_focused = focused_win_proxy.as_ref() == Some(&w.proxy);
-                    let (cr, cg, cb, ca) = if is_focused {
-                        focused_color
-                    } else {
-                        unfocused_color
-                    };
-
-                    w.proxy
-                        .set_borders(Edges::all(), st.border_width as i32, cr, cg, cb, ca);
-                }
+                w.node.set_position(r.x, r.y);
+                w.proxy.propose_dimensions(r.width as i32, r.height as i32);
+                w.proxy.set_tiled(Edges::all());
                 rect_idx += 1;
             }
+
+            w.proxy.use_ssd();
+
+            let is_focused = focused_win_proxy.as_ref() == Some(&w.proxy);
+            let (cr, cg, cb, ca) = if is_focused {
+                focused_color
+            } else {
+                unfocused_color
+            };
+
+            w.proxy
+                .set_borders(Edges::all(), st.border_width as i32, cr, cg, cb, ca);
         }
 
         // 4. Reorder window stack from user interaction (MRU) and process pointer ops
@@ -236,14 +288,19 @@ impl AppData {
                 .find(|w| w.proxy == win_proxy)
                 .map(|w| (w.x, w.y));
             if let (Some((x, y)), Some(seat)) = (geo, self.seats.get_mut(&id)) {
+                tracing::debug!("op: start move on {:?} at ({x},{y})", win_proxy.id());
                 seat.proxy.op_start_pointer();
                 seat.op = SeatOp::Move {
-                    proxy: win_proxy,
+                    proxy: win_proxy.clone(),
                     start_x: x,
                     start_y: y,
                 };
                 seat.op_dx = 0;
                 seat.op_dy = 0;
+            }
+            // Dragging detaches a window from the tiling layout so the move sticks.
+            if let Some(w) = self.windows.iter_mut().find(|w| w.proxy == win_proxy) {
+                w.floating = true;
             }
         }
 
@@ -254,10 +311,11 @@ impl AppData {
                 .find(|w| w.proxy == win_proxy)
                 .map(|w| (w.x, w.y, w.width, w.height));
             if let (Some((x, y, w, h)), Some(seat)) = (geo, self.seats.get_mut(&id)) {
+                tracing::debug!("op: start resize on {:?}", win_proxy.id());
                 seat.proxy.op_start_pointer();
                 win_proxy.inform_resize_start();
                 seat.op = SeatOp::Resize {
-                    proxy: win_proxy,
+                    proxy: win_proxy.clone(),
                     start_x: x,
                     start_y: y,
                     start_width: w,
@@ -267,25 +325,37 @@ impl AppData {
                 seat.op_dx = 0;
                 seat.op_dy = 0;
             }
+            if let Some(w) = self.windows.iter_mut().find(|w| w.proxy == win_proxy) {
+                w.floating = true;
+            }
         }
 
-        // Apply interactive pointer operations (move / resize)
+        // Apply interactive pointer operations (move / resize).
+        // `op_dx`/`op_dy` are absolute offsets from the start of the operation,
+        // not per-frame deltas, so positions are always `start + delta`.
         let mut released: Vec<ObjectId> = Vec::new();
-        let mut resize_updates: Vec<(RiverWindowV1, i32, i32)> = Vec::new();
-        let mut move_updates: Vec<(RiverWindowV1, i32, i32)> = Vec::new();
+        #[allow(clippy::type_complexity)]
+        let mut resize_updates: Vec<(RiverWindowV1, i32, i32, i32, i32, i32, i32, Edges)> =
+            Vec::new();
+        let mut move_updates: Vec<(RiverWindowV1, i32, i32, i32, i32)> = Vec::new();
 
         for (id, seat) in self.seats.iter() {
             match &seat.op {
                 SeatOp::None => {}
-                SeatOp::Move { proxy, .. } => {
-                    move_updates.push((proxy.clone(), seat.op_dx, seat.op_dy));
+                SeatOp::Move {
+                    proxy,
+                    start_x,
+                    start_y,
+                } => {
+                    move_updates.push((proxy.clone(), *start_x, *start_y, seat.op_dx, seat.op_dy));
                 }
                 SeatOp::Resize {
                     proxy,
+                    start_x,
+                    start_y,
                     start_width,
                     start_height,
                     edges,
-                    ..
                 } => {
                     let mut width = *start_width as i32;
                     let mut height = *start_height as i32;
@@ -301,7 +371,16 @@ impl AppData {
                     if edges.contains(Edges::Bottom) {
                         height += seat.op_dy;
                     }
-                    resize_updates.push((proxy.clone(), width.max(1), height.max(1)));
+                    resize_updates.push((
+                        proxy.clone(),
+                        *start_x,
+                        *start_y,
+                        *start_width as i32,
+                        *start_height as i32,
+                        width.max(1),
+                        height.max(1),
+                        *edges,
+                    ));
                 }
             }
             if seat.op_release {
@@ -309,19 +388,33 @@ impl AppData {
             }
         }
 
-        for (proxy, dx, dy) in move_updates {
+        // Move: absolute position from the op start plus the accumulated delta.
+        for (proxy, start_x, start_y, dx, dy) in move_updates {
             if let Some(w) = self.windows.iter_mut().find(|w| w.proxy == proxy) {
-                w.x = (w.x + dx).max(0);
-                w.y = (w.y + dy).max(0);
+                w.x = (start_x + dx).max(0);
+                w.y = (start_y + dy).max(0);
                 w.node.set_position(w.x, w.y);
             }
         }
 
-        for (proxy, width, height) in resize_updates {
+        // Resize: edge-anchored dimensions, shifting the origin for left/top edges.
+        #[allow(clippy::type_complexity)]
+        for (proxy, start_x, start_y, orig_w, orig_h, new_w, new_h, edges) in resize_updates {
             if let Some(w) = self.windows.iter_mut().find(|w| w.proxy == proxy) {
-                w.width = width as u32;
-                w.height = height as u32;
-                w.proxy.propose_dimensions(width, height);
+                let mut x = start_x;
+                let mut y = start_y;
+                if edges.contains(Edges::Left) {
+                    x += orig_w - new_w;
+                }
+                if edges.contains(Edges::Top) {
+                    y += orig_h - new_h;
+                }
+                w.x = x.max(0);
+                w.y = y.max(0);
+                w.width = new_w as u32;
+                w.height = new_h as u32;
+                w.node.set_position(w.x, w.y);
+                w.proxy.propose_dimensions(new_w, new_h);
             }
         }
 
@@ -330,6 +423,10 @@ impl AppData {
                 if let SeatOp::Resize { proxy, .. } = &seat.op {
                     proxy.inform_resize_end();
                 }
+                // Always release the compositor-side pointer grab, otherwise the
+                // cursor stays stuck in the operation after the button is let go.
+                tracing::debug!("op: end (grab released)");
+                seat.proxy.op_end();
                 seat.op = SeatOp::None;
                 seat.op_release = false;
                 seat.op_dx = 0;
@@ -345,7 +442,7 @@ impl AppData {
                 .clone()
                 .filter(|p| self.windows.iter().any(|w| &w.proxy == p))
                 .or_else(|| self.windows.last().map(|w| w.proxy.clone()));
-            tracing::info!(
+            tracing::debug!(
                 "manage: seat focused={:?} hovered={:?} target={:?}",
                 seat.focused.as_ref().map(|p| p.id()),
                 seat.hovered.as_ref().map(|p| p.id()),
@@ -482,6 +579,7 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppData {
                     app_id: None,
                     title: None,
                     tags: next_id.1,
+                    floating: false,
                     x: 0,
                     y: 0,
                     width: 0,
@@ -528,6 +626,10 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppData {
                 ] {
                     let binding = id.get_pointer_binding(button, Modifiers::Mod4, qh, id.id());
                     binding.enable();
+                    tracing::debug!(
+                        "seat: registered pointer binding button=0x{button:x} mods={:?} -> {action:?}",
+                        Modifiers::Mod4
+                    );
                     seat.pointer_bindings.insert(
                         binding.id(),
                         PointerBinding {
@@ -702,25 +804,27 @@ impl Dispatch<RiverSeatV1, ()> for AppData {
 
         match event {
             Event::PointerEnter { window } => {
-                tracing::info!("seat: pointer_enter {:?}", window.id());
+                tracing::debug!("seat: pointer_enter {:?}", window.id());
                 seat.hovered = Some(window.clone());
                 // Focus-follows-mouse: hovering a window gives it keyboard focus
                 // (and its focused border) without reordering the tiling stack.
                 seat.focused = Some(window);
             }
             Event::PointerLeave => {
-                tracing::info!("seat: pointer_leave");
+                tracing::debug!("seat: pointer_leave");
                 seat.hovered = None;
             }
             Event::WindowInteraction { window } => {
-                tracing::info!("seat: window_interaction {:?}", window.id());
+                tracing::debug!("seat: window_interaction {:?}", window.id());
                 seat.interacted = Some(window);
             }
             Event::OpDelta { dx, dy } => {
+                tracing::debug!("seat: op_delta {dx},{dy}");
                 seat.op_dx = dx;
                 seat.op_dy = dy;
             }
             Event::OpRelease => {
+                tracing::debug!("seat: op_release");
                 seat.op_release = true;
             }
             Event::ShellSurfaceInteraction { .. }
@@ -758,6 +862,7 @@ impl Dispatch<RiverPointerBindingV1, ObjectId> for AppData {
         _qh: &QueueHandle<Self>,
     ) {
         use protocol::river_pointer_binding_v1::Event;
+        tracing::debug!("pointer binding event: {event:?} on {proxy:?}");
         if let Event::Pressed = event {
             if let Some(seat) = state.seats.get_mut(data) {
                 if let Some(binding) = seat.pointer_bindings.get(&proxy.id()) {
