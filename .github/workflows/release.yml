@@ -1,0 +1,123 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. 0.1.0)"
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      tag: ${{ steps.ver.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: ver
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ inputs.version }}" ]]; then
+            version="${{ inputs.version }}"
+            tag="v${version#v}"
+          elif [[ "${GITHUB_REF_NAME}" =~ ^v ]]; then
+            tag="${GITHUB_REF_NAME}"
+            version="${tag#v}"
+          else
+            version="$(tr -d '\n' < VERSION)"
+            tag="v${version}"
+          fi
+
+          version_file="$(tr -d '\n' < VERSION)"
+          if [[ "${version_file}" != "${version}" ]]; then
+            echo "VERSION file (${version_file}) does not match target release version (${version})" >&2
+            exit 1
+          fi
+
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+  build-binary:
+    needs: meta
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev wayland-protocols libxkbcommon-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Package release archive
+        shell: bash
+        run: |
+          version="${{ needs.meta.outputs.version }}"
+          archive_dir="xrwm-${version}-x86_64-unknown-linux-gnu"
+          archive_name="${archive_dir}.tar.gz"
+
+          mkdir -p "dist/${archive_dir}"
+          cp target/release/xrwm "dist/${archive_dir}/"
+          cp README.md LICENSE "dist/${archive_dir}/"
+
+          cd dist
+          tar -czvf "${archive_name}" "${archive_dir}"
+          sha256sum "${archive_name}" > "${archive_name}.sha256"
+          cd ..
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-archive
+          path: dist/xrwm-*.tar.gz*
+
+  publish-github-release:
+    needs: [meta, build-binary]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-archive
+          path: dist
+
+      - name: Generate SHA256SUMS
+        shell: bash
+        run: |
+          cd dist
+          sha256sum *.tar.gz > SHA256SUMS
+          cd ..
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.meta.outputs.tag }}
+          name: xrwm ${{ needs.meta.outputs.tag }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
+            dist/SHA256SUMS
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
