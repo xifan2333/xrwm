@@ -36,6 +36,7 @@ impl AppState {
         if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
             w.floating = !w.floating;
             let is_floating = w.floating;
+            tracing::info!("toggle_float_focused: window {id} -> floating={is_floating}");
 
             if is_floating {
                 if let Some(saved) = w.float_geo {
@@ -353,6 +354,7 @@ impl AppState {
                 let _ = self.close_focused();
             }
             "toggle-float" | "toggle-floating" => {
+                tracing::info!("Binding toggle-float pressed");
                 let _ = self.toggle_float_focused();
             }
             "zoom" => {
