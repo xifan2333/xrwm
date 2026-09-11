@@ -38,18 +38,21 @@ impl AppState {
             let is_floating = w.floating;
 
             if is_floating {
-                let usable = self
-                    .outputs
-                    .values()
-                    .next()
-                    .map(|o| o.usable_area)
-                    .unwrap_or_else(|| crate::layout::Rect::new(0, 30, 1280, 770));
-                let fw = (usable.width * 3 / 5).clamp(300, 1200);
-                let fh = (usable.height * 3 / 5).clamp(200, 800);
-                w.width = fw;
-                w.height = fh;
-                w.x = usable.x + ((usable.width - fw) / 2) as i32;
-                w.y = usable.y + ((usable.height - fh) / 2) as i32;
+                if let Some(saved) = w.float_geo {
+                    w.x = saved.x;
+                    w.y = saved.y;
+                    w.width = saved.width;
+                    w.height = saved.height;
+                } else {
+                    w.float_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
+                }
+            } else {
+                w.float_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
+            }
+
+            let proxy = w.proxy.clone();
+            for seat in self.seats.values_mut() {
+                seat.focused = Some(proxy.clone());
             }
 
             self.manage_dirty();
