@@ -62,6 +62,7 @@ pub struct WindowItem {
     pub tags: TagMask,
     pub floating: bool,
     pub pending_close: bool,
+    pub float_geo: Option<Rect>,
     pub x: i32,
     pub y: i32,
     pub width: u32,
@@ -293,12 +294,16 @@ impl AppState {
             if let Some(w) = self.windows.iter_mut().find(|w| w.proxy == win_proxy) {
                 w.floating = !w.floating;
                 if w.floating {
-                    let fw = (usable_area.width * 3 / 5).clamp(300, 1200);
-                    let fh = (usable_area.height * 3 / 5).clamp(200, 800);
-                    w.width = fw;
-                    w.height = fh;
-                    w.x = usable_area.x + ((usable_area.width - fw) / 2) as i32;
-                    w.y = usable_area.y + ((usable_area.height - fh) / 2) as i32;
+                    if let Some(saved) = w.float_geo {
+                        w.x = saved.x;
+                        w.y = saved.y;
+                        w.width = saved.width;
+                        w.height = saved.height;
+                    } else {
+                        w.float_geo = Some(Rect::new(w.x, w.y, w.width, w.height));
+                    }
+                } else {
+                    w.float_geo = Some(Rect::new(w.x, w.y, w.width, w.height));
                 }
                 tracing::debug!(
                     "op: toggle floating on {:?} -> {}",
@@ -384,12 +389,6 @@ impl AppState {
 
         // Floating windows
         for w in self.windows.iter_mut().filter(|w| w.floating) {
-            if w.width == 0 || w.height == 0 {
-                w.width = (usable_area.width * 3 / 5).max(300);
-                w.height = (usable_area.height * 3 / 5).max(200);
-                w.x = usable_area.x + ((usable_area.width - w.width) / 2) as i32;
-                w.y = usable_area.y + ((usable_area.height - w.height) / 2) as i32;
-            }
             let target = Rect::new(w.x, w.y, w.width, w.height);
             if w.anim_target_geo != Some(target) {
                 w.anim_start_geo = w.visual_geo.or(w.anim_target_geo).or(Some(target));
@@ -432,6 +431,7 @@ impl AppState {
                     if let Some(w) = self.windows.iter_mut().find(|w| &w.proxy == proxy) {
                         w.x = start_x + seat.op_dx;
                         w.y = start_y + seat.op_dy;
+                        w.float_geo = Some(Rect::new(w.x, w.y, w.width, w.height));
                         w.visual_geo = Some(Rect::new(w.x, w.y, w.width, w.height));
                     }
                 }
@@ -450,6 +450,7 @@ impl AppState {
                         w.y = *start_y;
                         w.width = new_w;
                         w.height = new_h;
+                        w.float_geo = Some(Rect::new(w.x, w.y, w.width, w.height));
                         w.visual_geo = Some(Rect::new(w.x, w.y, w.width, w.height));
                         proxy.propose_dimensions(new_w as i32, new_h as i32);
                     }

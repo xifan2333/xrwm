@@ -102,6 +102,7 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                     tags: current_tags,
                     floating: false,
                     pending_close: false,
+                    float_geo: None,
                     x: 0,
                     y: 0,
                     width: 0,
