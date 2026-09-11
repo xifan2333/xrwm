@@ -100,6 +100,17 @@ pub fn send_ipc_command(cmd: &IpcCommand) -> Result<IpcResponse, String> {
     stream.flush().map_err(|e| e.to_string())?;
 
     let mut reader = BufReader::new(stream);
+
+    if let IpcCommand::Status { stream: true, .. } = cmd {
+        let mut line = String::new();
+        while reader.read_line(&mut line).unwrap_or(0) > 0 {
+            print!("{line}");
+            let _ = std::io::stdout().flush();
+            line.clear();
+        }
+        return Ok(IpcResponse::ok(""));
+    }
+
     let mut response_line = String::new();
     reader
         .read_line(&mut response_line)

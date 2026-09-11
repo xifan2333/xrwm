@@ -1,6 +1,8 @@
 //! Central application state machine for xrwm.
 
 use std::collections::HashMap;
+use std::io::Write;
+use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 
 use wayland_backend::client::ObjectId;
@@ -93,6 +95,7 @@ pub struct AppState {
     pub next_view_id: u32,
 
     pub anim: AnimationController,
+    pub status_listeners: Vec<(UnixStream, Option<String>)>,
     pub should_exit: bool,
 }
 
@@ -121,6 +124,7 @@ impl AppState {
             rules: Vec::new(),
             next_view_id: 1,
             anim: AnimationController::default(),
+            status_listeners: Vec::new(),
             should_exit: false,
         }
     }
@@ -409,6 +413,7 @@ impl AppState {
         }
 
         self.sync_occupied_tags();
+        self.broadcast_status();
         let _ = out_id;
         _proxy.manage_finish();
     }
@@ -468,6 +473,25 @@ impl AppState {
             }
         }
         _proxy.render_finish();
+    }
+
+    pub fn broadcast_status(&mut self) {
+        if self.status_listeners.is_empty() {
+            return;
+        }
+        let json_status = self.format_json_status();
+        let waybar_status = self.format_waybar_status();
+
+        self.status_listeners.retain_mut(|(client, fmt)| {
+            let text = if fmt.as_deref() == Some("waybar") {
+                &waybar_status
+            } else {
+                &json_status
+            };
+            let mut msg = text.clone();
+            msg.push('\n');
+            client.write_all(msg.as_bytes()).is_ok()
+        });
     }
 
     pub fn format_json_status(&self) -> String {
