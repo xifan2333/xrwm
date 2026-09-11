@@ -6,7 +6,7 @@ use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 
 use wayland_backend::client::ObjectId;
-use wayland_client::Proxy;
+use wayland_client::{Proxy, QueueHandle};
 
 use crate::animation::AnimationController;
 use crate::animation::calculate_clip_box;
@@ -24,6 +24,7 @@ use crate::protocol::{
 use crate::tag::TAG_NONE;
 use crate::tag::TagMask;
 use crate::tag::TagState;
+use crate::wm::binds::{ActiveKeyBinding, PendingKeyBinding};
 use crate::wm::seat::{PointerAction, SeatItem, SeatOp};
 
 pub fn hex_to_river_rgba(hex_str: &str) -> (u32, u32, u32, u32) {
@@ -97,6 +98,8 @@ pub struct AppState {
     pub border_color_unfocused: String,
     pub border_color_urgent: String,
     pub rules: Vec<WindowRule>,
+    pub pending_key_bindings: Vec<PendingKeyBinding>,
+    pub key_bindings: HashMap<ObjectId, ActiveKeyBinding>,
     pub next_view_id: u32,
 
     pub anim: AnimationController,
@@ -127,6 +130,8 @@ impl AppState {
             border_color_unfocused: "0x414868".to_string(),
             border_color_urgent: "0xf7768e".to_string(),
             rules: Vec::new(),
+            pending_key_bindings: Vec::new(),
+            key_bindings: HashMap::new(),
             next_view_id: 1,
             anim: AnimationController::default(),
             status_listeners: Vec::new(),
@@ -168,7 +173,33 @@ impl AppState {
         self.tag_state.occupied = mask;
     }
 
-    pub fn handle_manage_start(&mut self, _proxy: &RiverWindowManagerV1) {
+    pub fn handle_manage_start(&mut self, _proxy: &RiverWindowManagerV1, qh: &QueueHandle<Self>) {
+        // Register any pending keybindings during the manage sequence
+        if !self.pending_key_bindings.is_empty()
+            && let Some(ref xkb_mgr) = self.river_xkb
+        {
+            for pending in self.pending_key_bindings.drain(..) {
+                for seat in self.seats.values() {
+                    let binding = xkb_mgr.get_xkb_binding(
+                        &seat.proxy,
+                        pending.keysym,
+                        pending.modifiers,
+                        qh,
+                        (),
+                    );
+                    binding.enable();
+                    self.key_bindings.insert(
+                        binding.id(),
+                        ActiveKeyBinding {
+                            proxy: binding,
+                            mode: pending.mode.clone(),
+                            action: pending.action.clone(),
+                        },
+                    );
+                }
+            }
+        }
+
         // 0. Process any pending close requests inside the manage sequence
         for w in &mut self.windows {
             if w.pending_close {

@@ -1,6 +1,7 @@
 //! Core Window Manager module (AppState, Seat, Actions, and Dispatchers).
 
 pub mod actions;
+pub mod binds;
 pub mod dispatch;
 pub mod seat;
 pub mod state;
