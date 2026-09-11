@@ -343,4 +343,24 @@ mod tests {
             .unwrap();
         assert_eq!(state.anim.duration, Duration::from_millis(200));
     }
+
+    #[test]
+    fn test_app_state_status_formatting() {
+        let state = AppState::new();
+        let json = state.format_json_status();
+        assert!(json.contains("\"focused_tags\":1"));
+        assert!(json.contains("\"layout\":\"master-stack\""));
+
+        let waybar = state.format_waybar_status();
+        assert!(waybar.contains("\"text\":\"1\""));
+    }
+
+    #[test]
+    fn test_app_state_empty_actions() {
+        let mut state = AppState::new();
+        assert_eq!(state.close_focused().unwrap(), "no view focused to close");
+        assert!(state.toggle_float_focused().is_err());
+        assert!(state.zoom_focused().is_err());
+        assert_eq!(state.focus_view(true).unwrap(), "no visible windows");
+    }
 }

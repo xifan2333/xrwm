@@ -395,8 +395,45 @@ mod tests {
             IpcCommand::SetFocusedTags(3)
         );
         assert_eq!(
-            parse_cli_args(&["focus-tag".into(), "2".into()]).unwrap(),
-            IpcCommand::FocusTag(2)
+            parse_cli_args(&["move-to-tag".into(), "4".into()]).unwrap(),
+            IpcCommand::MoveToTag(4)
+        );
+        assert_eq!(
+            parse_cli_args(&["focus-view".into(), "next".into()]).unwrap(),
+            IpcCommand::FocusView("next".into())
+        );
+        assert_eq!(
+            parse_cli_args(&["main-ratio".into(), "0.60".into()]).unwrap(),
+            IpcCommand::SetMainRatio(0.60)
+        );
+        assert_eq!(
+            parse_cli_args(&["main-count".into(), "2".into()]).unwrap(),
+            IpcCommand::SetMainCount(2)
+        );
+        assert_eq!(
+            parse_cli_args(&["set-animation".into(), "true".into()]).unwrap(),
+            IpcCommand::SetAnimation(true)
+        );
+        assert_eq!(
+            parse_cli_args(&["animation-duration".into(), "180".into()]).unwrap(),
+            IpcCommand::SetAnimationDuration(180)
+        );
+        assert_eq!(
+            parse_cli_args(&["status".into(), "--format".into(), "waybar".into()]).unwrap(),
+            IpcCommand::Status {
+                stream: false,
+                format: Some("waybar".into()),
+            }
+        );
+        assert_eq!(parse_cli_args(&["ping".into()]).unwrap(), IpcCommand::Ping);
+        assert_eq!(
+            parse_cli_args(&["close".into()]).unwrap(),
+            IpcCommand::Close
+        );
+        assert_eq!(parse_cli_args(&["exit".into()]).unwrap(), IpcCommand::Exit);
+        assert_eq!(
+            parse_cli_args(&["reload".into()]).unwrap(),
+            IpcCommand::Reload
         );
     }
 }
