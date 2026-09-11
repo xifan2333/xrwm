@@ -258,8 +258,40 @@ impl AppState {
                 modifiers,
                 key,
                 action,
-            } => Ok(format!("mapped [{mode}] {modifiers}+{key} -> {action:?}")),
-            IpcCommand::Bind { combo, action } => Ok(format!("bound {combo} -> {action:?}")),
+            } => {
+                let mods = crate::wm::binds::parse_modifiers(modifiers);
+                let Some(keysym) = crate::wm::binds::parse_keysym(key) else {
+                    return Err(format!("Unknown keysym: {key}"));
+                };
+                self.pending_key_bindings
+                    .push(crate::wm::binds::PendingKeyBinding {
+                        mode: mode.clone(),
+                        modifiers: mods,
+                        keysym,
+                        action: action.clone(),
+                    });
+                self.manage_dirty();
+                Ok(format!("mapped [{mode}] {modifiers}+{key} -> {action:?}"))
+            }
+            IpcCommand::Bind { combo, action } => {
+                let (mods_str, key_str) = match combo.rfind('+') {
+                    Some(idx) => (&combo[..idx], &combo[idx + 1..]),
+                    None => ("None", combo.as_str()),
+                };
+                let mods = crate::wm::binds::parse_modifiers(mods_str);
+                let Some(keysym) = crate::wm::binds::parse_keysym(key_str) else {
+                    return Err(format!("Unknown keysym: {key_str}"));
+                };
+                self.pending_key_bindings
+                    .push(crate::wm::binds::PendingKeyBinding {
+                        mode: "normal".to_string(),
+                        modifiers: mods,
+                        keysym,
+                        action: action.clone(),
+                    });
+                self.manage_dirty();
+                Ok(format!("bound {combo} -> {action:?}"))
+            }
             IpcCommand::Status { stream: _, format } => {
                 if format.as_deref() == Some("waybar") {
                     Ok(self.format_waybar_status())
@@ -274,6 +306,99 @@ impl AppState {
             IpcCommand::Exit => {
                 self.should_exit = true;
                 Ok("exiting".to_string())
+            }
+        }
+    }
+
+    /// Handles a keybinding press event triggered by river-xkb-bindings.
+    pub fn handle_key_binding_pressed(&mut self, binding_id: &wayland_backend::client::ObjectId) {
+        let action_opt = self.key_bindings.get(binding_id).map(|b| b.action.clone());
+        let Some(action) = action_opt else {
+            return;
+        };
+
+        if action.is_empty() {
+            return;
+        }
+
+        match action[0].as_str() {
+            "spawn" => {
+                if action.len() > 1 {
+                    let cmd = &action[1];
+                    let args = &action[2..];
+                    tracing::info!("Binding spawn: {cmd} {args:?}");
+                    let _ = std::process::Command::new(cmd).args(args).spawn();
+                }
+            }
+            "close" => {
+                let _ = self.close_focused();
+            }
+            "toggle-float" | "toggle-floating" => {
+                let _ = self.toggle_float_focused();
+            }
+            "zoom" => {
+                let _ = self.zoom_focused();
+            }
+            "focus-view" => {
+                let next = if action.len() > 1 {
+                    !matches!(action[1].as_str(), "previous" | "prev" | "up" | "left")
+                } else {
+                    true
+                };
+                let _ = self.focus_view(next);
+            }
+            "focus-tag" => {
+                if action.len() > 1
+                    && let Ok(tag) = action[1].parse::<u8>()
+                {
+                    let mask = TagState::tag_index_to_mask(tag);
+                    let _ = self.set_focused_tags(mask);
+                }
+            }
+            "move-to-tag" => {
+                if action.len() > 1
+                    && let Ok(tag) = action[1].parse::<u8>()
+                {
+                    let mask = TagState::tag_index_to_mask(tag);
+                    let _ = self.set_view_tags(mask);
+                }
+            }
+            "set-focused-tags" => {
+                if action.len() > 1
+                    && let Ok(mask) = action[1].parse::<u32>()
+                {
+                    let _ = self.set_focused_tags(mask);
+                }
+            }
+            "set-view-tags" => {
+                if action.len() > 1
+                    && let Ok(mask) = action[1].parse::<u32>()
+                {
+                    let _ = self.set_view_tags(mask);
+                }
+            }
+            "toggle-focused-tags" => {
+                if action.len() > 1
+                    && let Ok(mask) = action[1].parse::<u32>()
+                {
+                    let _ = self.toggle_focused_tags(mask);
+                }
+            }
+            "toggle-view-tags" => {
+                if action.len() > 1
+                    && let Ok(mask) = action[1].parse::<u32>()
+                {
+                    let _ = self.toggle_view_tags(mask);
+                }
+            }
+            "exit" => {
+                self.should_exit = true;
+            }
+            "reload" => {
+                spawn_init_script();
+            }
+            other => {
+                tracing::warn!("Unknown keybinding action: {other}");
             }
         }
     }
@@ -344,6 +469,28 @@ mod tests {
             .handle_ipc_command(&IpcCommand::SetAnimationDuration(200))
             .unwrap();
         assert_eq!(state.anim.duration, Duration::from_millis(200));
+    }
+
+    #[test]
+    fn test_app_state_ipc_map_and_bind() {
+        let mut state = AppState::new();
+        let map_cmd = IpcCommand::Map {
+            mode: "normal".into(),
+            modifiers: "Super".into(),
+            key: "Return".into(),
+            action: vec!["spawn".into(), "foot".into()],
+        };
+        let res = state.handle_ipc_command(&map_cmd);
+        assert!(res.is_ok());
+        assert_eq!(state.pending_key_bindings.len(), 1);
+
+        let bind_cmd = IpcCommand::Bind {
+            combo: "Super+Shift+Q".into(),
+            action: vec!["exit".into()],
+        };
+        let res2 = state.handle_ipc_command(&bind_cmd);
+        assert!(res2.is_ok());
+        assert_eq!(state.pending_key_bindings.len(), 2);
     }
 
     #[test]

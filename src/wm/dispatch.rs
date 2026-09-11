@@ -77,7 +77,7 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                 state.should_exit = true;
             }
             Event::ManageStart => {
-                state.handle_manage_start(proxy);
+                state.handle_manage_start(proxy, qh);
             }
             Event::RenderStart => {
                 state.handle_render_start(proxy);
@@ -335,3 +335,19 @@ impl Dispatch<RiverPointerBindingV1, ObjectId> for AppState {
 wayland_client::delegate_noop!(AppState: ignore RiverLayerShellV1);
 wayland_client::delegate_noop!(AppState: ignore RiverXkbBindingsV1);
 wayland_client::delegate_noop!(AppState: ignore RiverNodeV1);
+
+impl Dispatch<crate::protocol::river_xkb_binding_v1::RiverXkbBindingV1, ()> for AppState {
+    fn event(
+        state: &mut Self,
+        proxy: &crate::protocol::river_xkb_binding_v1::RiverXkbBindingV1,
+        event: <crate::protocol::river_xkb_binding_v1::RiverXkbBindingV1 as Proxy>::Event,
+        _data: &(),
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+        use crate::protocol::river_xkb_binding_v1::Event;
+        if let Event::Pressed = event {
+            state.handle_key_binding_pressed(&proxy.id());
+        }
+    }
+}
