@@ -131,7 +131,11 @@ impl AppState {
                 Ok("reloaded init script".to_string())
             }
             IpcCommand::Exit => {
-                std::process::exit(0);
+                std::thread::spawn(|| {
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    std::process::exit(0);
+                });
+                Ok("exiting".to_string())
             }
         }
     }
