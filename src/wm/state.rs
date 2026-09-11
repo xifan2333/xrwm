@@ -42,11 +42,28 @@ pub fn hex_to_river_rgba(hex_str: &str) -> (u32, u32, u32, u32) {
     (r, g, b, a)
 }
 
+pub fn glob_match(pattern: &str, text: &str) -> bool {
+    if pattern == "*" {
+        return true;
+    }
+    if let Some(prefix) = pattern.strip_suffix('*') {
+        if let Some(inner) = prefix.strip_prefix('*') {
+            return text.contains(inner);
+        }
+        return text.starts_with(prefix);
+    }
+    if let Some(suffix) = pattern.strip_prefix('*') {
+        return text.ends_with(suffix);
+    }
+    pattern == text
+}
+
 #[derive(Debug, Clone)]
 pub struct WindowRule {
     pub app_id: Option<String>,
     pub title: Option<String>,
-    pub float: bool,
+    pub float: Option<bool>,
+    pub ssd: Option<bool>,
     pub tags: Option<TagMask>,
 }
 
@@ -63,6 +80,7 @@ pub struct WindowItem {
     pub floating: bool,
     pub pending_close: bool,
     pub float_geo: Option<Rect>,
+    pub ssd: bool,
     pub x: i32,
     pub y: i32,
     pub width: u32,
@@ -144,6 +162,30 @@ impl AppState {
     pub fn manage_dirty(&self) {
         if let Some(wm) = &self.river_wm {
             wm.manage_dirty();
+        }
+    }
+
+    pub fn apply_rules_to_window(rules: &[WindowRule], w: &mut WindowItem) {
+        for r in rules {
+            let app_matches = match &r.app_id {
+                Some(pat) => glob_match(pat, w.app_id.as_deref().unwrap_or("")),
+                None => true,
+            };
+            let title_matches = match &r.title {
+                Some(pat) => glob_match(pat, w.title.as_deref().unwrap_or("")),
+                None => true,
+            };
+            if app_matches && title_matches {
+                if let Some(float) = r.float {
+                    w.floating = float;
+                }
+                if let Some(ssd) = r.ssd {
+                    w.ssd = ssd;
+                }
+                if let Some(tags) = r.tags {
+                    w.tags = tags;
+                }
+            }
         }
     }
 
@@ -413,8 +455,14 @@ impl AppState {
             } else {
                 (ur, ug, ub, ua)
             };
-            w.proxy
-                .set_borders(Edges::all(), self.border_width as i32, cr, cg, cb, ca);
+            if w.ssd {
+                w.proxy.use_ssd();
+                w.proxy
+                    .set_borders(Edges::all(), self.border_width as i32, cr, cg, cb, ca);
+            } else {
+                w.proxy.use_csd();
+                w.proxy.set_borders(Edges::empty(), 0, 0, 0, 0, 0);
+            }
         }
 
         // 4. Interactive pointer operations (Move / Resize)

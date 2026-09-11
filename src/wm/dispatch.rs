@@ -103,6 +103,7 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                     floating: false,
                     pending_close: false,
                     float_geo: None,
+                    ssd: true,
                     x: 0,
                     y: 0,
                     width: 0,
@@ -199,19 +200,14 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
             }
             Event::AppId { app_id } => {
                 if let Some(w) = state.windows.iter_mut().find(|w| &w.proxy == proxy) {
-                    if let Some(ref aid) = app_id {
-                        for r in &state.rules {
-                            if r.app_id.as_deref() == Some(aid.as_str()) {
-                                w.floating = r.float;
-                            }
-                        }
-                    }
                     w.app_id = app_id;
+                    AppState::apply_rules_to_window(&state.rules, w);
                 }
             }
             Event::Title { title } => {
                 if let Some(w) = state.windows.iter_mut().find(|w| &w.proxy == proxy) {
                     w.title = title;
+                    AppState::apply_rules_to_window(&state.rules, w);
                 }
             }
             Event::Dimensions { .. } => {}

@@ -22,7 +22,6 @@ pub enum IpcCommand {
     SetBorderColorFocused(String),
     SetBorderColorUnfocused(String),
     SetBorderColorUrgent(String),
-    SetSmartBorders(bool),
     SetMainRatio(f32),
     SetMainCount(u32),
     SetAnimation(bool),
@@ -215,15 +214,6 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
         "set-border-color-urgent" | "border-color-urgent" => {
             let color = args.get(1).ok_or("Missing color value")?.clone();
             Ok(IpcCommand::SetBorderColorUrgent(color))
-        }
-        "set-smart-borders" | "smart-borders" => {
-            let val = args.get(1).ok_or("Missing boolean value")?;
-            let enabled = match val.as_str() {
-                "true" | "1" | "on" => true,
-                "false" | "0" | "off" => false,
-                _ => return Err("Invalid boolean, use true|false".to_string()),
-            };
-            Ok(IpcCommand::SetSmartBorders(enabled))
         }
         "set-main-ratio" | "main-ratio" => {
             let ratio = args

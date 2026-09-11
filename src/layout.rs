@@ -24,8 +24,6 @@ pub struct LayoutConfig {
     pub split_ratio: f32,
     pub main_count: u32,
     pub gaps: u32,
-    pub smart_borders: bool,
-    pub smart_gaps: bool,
     pub monocle: bool,
 }
 
@@ -35,8 +33,6 @@ impl Default for LayoutConfig {
             split_ratio: 0.55,
             main_count: 1,
             gaps: 4,
-            smart_borders: true,
-            smart_gaps: true,
             monocle: false,
         }
     }
@@ -60,8 +56,8 @@ impl Layout for MasterStackLayout {
             return Vec::new();
         }
 
-        // Monocle mode or single-window smart layout: fills entire screen
-        if config.monocle || (count == 1 && config.smart_gaps) {
+        // Monocle mode fills the entire usable area
+        if config.monocle {
             return vec![usable_area];
         }
 
@@ -131,13 +127,13 @@ mod tests {
     }
 
     #[test]
-    fn test_single_window_smart_gaps() {
+    fn test_single_window_gaps() {
         let layout = MasterStackLayout;
-        let config = LayoutConfig::default(); // smart_gaps is true
+        let config = LayoutConfig::default(); // gaps is 4
         let area = Rect::new(0, 0, 1920, 1080);
         let rects = layout.arrange(area, 1, &config);
         assert_eq!(rects.len(), 1);
-        assert_eq!(rects[0], area);
+        assert_eq!(rects[0], Rect::new(4, 4, 1912, 1072));
     }
 
     #[test]
@@ -156,7 +152,6 @@ mod tests {
     fn test_master_stack_tiling() {
         let layout = MasterStackLayout;
         let config = LayoutConfig {
-            smart_gaps: false,
             gaps: 0,
             split_ratio: 0.5,
             ..Default::default()

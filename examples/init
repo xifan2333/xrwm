@@ -9,7 +9,6 @@ export PATH="$HOME/.local/bin:$PATH"
 xrwm set-window-gaps 8
 xrwm set-main-ratio 0.55
 xrwm set-main-count 1
-xrwm set-smart-borders true
 
 # 2. Tokyo Night Borders & Colors
 xrwm set-border-width 2
@@ -21,7 +20,7 @@ xrwm set-border-color-urgent '#f7768e'
 xrwm set-animation true
 xrwm set-animation-duration 150
 
-# 4. Window Rules
+# 4. Window Rules (float / no-float / ssd / csd)
 xrwm rule-add -app-id mpv float
 xrwm rule-add -app-id fuzzel float
 xrwm rule-add -app-id imv float
