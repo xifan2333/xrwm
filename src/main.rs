@@ -16,7 +16,7 @@ use protocol::{
     river_node_v1::RiverNodeV1,
     river_output_v1::RiverOutputV1,
     river_pointer_binding_v1::RiverPointerBindingV1,
-    river_seat_v1::RiverSeatV1,
+    river_seat_v1::{Modifiers, RiverSeatV1},
     river_window_manager_v1::RiverWindowManagerV1,
     river_window_v1::{Edges, RiverWindowV1},
     river_xkb_binding_v1::RiverXkbBindingV1,
@@ -43,10 +43,13 @@ pub fn hex_to_river_rgba(hex_str: &str) -> (u32, u32, u32, u32) {
 
 #[derive(Debug)]
 pub struct WindowItem {
+    pub id: u32,
     pub proxy: RiverWindowV1,
     pub node: RiverNodeV1,
     pub new: bool,
     pub closed: bool,
+    pub app_id: Option<String>,
+    pub title: Option<String>,
     pub tags: u32,
     pub x: i32,
     pub y: i32,
@@ -67,6 +70,45 @@ pub struct SeatItem {
     pub proxy: RiverSeatV1,
     pub removed: bool,
     pub focused: Option<RiverWindowV1>,
+    pub hovered: Option<RiverWindowV1>,
+    pub interacted: Option<RiverWindowV1>,
+    pub pending_action: PointerAction,
+    pub op: SeatOp,
+    pub op_dx: i32,
+    pub op_dy: i32,
+    pub op_release: bool,
+    pub pointer_bindings: HashMap<ObjectId, PointerBinding>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PointerAction {
+    None,
+    Move,
+    Resize,
+}
+
+#[derive(Debug)]
+pub struct PointerBinding {
+    pub proxy: RiverPointerBindingV1,
+    pub action: PointerAction,
+}
+
+#[derive(Debug)]
+pub enum SeatOp {
+    None,
+    Move {
+        proxy: RiverWindowV1,
+        start_x: i32,
+        start_y: i32,
+    },
+    Resize {
+        proxy: RiverWindowV1,
+        start_x: i32,
+        start_y: i32,
+        start_width: u32,
+        start_height: u32,
+        edges: Edges,
+    },
 }
 
 pub struct AppData {
@@ -163,19 +205,192 @@ impl AppData {
             }
         }
 
-        // 4. Update focus on seats
-        if let Some(seat) = self.seats.values_mut().next() {
-            if let Some(top_win) = self.windows.last() {
-                seat.proxy.focus_window(&top_win.proxy);
-                top_win.node.place_top();
-                seat.focused = Some(top_win.proxy.clone());
-            } else {
-                seat.proxy.clear_focus();
-                seat.focused = None;
+        // 4. Reorder window stack from user interaction (MRU) and process pointer ops
+        // 4a. Start interactive operations requested by pointer bindings
+        let mut start_move: Vec<(ObjectId, RiverWindowV1)> = Vec::new();
+        let mut start_resize: Vec<(ObjectId, RiverWindowV1)> = Vec::new();
+        for (id, seat) in self.seats.iter_mut() {
+            // Clicking a window focuses it.  Focus changes must NOT reorder the
+            // tiling stack, otherwise the master/stack layout would shuffle
+            // under the user's pointer on every click.
+            if let Some(win_proxy) = seat.interacted.take() {
+                seat.focused = Some(win_proxy);
+            }
+
+            if seat.pending_action != PointerAction::None {
+                if let Some(win_proxy) = seat.hovered.clone() {
+                    match seat.pending_action {
+                        PointerAction::Move => start_move.push((id.clone(), win_proxy)),
+                        PointerAction::Resize => start_resize.push((id.clone(), win_proxy)),
+                        PointerAction::None => {}
+                    }
+                    seat.pending_action = PointerAction::None;
+                }
+            }
+        }
+
+        for (id, win_proxy) in start_move {
+            let geo = self
+                .windows
+                .iter()
+                .find(|w| w.proxy == win_proxy)
+                .map(|w| (w.x, w.y));
+            if let (Some((x, y)), Some(seat)) = (geo, self.seats.get_mut(&id)) {
+                seat.proxy.op_start_pointer();
+                seat.op = SeatOp::Move {
+                    proxy: win_proxy,
+                    start_x: x,
+                    start_y: y,
+                };
+                seat.op_dx = 0;
+                seat.op_dy = 0;
+            }
+        }
+
+        for (id, win_proxy) in start_resize {
+            let geo = self
+                .windows
+                .iter()
+                .find(|w| w.proxy == win_proxy)
+                .map(|w| (w.x, w.y, w.width, w.height));
+            if let (Some((x, y, w, h)), Some(seat)) = (geo, self.seats.get_mut(&id)) {
+                seat.proxy.op_start_pointer();
+                win_proxy.inform_resize_start();
+                seat.op = SeatOp::Resize {
+                    proxy: win_proxy,
+                    start_x: x,
+                    start_y: y,
+                    start_width: w,
+                    start_height: h,
+                    edges: Edges::Bottom.union(Edges::Right),
+                };
+                seat.op_dx = 0;
+                seat.op_dy = 0;
+            }
+        }
+
+        // Apply interactive pointer operations (move / resize)
+        let mut released: Vec<ObjectId> = Vec::new();
+        let mut resize_updates: Vec<(RiverWindowV1, i32, i32)> = Vec::new();
+        let mut move_updates: Vec<(RiverWindowV1, i32, i32)> = Vec::new();
+
+        for (id, seat) in self.seats.iter() {
+            match &seat.op {
+                SeatOp::None => {}
+                SeatOp::Move { proxy, .. } => {
+                    move_updates.push((proxy.clone(), seat.op_dx, seat.op_dy));
+                }
+                SeatOp::Resize {
+                    proxy,
+                    start_width,
+                    start_height,
+                    edges,
+                    ..
+                } => {
+                    let mut width = *start_width as i32;
+                    let mut height = *start_height as i32;
+                    if edges.contains(Edges::Left) {
+                        width -= seat.op_dx;
+                    }
+                    if edges.contains(Edges::Right) {
+                        width += seat.op_dx;
+                    }
+                    if edges.contains(Edges::Top) {
+                        height -= seat.op_dy;
+                    }
+                    if edges.contains(Edges::Bottom) {
+                        height += seat.op_dy;
+                    }
+                    resize_updates.push((proxy.clone(), width.max(1), height.max(1)));
+                }
+            }
+            if seat.op_release {
+                released.push(id.clone());
+            }
+        }
+
+        for (proxy, dx, dy) in move_updates {
+            if let Some(w) = self.windows.iter_mut().find(|w| w.proxy == proxy) {
+                w.x = (w.x + dx).max(0);
+                w.y = (w.y + dy).max(0);
+                w.node.set_position(w.x, w.y);
+            }
+        }
+
+        for (proxy, width, height) in resize_updates {
+            if let Some(w) = self.windows.iter_mut().find(|w| w.proxy == proxy) {
+                w.width = width as u32;
+                w.height = height as u32;
+                w.proxy.propose_dimensions(width, height);
+            }
+        }
+
+        for id in released {
+            if let Some(seat) = self.seats.get_mut(&id) {
+                if let SeatOp::Resize { proxy, .. } = &seat.op {
+                    proxy.inform_resize_end();
+                }
+                seat.op = SeatOp::None;
+                seat.op_release = false;
+                seat.op_dx = 0;
+                seat.op_dy = 0;
+            }
+        }
+
+        // 5. Apply focus: the most recently focused window sits at the top of the stack
+        let mut focus_updates: Vec<(ObjectId, Option<RiverWindowV1>)> = Vec::new();
+        for (id, seat) in self.seats.iter() {
+            let target = seat
+                .focused
+                .clone()
+                .filter(|p| self.windows.iter().any(|w| &w.proxy == p))
+                .or_else(|| self.windows.last().map(|w| w.proxy.clone()));
+            tracing::info!(
+                "manage: seat focused={:?} hovered={:?} target={:?}",
+                seat.focused.as_ref().map(|p| p.id()),
+                seat.hovered.as_ref().map(|p| p.id()),
+                target.as_ref().map(|p| p.id()),
+            );
+            focus_updates.push((id.clone(), target));
+        }
+
+        for (id, target) in focus_updates {
+            if let Some(seat) = self.seats.get_mut(&id) {
+                match target {
+                    Some(win_proxy) => {
+                        seat.proxy.focus_window(&win_proxy);
+                        if let Some(w) = self.windows.iter().find(|w| w.proxy == win_proxy) {
+                            w.node.place_top();
+                        }
+                        seat.focused = Some(win_proxy);
+                    }
+                    None => {
+                        seat.proxy.clear_focus();
+                        seat.focused = None;
+                    }
+                }
             }
         }
 
         proxy.manage_finish();
+    }
+
+    /// Mirror the live WM window list into the shared `AppState` for `xrwm status`.
+    fn sync_shared_state(&mut self) {
+        let windows: Vec<(u32, Option<String>, Option<String>, u32)> = self
+            .windows
+            .iter()
+            .map(|w| (w.id, w.app_id.clone(), w.title.clone(), w.tags))
+            .collect();
+        let focused = self
+            .seats
+            .values()
+            .find_map(|s| s.focused.as_ref())
+            .and_then(|p| self.windows.iter().find(|w| &w.proxy == p))
+            .map(|w| w.id);
+
+        let mut st = self.state.lock().unwrap();
+        st.sync_windows(&windows, focused);
     }
 
     pub fn handle_render_start(&mut self, proxy: &RiverWindowManagerV1) {
@@ -241,20 +456,32 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppData {
                 std::process::exit(1);
             }
             Event::Finished => std::process::exit(0),
-            Event::ManageStart => state.handle_manage_start(proxy),
+            Event::ManageStart => {
+                state.handle_manage_start(proxy);
+                state.sync_shared_state();
+            }
             Event::RenderStart => state.handle_render_start(proxy),
             Event::SessionLocked => {}
             Event::SessionUnlocked => {}
             Event::Window { id } => {
                 let node = id.get_node(qh, ());
                 id.use_ssd();
-                let current_tag = state.state.lock().unwrap().tag_state.focused;
+                let next_id = {
+                    let mut st = state.state.lock().unwrap();
+                    let current_tag = st.tag_state.focused;
+                    let vid = st.next_view_id;
+                    st.next_view_id += 1;
+                    (vid, current_tag)
+                };
                 state.windows.push(WindowItem {
+                    id: next_id.0,
                     proxy: id,
                     node,
                     new: true,
                     closed: false,
-                    tags: current_tag,
+                    app_id: None,
+                    title: None,
+                    tags: next_id.1,
                     x: 0,
                     y: 0,
                     width: 0,
@@ -278,14 +505,39 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppData {
                 );
             }
             Event::Seat { id } => {
-                state.seats.insert(
-                    id.id(),
-                    SeatItem {
-                        proxy: id,
-                        removed: false,
-                        focused: None,
-                    },
-                );
+                let mut seat = SeatItem {
+                    proxy: id.clone(),
+                    removed: false,
+                    focused: None,
+                    hovered: None,
+                    interacted: None,
+                    pending_action: PointerAction::None,
+                    op: SeatOp::None,
+                    op_dx: 0,
+                    op_dy: 0,
+                    op_release: false,
+                    pointer_bindings: HashMap::new(),
+                };
+
+                // Register default pointer bindings: Super+LMB move, Super+RMB resize
+                const BTN_LEFT: u32 = 0x110;
+                const BTN_RIGHT: u32 = 0x111;
+                for (button, action) in [
+                    (BTN_LEFT, PointerAction::Move),
+                    (BTN_RIGHT, PointerAction::Resize),
+                ] {
+                    let binding = id.get_pointer_binding(button, Modifiers::Mod4, qh, id.id());
+                    binding.enable();
+                    seat.pointer_bindings.insert(
+                        binding.id(),
+                        PointerBinding {
+                            proxy: binding,
+                            action,
+                        },
+                    );
+                }
+
+                state.seats.insert(id.id(), seat);
             }
         }
     }
@@ -307,15 +559,69 @@ impl Dispatch<RiverWindowV1, ()> for AppData {
         _qh: &QueueHandle<Self>,
     ) {
         use protocol::river_window_v1::Event;
-        let window = match state.windows.iter_mut().find(|w| &w.proxy == proxy) {
-            Some(w) => w,
-            None => return,
-        };
         match event {
-            Event::Closed => window.closed = true,
+            Event::Closed => {
+                if let Some(w) = state.windows.iter_mut().find(|w| &w.proxy == proxy) {
+                    w.closed = true;
+                }
+            }
             Event::Dimensions { width, height } => {
-                window.width = width as u32;
-                window.height = height as u32;
+                if let Some(w) = state.windows.iter_mut().find(|w| &w.proxy == proxy) {
+                    w.width = width as u32;
+                    w.height = height as u32;
+                }
+            }
+            Event::AppId { app_id } => {
+                if let Some(w) = state.windows.iter_mut().find(|w| &w.proxy == proxy) {
+                    w.app_id = app_id;
+                }
+            }
+            Event::Title { title } => {
+                if let Some(w) = state.windows.iter_mut().find(|w| &w.proxy == proxy) {
+                    w.title = title;
+                }
+            }
+            Event::PointerMoveRequested { seat } => {
+                let geo = state
+                    .windows
+                    .iter()
+                    .find(|w| &w.proxy == proxy)
+                    .map(|w| (w.x, w.y));
+                if let (Some((x, y)), Some(s)) = (geo, state.seats.get_mut(&seat.id())) {
+                    s.interacted = Some(proxy.clone());
+                    s.proxy.op_start_pointer();
+                    s.op = SeatOp::Move {
+                        proxy: proxy.clone(),
+                        start_x: x,
+                        start_y: y,
+                    };
+                    s.op_dx = 0;
+                    s.op_dy = 0;
+                }
+            }
+            Event::PointerResizeRequested { seat, edges } => {
+                let geo = state
+                    .windows
+                    .iter()
+                    .find(|w| &w.proxy == proxy)
+                    .map(|w| (w.x, w.y, w.width, w.height));
+                if let (Some((x, y, w, h)), Some(s)) = (geo, state.seats.get_mut(&seat.id())) {
+                    s.interacted = Some(proxy.clone());
+                    s.proxy.op_start_pointer();
+                    proxy.inform_resize_start();
+                    s.op = SeatOp::Resize {
+                        proxy: proxy.clone(),
+                        start_x: x,
+                        start_y: y,
+                        start_width: w,
+                        start_height: h,
+                        edges: edges
+                            .into_result()
+                            .unwrap_or(Edges::Bottom.union(Edges::Right)),
+                    };
+                    s.op_dx = 0;
+                    s.op_dy = 0;
+                }
             }
             _ => {}
         }
@@ -370,13 +676,63 @@ impl Dispatch<RiverLayerShellOutputV1, ObjectId> for AppData {
 
 impl Dispatch<RiverSeatV1, ()> for AppData {
     fn event(
-        _state: &mut Self,
-        _proxy: &RiverSeatV1,
-        _event: <RiverSeatV1 as Proxy>::Event,
+        state: &mut Self,
+        proxy: &RiverSeatV1,
+        event: <RiverSeatV1 as Proxy>::Event,
         _data: &(),
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
     ) {
+        use protocol::river_seat_v1::Event;
+
+        if let Event::Removed = event {
+            if let Some(seat) = state.seats.get_mut(&proxy.id()) {
+                seat.removed = true;
+                for binding in seat.pointer_bindings.values() {
+                    binding.proxy.destroy();
+                }
+                seat.pointer_bindings.clear();
+            }
+            return;
+        }
+
+        let Some(seat) = state.seats.get_mut(&proxy.id()) else {
+            return;
+        };
+
+        match event {
+            Event::PointerEnter { window } => {
+                tracing::info!("seat: pointer_enter {:?}", window.id());
+                seat.hovered = Some(window.clone());
+                // Focus-follows-mouse: hovering a window gives it keyboard focus
+                // (and its focused border) without reordering the tiling stack.
+                seat.focused = Some(window);
+            }
+            Event::PointerLeave => {
+                tracing::info!("seat: pointer_leave");
+                seat.hovered = None;
+            }
+            Event::WindowInteraction { window } => {
+                tracing::info!("seat: window_interaction {:?}", window.id());
+                seat.interacted = Some(window);
+            }
+            Event::OpDelta { dx, dy } => {
+                seat.op_dx = dx;
+                seat.op_dy = dy;
+            }
+            Event::OpRelease => {
+                seat.op_release = true;
+            }
+            Event::ShellSurfaceInteraction { .. }
+            | Event::PointerPosition { .. }
+            | Event::WlSeat { .. } => {}
+            Event::Removed => unreachable!(),
+        }
+
+        // Wake the compositor so pending actions and focus changes are applied now.
+        if let Some(wm) = state.river_wm.as_ref() {
+            wm.manage_dirty();
+        }
     }
 }
 
@@ -394,13 +750,24 @@ impl Dispatch<RiverXkbBindingV1, ObjectId> for AppData {
 
 impl Dispatch<RiverPointerBindingV1, ObjectId> for AppData {
     fn event(
-        _state: &mut Self,
-        _proxy: &RiverPointerBindingV1,
-        _event: <RiverPointerBindingV1 as Proxy>::Event,
-        _data: &ObjectId,
+        state: &mut Self,
+        proxy: &RiverPointerBindingV1,
+        event: <RiverPointerBindingV1 as Proxy>::Event,
+        data: &ObjectId,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
     ) {
+        use protocol::river_pointer_binding_v1::Event;
+        if let Event::Pressed = event {
+            if let Some(seat) = state.seats.get_mut(data) {
+                if let Some(binding) = seat.pointer_bindings.get(&proxy.id()) {
+                    seat.pending_action = binding.action;
+                }
+            }
+            if let Some(wm) = state.river_wm.as_ref() {
+                wm.manage_dirty();
+            }
+        }
     }
 }
 
@@ -439,6 +806,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Default: Run as Window Manager daemon
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("xrwm=info")),
+        )
+        .with_writer(std::io::stderr)
+        .init();
     println!("xrwm - River 0.4+ Wayland Window Manager starting...");
 
     let state = Arc::new(Mutex::new(AppState::new()));

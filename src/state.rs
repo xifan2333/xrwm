@@ -219,6 +219,38 @@ impl AppState {
         let tags_list: Vec<TagMask> = self.views.values().map(|v| v.tags).collect();
         self.tag_state.update_occupied_tags(&tags_list);
     }
+
+    /// Mirror the window manager's live window list into the shared state so
+    /// `xrwm status` reports the truth and tag occupancy stays accurate.
+    pub fn sync_windows(
+        &mut self,
+        windows: &[(u32, Option<String>, Option<String>, TagMask)],
+        focused: Option<u32>,
+    ) {
+        let live: std::collections::HashSet<u32> = windows.iter().map(|w| w.0).collect();
+        self.views.retain(|id, _| live.contains(id));
+
+        for (id, app_id, title, tags) in windows {
+            let view = self.views.entry(*id).or_insert_with(|| View {
+                id: *id,
+                app_id: None,
+                title: None,
+                tags: *tags,
+                floating: false,
+                fullscreen: false,
+                geometry: Rect::default(),
+            });
+            view.app_id = app_id.clone();
+            view.title = title.clone();
+            view.tags = *tags;
+        }
+
+        self.focused_view_id = focused.filter(|id| self.views.contains_key(id));
+        if self.focused_view_id.is_none() {
+            self.focused_view_id = self.views.keys().next().copied();
+        }
+        self.sync_occupied_tags();
+    }
 }
 
 pub fn spawn_init_script() {
@@ -231,9 +263,16 @@ pub fn spawn_init_script() {
 
     if init_script.is_file() {
         tracing::info!("Spawning xrwm init script: {:?}", init_script);
+        // River is launched from a TTY login shell, where ~/.local/bin is not
+        // necessarily on PATH yet. Prepend it so the init script can call
+        // `xrwm` directly, matching how the CLI is used interactively.
+        let home = std::env::var("HOME").unwrap_or_default();
+        let current_path = std::env::var("PATH").unwrap_or_default();
+        let path = format!("{home}/.local/bin:{current_path}");
         let _ = std::process::Command::new("bash")
             .arg("-c")
             .arg(&init_script)
+            .env("PATH", path)
             .spawn();
     }
 }
