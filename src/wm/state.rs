@@ -279,10 +279,27 @@ impl AppState {
             }
         }
 
+        let default_area = Rect::new(0, 30, 1280, 770);
+        let layout_engine = MasterStackLayout;
+
+        let (out_id, usable_area) = self
+            .outputs
+            .iter()
+            .next()
+            .map(|(id, o)| (id.clone(), o.usable_area))
+            .unwrap_or((ObjectId::null(), default_area));
+
         for win_proxy in toggle_floating {
             if let Some(w) = self.windows.iter_mut().find(|w| w.proxy == win_proxy) {
                 w.floating = !w.floating;
-                w.node.place_top();
+                if w.floating {
+                    let fw = (usable_area.width * 3 / 5).clamp(300, 1200);
+                    let fh = (usable_area.height * 3 / 5).clamp(200, 800);
+                    w.width = fw;
+                    w.height = fh;
+                    w.x = usable_area.x + ((usable_area.width - fw) / 2) as i32;
+                    w.y = usable_area.y + ((usable_area.height - fh) / 2) as i32;
+                }
                 tracing::debug!(
                     "op: toggle floating on {:?} -> {}",
                     w.proxy.id(),
@@ -332,16 +349,6 @@ impl AppState {
         }
 
         // 3. Arrange windows for each output
-        let default_area = Rect::new(0, 30, 1280, 770);
-        let layout_engine = MasterStackLayout;
-
-        let (out_id, usable_area) = self
-            .outputs
-            .iter()
-            .next()
-            .map(|(id, o)| (id.clone(), o.usable_area))
-            .unwrap_or((ObjectId::null(), default_area));
-
         let tag_state = self.tag_state;
         let mut tiled_indices: Vec<usize> = Vec::new();
         for (i, w) in self.windows.iter().enumerate() {
@@ -500,11 +507,32 @@ impl AppState {
 
                 w.visual_geo = Some(render_geo);
                 w.node.set_position(render_geo.x, render_geo.y);
-                w.node.place_top();
                 w.new = false;
             } else {
                 w.node.set_position(-10000, -10000);
             }
+        }
+
+        // Enforce strict Z-ordering:
+        // 1. Tiled windows remain at the bottom layer.
+        // 2. All floating windows are placed above the tiled layer.
+        // 3. The focused window is placed on top of its layer.
+        for w in self
+            .windows
+            .iter()
+            .filter(|w| w.floating && self.tag_state.is_view_visible(w.tags))
+        {
+            w.node.place_top();
+        }
+
+        let focused_proxy = self.seats.values().find_map(|s| s.focused.clone());
+        if let Some(focused) = focused_proxy
+            && let Some(win) = self
+                .windows
+                .iter()
+                .find(|w| w.proxy == focused && self.tag_state.is_view_visible(w.tags))
+        {
+            win.node.place_top();
         }
 
         for seat in self.seats.values_mut() {
