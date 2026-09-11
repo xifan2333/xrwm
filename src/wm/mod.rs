@@ -5,7 +5,13 @@ pub mod dispatch;
 pub mod seat;
 pub mod state;
 
-pub use seat::{PointerAction, PointerBinding, SeatItem, SeatOp};
-pub use state::{
-    AppState, OutputItem, WindowItem, WindowRule, hex_to_river_rgba, spawn_init_script,
-};
+pub use seat::PointerAction;
+pub use seat::PointerBinding;
+pub use seat::SeatItem;
+pub use seat::SeatOp;
+pub use state::AppState;
+pub use state::OutputItem;
+pub use state::WindowItem;
+pub use state::WindowRule;
+pub use state::hex_to_river_rgba;
+pub use state::spawn_init_script;

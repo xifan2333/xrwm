@@ -8,7 +8,9 @@ use std::path::PathBuf;
 use wayland_backend::client::ObjectId;
 use wayland_client::Proxy;
 
-use crate::animation::{AnimationController, calculate_clip_box, interpolate_rect};
+use crate::animation::AnimationController;
+use crate::animation::calculate_clip_box;
+use crate::animation::interpolate_rect;
 use crate::layout::{Layout, LayoutConfig, MasterStackLayout, Rect};
 use crate::protocol::{
     river_layer_shell_output_v1::RiverLayerShellOutputV1,
@@ -19,7 +21,9 @@ use crate::protocol::{
     river_window_v1::{Edges, RiverWindowV1},
     river_xkb_bindings_v1::RiverXkbBindingsV1,
 };
-use crate::tag::{TAG_NONE, TagMask, TagState};
+use crate::tag::TAG_NONE;
+use crate::tag::TagMask;
+use crate::tag::TagState;
 use crate::wm::seat::{PointerAction, SeatItem, SeatOp};
 
 pub fn hex_to_river_rgba(hex_str: &str) -> (u32, u32, u32, u32) {
@@ -180,17 +184,17 @@ impl AppState {
                         Some(proxy.clone())
                     }
                 };
-                if let Some(target) = op_target {
-                    if closed.iter().any(|c| c == &target) {
-                        if let SeatOp::Resize { proxy, .. } = &seat.op {
-                            proxy.inform_resize_end();
-                        }
-                        seat.proxy.op_end();
-                        seat.op = SeatOp::None;
-                        seat.op_release = false;
-                        seat.op_dx = 0;
-                        seat.op_dy = 0;
+                if let Some(target) = op_target
+                    && closed.iter().any(|c| c == &target)
+                {
+                    if let SeatOp::Resize { proxy, .. } = &seat.op {
+                        proxy.inform_resize_end();
                     }
+                    seat.proxy.op_end();
+                    seat.op = SeatOp::None;
+                    seat.op_release = false;
+                    seat.op_dx = 0;
+                    seat.op_dy = 0;
                 }
                 if seat
                     .focused

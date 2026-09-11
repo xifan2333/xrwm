@@ -9,7 +9,8 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::io::{AsFd, AsRawFd};
 
 use wayland_client::Connection;
-use wm::{AppState, spawn_init_script};
+use wm::AppState;
+use wm::spawn_init_script;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -138,32 +139,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 while let Ok((mut stream, _)) = listener.accept() {
                     let mut reader = BufReader::new(stream.try_clone().unwrap());
                     let mut line = String::new();
-                    if reader.read_line(&mut line).is_ok() {
-                        if let Ok(cmd) = serde_json::from_str::<ipc::IpcCommand>(&line) {
-                            if let ipc::IpcCommand::Status {
-                                stream: true,
-                                format,
-                            } = cmd
-                            {
-                                let text = if format.as_deref() == Some("waybar") {
-                                    state.format_waybar_status()
-                                } else {
-                                    state.format_json_status()
-                                };
-                                let _ = stream.write_all(text.as_bytes());
+                    if reader.read_line(&mut line).is_ok()
+                        && let Ok(cmd) = serde_json::from_str::<ipc::IpcCommand>(&line)
+                    {
+                        if let ipc::IpcCommand::Status {
+                            stream: true,
+                            format,
+                        } = cmd
+                        {
+                            let text = if format.as_deref() == Some("waybar") {
+                                state.format_waybar_status()
+                            } else {
+                                state.format_json_status()
+                            };
+                            let _ = stream.write_all(text.as_bytes());
+                            let _ = stream.write_all(b"\n");
+                            let _ = stream.flush();
+                            state.status_listeners.push((stream, format));
+                        } else {
+                            let response = match state.handle_ipc_command(&cmd) {
+                                Ok(msg) => ipc::IpcResponse::ok(msg),
+                                Err(err) => ipc::IpcResponse::err(err),
+                            };
+                            if let Ok(resp_json) = serde_json::to_string(&response) {
+                                let _ = stream.write_all(resp_json.as_bytes());
                                 let _ = stream.write_all(b"\n");
                                 let _ = stream.flush();
-                                state.status_listeners.push((stream, format));
-                            } else {
-                                let response = match state.handle_ipc_command(&cmd) {
-                                    Ok(msg) => ipc::IpcResponse::ok(msg),
-                                    Err(err) => ipc::IpcResponse::err(err),
-                                };
-                                if let Ok(resp_json) = serde_json::to_string(&response) {
-                                    let _ = stream.write_all(resp_json.as_bytes());
-                                    let _ = stream.write_all(b"\n");
-                                    let _ = stream.flush();
-                                }
                             }
                         }
                     }

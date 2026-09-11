@@ -3,8 +3,12 @@
 use std::time::Duration;
 
 use crate::ipc::IpcCommand;
-use crate::tag::{TAG_NONE, TagMask, TagState};
-use crate::wm::state::{AppState, WindowRule, spawn_init_script};
+use crate::tag::TAG_NONE;
+use crate::tag::TagMask;
+use crate::tag::TagState;
+use crate::wm::state::AppState;
+use crate::wm::state::WindowRule;
+use crate::wm::state::spawn_init_script;
 
 impl AppState {
     /// Closes the currently focused window.

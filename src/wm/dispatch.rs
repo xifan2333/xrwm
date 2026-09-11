@@ -315,10 +315,10 @@ impl Dispatch<RiverPointerBindingV1, ObjectId> for AppState {
     ) {
         use crate::protocol::river_pointer_binding_v1::Event;
         if let Event::Pressed = event {
-            if let Some(seat) = state.seats.get_mut(data) {
-                if let Some(binding) = seat.pointer_bindings.get(&proxy.id()) {
-                    seat.pending_action = binding.action;
-                }
+            if let Some(seat) = state.seats.get_mut(data)
+                && let Some(binding) = seat.pointer_bindings.get(&proxy.id())
+            {
+                seat.pending_action = binding.action;
             }
             state.manage_dirty();
         }
