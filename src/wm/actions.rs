@@ -19,8 +19,7 @@ impl AppState {
         };
 
         if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
-            w.proxy.close();
-            w.closed = true;
+            w.pending_close = true;
         }
 
         self.manage_dirty();
@@ -37,7 +36,6 @@ impl AppState {
         if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
             w.floating = !w.floating;
             let is_floating = w.floating;
-            w.node.place_top();
             self.manage_dirty();
             Ok(format!("window {id} floating={is_floating}"))
         } else {

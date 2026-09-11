@@ -60,6 +60,7 @@ pub struct WindowItem {
     pub title: Option<String>,
     pub tags: TagMask,
     pub floating: bool,
+    pub pending_close: bool,
     pub x: i32,
     pub y: i32,
     pub width: u32,
@@ -168,6 +169,14 @@ impl AppState {
     }
 
     pub fn handle_manage_start(&mut self, _proxy: &RiverWindowManagerV1) {
+        // 0. Process any pending close requests inside the manage sequence
+        for w in &mut self.windows {
+            if w.pending_close {
+                w.proxy.close();
+                w.pending_close = false;
+            }
+        }
+
         // 1. Remove closed windows, ending any interactive operation holding them
         let closed: Vec<RiverWindowV1> = self
             .windows
@@ -373,6 +382,9 @@ impl AppState {
 
         // 4. Interactive pointer operations (Move / Resize)
         for seat in self.seats.values_mut() {
+            if let Some(target) = &seat.focused {
+                seat.proxy.focus_window(target);
+            }
             match &seat.op {
                 SeatOp::Move {
                     proxy,
