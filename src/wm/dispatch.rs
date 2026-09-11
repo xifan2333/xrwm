@@ -101,6 +101,7 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                     title: None,
                     tags: current_tags,
                     floating: false,
+                    pending_close: false,
                     x: 0,
                     y: 0,
                     width: 0,
@@ -170,6 +171,12 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
             }
         }
     }
+
+    wayland_client::event_created_child!(AppState, RiverWindowManagerV1, [
+        crate::protocol::river_window_manager_v1::EVT_WINDOW_OPCODE => (RiverWindowV1, ()),
+        crate::protocol::river_window_manager_v1::EVT_OUTPUT_OPCODE => (RiverOutputV1, ()),
+        crate::protocol::river_window_manager_v1::EVT_SEAT_OPCODE => (RiverSeatV1, ())
+    ]);
 }
 
 impl Dispatch<RiverWindowV1, ()> for AppState {
