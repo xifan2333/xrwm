@@ -514,24 +514,45 @@ impl AppState {
             }
         }
 
-        // Enforce strict Z-ordering:
-        // 1. Tiled windows remain at the bottom layer.
-        // 2. All floating windows are placed above the tiled layer.
-        // 3. The focused window is placed on top of its layer.
+        // Enforce strict layered Z-ordering (matching river-classic where .float > .layout):
+        //
+        // Layer 1 (Bottom): Tiled windows.
+        //   Place unfocused tiled windows first, then focused tiled window (if focused is tiled).
+        let focused_proxy = self.seats.values().find_map(|s| s.focused.clone());
+
+        for w in self
+            .windows
+            .iter()
+            .filter(|w| !w.floating && self.tag_state.is_view_visible(w.tags))
+        {
+            if focused_proxy.as_ref() != Some(&w.proxy) {
+                w.node.place_top();
+            }
+        }
+        if let Some(ref focused) = focused_proxy
+            && let Some(win) = self.windows.iter().find(|w| {
+                &w.proxy == focused && !w.floating && self.tag_state.is_view_visible(w.tags)
+            })
+        {
+            win.node.place_top();
+        }
+
+        // Layer 2 (Top): Floating windows.
+        //   Place unfocused floating windows first, then focused floating window (if focused is floating).
+        //   Floating windows are GUARANTEED to ALWAYS remain above all tiled windows!
         for w in self
             .windows
             .iter()
             .filter(|w| w.floating && self.tag_state.is_view_visible(w.tags))
         {
-            w.node.place_top();
+            if focused_proxy.as_ref() != Some(&w.proxy) {
+                w.node.place_top();
+            }
         }
-
-        let focused_proxy = self.seats.values().find_map(|s| s.focused.clone());
-        if let Some(focused) = focused_proxy
-            && let Some(win) = self
-                .windows
-                .iter()
-                .find(|w| w.proxy == focused && self.tag_state.is_view_visible(w.tags))
+        if let Some(ref focused) = focused_proxy
+            && let Some(win) = self.windows.iter().find(|w| {
+                &w.proxy == focused && w.floating && self.tag_state.is_view_visible(w.tags)
+            })
         {
             win.node.place_top();
         }
