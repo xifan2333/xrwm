@@ -244,11 +244,6 @@ impl AppState {
                 self.manage_dirty();
                 Ok(format!("urgent border color set to {c}"))
             }
-            IpcCommand::SetSmartBorders(b) => {
-                self.layout_config.smart_borders = *b;
-                self.manage_dirty();
-                Ok(format!("smart borders set to {b}"))
-            }
             IpcCommand::SetMainRatio(r) => self.set_main_ratio(*r),
             IpcCommand::SetMainCount(c) => self.set_main_count(*c),
             IpcCommand::SetAnimation(enabled) => {
@@ -264,11 +259,28 @@ impl AppState {
                 title,
                 action,
             } => {
-                let float = action.contains("float");
+                let float = if action.contains("float") && !action.contains("no-float") {
+                    Some(true)
+                } else if action.contains("no-float") {
+                    Some(false)
+                } else {
+                    None
+                };
+                let ssd = if action.contains("csd")
+                    || action.contains("no-ssd")
+                    || action.contains("no-border")
+                {
+                    Some(false)
+                } else if action.contains("ssd") {
+                    Some(true)
+                } else {
+                    None
+                };
                 self.rules.push(WindowRule {
                     app_id: app_id.clone(),
                     title: title.clone(),
                     float,
+                    ssd,
                     tags: None,
                 });
                 Ok(format!("rule added for app_id={app_id:?} title={title:?}"))
@@ -449,7 +461,17 @@ mod tests {
         let res = state.handle_ipc_command(&cmd);
         assert!(res.is_ok());
         assert_eq!(state.rules.len(), 1);
-        assert!(state.rules[0].float);
+        assert_eq!(state.rules[0].float, Some(true));
+        assert_eq!(state.rules[0].ssd, None);
+
+        let csd_cmd = IpcCommand::RuleAdd {
+            app_id: Some("foot".into()),
+            title: None,
+            action: "csd".into(),
+        };
+        let res_csd = state.handle_ipc_command(&csd_cmd);
+        assert!(res_csd.is_ok());
+        assert_eq!(state.rules[1].ssd, Some(false));
     }
 
     #[test]
