@@ -36,6 +36,22 @@ impl AppState {
         if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
             w.floating = !w.floating;
             let is_floating = w.floating;
+
+            if is_floating {
+                let usable = self
+                    .outputs
+                    .values()
+                    .next()
+                    .map(|o| o.usable_area)
+                    .unwrap_or_else(|| crate::layout::Rect::new(0, 30, 1280, 770));
+                let fw = (usable.width * 3 / 5).clamp(300, 1200);
+                let fh = (usable.height * 3 / 5).clamp(200, 800);
+                w.width = fw;
+                w.height = fh;
+                w.x = usable.x + ((usable.width - fw) / 2) as i32;
+                w.y = usable.y + ((usable.height - fh) / 2) as i32;
+            }
+
             self.manage_dirty();
             Ok(format!("window {id} floating={is_floating}"))
         } else {
