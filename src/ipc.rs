@@ -4,9 +4,29 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "payload")]
 pub enum IpcCommand {
+    Close,
+    ToggleFloat,
+    Zoom,
+    FocusView(String),
+    SetFocusedTags(u32),
+    ToggleFocusedTags(u32),
+    SetViewTags(u32),
+    ToggleViewTags(u32),
+    FocusTag(u8),
+    MoveToTag(u8),
+    SetWindowGaps(u32),
+    SetBorderWidth(u32),
+    SetBorderColorFocused(String),
+    SetBorderColorUnfocused(String),
+    SetBorderColorUrgent(String),
+    SetSmartBorders(bool),
+    SetMainRatio(f32),
+    SetMainCount(u32),
+    SetAnimation(bool),
+    SetAnimationDuration(u64),
     Map {
         mode: String,
         modifiers: String,
@@ -22,17 +42,10 @@ pub enum IpcCommand {
         title: Option<String>,
         action: String,
     },
-    SetWindowGaps(u32),
-    SetBorderWidth(u32),
-    SetBorderColorFocused(String),
-    SetBorderColorUnfocused(String),
-    SetBorderColorUrgent(String),
-    SetSmartBorders(bool),
     Status {
         stream: bool,
         format: Option<String>,
     },
-    Close,
     Exit,
     Reload,
     Ping,
@@ -104,6 +117,136 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
     match args[0].as_str() {
         "ping" => Ok(IpcCommand::Ping),
         "close" => Ok(IpcCommand::Close),
+        "toggle-float" | "toggle-floating" => Ok(IpcCommand::ToggleFloat),
+        "zoom" => Ok(IpcCommand::Zoom),
+        "focus-view" => {
+            let dir = args.get(1).cloned().unwrap_or_else(|| "next".to_string());
+            Ok(IpcCommand::FocusView(dir))
+        }
+        "set-focused-tags" => {
+            let mask = args
+                .get(1)
+                .ok_or("Missing tagmask value")?
+                .parse::<u32>()
+                .map_err(|_| "Tagmask must be an unsigned integer")?;
+            Ok(IpcCommand::SetFocusedTags(mask))
+        }
+        "toggle-focused-tags" => {
+            let mask = args
+                .get(1)
+                .ok_or("Missing tagmask value")?
+                .parse::<u32>()
+                .map_err(|_| "Tagmask must be an unsigned integer")?;
+            Ok(IpcCommand::ToggleFocusedTags(mask))
+        }
+        "set-view-tags" => {
+            let mask = args
+                .get(1)
+                .ok_or("Missing tagmask value")?
+                .parse::<u32>()
+                .map_err(|_| "Tagmask must be an unsigned integer")?;
+            Ok(IpcCommand::SetViewTags(mask))
+        }
+        "toggle-view-tags" => {
+            let mask = args
+                .get(1)
+                .ok_or("Missing tagmask value")?
+                .parse::<u32>()
+                .map_err(|_| "Tagmask must be an unsigned integer")?;
+            Ok(IpcCommand::ToggleViewTags(mask))
+        }
+        "focus-tag" => {
+            let tag = args
+                .get(1)
+                .ok_or("Missing tag number (1..32)")?
+                .parse::<u8>()
+                .map_err(|_| "Tag must be an integer between 1 and 32")?;
+            if !(1..=32).contains(&tag) {
+                return Err("Tag must be between 1 and 32".to_string());
+            }
+            Ok(IpcCommand::FocusTag(tag))
+        }
+        "move-to-tag" => {
+            let tag = args
+                .get(1)
+                .ok_or("Missing tag number (1..32)")?
+                .parse::<u8>()
+                .map_err(|_| "Tag must be an integer between 1 and 32")?;
+            if !(1..=32).contains(&tag) {
+                return Err("Tag must be between 1 and 32".to_string());
+            }
+            Ok(IpcCommand::MoveToTag(tag))
+        }
+        "set-window-gaps" | "window-gaps" | "view-padding" => {
+            let gaps = args
+                .get(1)
+                .ok_or("Missing gaps value")?
+                .parse::<u32>()
+                .map_err(|_| "Gaps must be a positive integer")?;
+            Ok(IpcCommand::SetWindowGaps(gaps))
+        }
+        "set-border-width" | "border-width" => {
+            let width = args
+                .get(1)
+                .ok_or("Missing width value")?
+                .parse::<u32>()
+                .map_err(|_| "Width must be a positive integer")?;
+            Ok(IpcCommand::SetBorderWidth(width))
+        }
+        "set-border-color-focused" | "border-color-focused" => {
+            let color = args.get(1).ok_or("Missing color value")?.clone();
+            Ok(IpcCommand::SetBorderColorFocused(color))
+        }
+        "set-border-color-unfocused" | "border-color-unfocused" => {
+            let color = args.get(1).ok_or("Missing color value")?.clone();
+            Ok(IpcCommand::SetBorderColorUnfocused(color))
+        }
+        "set-border-color-urgent" | "border-color-urgent" => {
+            let color = args.get(1).ok_or("Missing color value")?.clone();
+            Ok(IpcCommand::SetBorderColorUrgent(color))
+        }
+        "set-smart-borders" | "smart-borders" => {
+            let val = args.get(1).ok_or("Missing boolean value")?;
+            let enabled = match val.as_str() {
+                "true" | "1" | "on" => true,
+                "false" | "0" | "off" => false,
+                _ => return Err("Invalid boolean, use true|false".to_string()),
+            };
+            Ok(IpcCommand::SetSmartBorders(enabled))
+        }
+        "set-main-ratio" | "main-ratio" => {
+            let ratio = args
+                .get(1)
+                .ok_or("Missing ratio value")?
+                .parse::<f32>()
+                .map_err(|_| "Ratio must be a float (e.g. 0.55)")?;
+            Ok(IpcCommand::SetMainRatio(ratio))
+        }
+        "set-main-count" | "main-count" => {
+            let count = args
+                .get(1)
+                .ok_or("Missing count value")?
+                .parse::<u32>()
+                .map_err(|_| "Count must be a positive integer")?;
+            Ok(IpcCommand::SetMainCount(count))
+        }
+        "set-animation" | "animation" => {
+            let val = args.get(1).ok_or("Missing boolean value")?;
+            let enabled = match val.as_str() {
+                "true" | "1" | "on" => true,
+                "false" | "0" | "off" => false,
+                _ => return Err("Invalid boolean, use true|false".to_string()),
+            };
+            Ok(IpcCommand::SetAnimation(enabled))
+        }
+        "set-animation-duration" | "animation-duration" => {
+            let duration = args
+                .get(1)
+                .ok_or("Missing duration in ms")?
+                .parse::<u64>()
+                .map_err(|_| "Duration must be an integer in milliseconds")?;
+            Ok(IpcCommand::SetAnimationDuration(duration))
+        }
         "exit" => Ok(IpcCommand::Exit),
         "reload" => Ok(IpcCommand::Reload),
         "map" => {
@@ -161,43 +304,6 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
                 title,
                 action,
             })
-        }
-        "set-window-gaps" => {
-            let gaps = args
-                .get(1)
-                .ok_or("Missing gaps value")?
-                .parse::<u32>()
-                .map_err(|_| "Gaps must be a positive integer")?;
-            Ok(IpcCommand::SetWindowGaps(gaps))
-        }
-        "set-border-width" => {
-            let width = args
-                .get(1)
-                .ok_or("Missing width value")?
-                .parse::<u32>()
-                .map_err(|_| "Width must be a positive integer")?;
-            Ok(IpcCommand::SetBorderWidth(width))
-        }
-        "set-border-color-focused" => {
-            let color = args.get(1).ok_or("Missing color value")?.clone();
-            Ok(IpcCommand::SetBorderColorFocused(color))
-        }
-        "set-border-color-unfocused" => {
-            let color = args.get(1).ok_or("Missing color value")?.clone();
-            Ok(IpcCommand::SetBorderColorUnfocused(color))
-        }
-        "set-border-color-urgent" => {
-            let color = args.get(1).ok_or("Missing color value")?.clone();
-            Ok(IpcCommand::SetBorderColorUrgent(color))
-        }
-        "set-smart-borders" => {
-            let val = args.get(1).ok_or("Missing boolean value")?;
-            let enabled = match val.as_str() {
-                "true" | "1" | "on" => true,
-                "false" | "0" | "off" => false,
-                _ => return Err("Invalid boolean, use true|false".to_string()),
-            };
-            Ok(IpcCommand::SetSmartBorders(enabled))
         }
         "status" => {
             let stream = args.iter().any(|a| a == "--stream");
@@ -266,6 +372,20 @@ mod tests {
         assert_eq!(
             parse_cli_args(&gaps_args).unwrap(),
             IpcCommand::SetWindowGaps(8)
+        );
+
+        assert_eq!(
+            parse_cli_args(&["toggle-float".into()]).unwrap(),
+            IpcCommand::ToggleFloat
+        );
+        assert_eq!(parse_cli_args(&["zoom".into()]).unwrap(), IpcCommand::Zoom);
+        assert_eq!(
+            parse_cli_args(&["set-focused-tags".into(), "3".into()]).unwrap(),
+            IpcCommand::SetFocusedTags(3)
+        );
+        assert_eq!(
+            parse_cli_args(&["focus-tag".into(), "2".into()]).unwrap(),
+            IpcCommand::FocusTag(2)
         );
     }
 }
