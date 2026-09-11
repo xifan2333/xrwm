@@ -9,6 +9,7 @@ export PATH="$HOME/.local/bin:$PATH"
 xrwm set-window-gaps 8
 xrwm set-main-ratio 0.55
 xrwm set-main-count 1
+xrwm set-main-location left
 
 # 2. Tokyo Night Borders & Colors
 xrwm set-border-width 2
@@ -34,9 +35,12 @@ xrwm map normal Super D spawn fuzzel
 # Window Actions
 xrwm map normal Super Q close
 xrwm map normal Super Space toggle-float
+xrwm map normal Super F toggle-fullscreen
 xrwm map normal Super M zoom
 xrwm map normal Super J focus-view next
 xrwm map normal Super K focus-view previous
+xrwm map normal Super Tab focus-previous-tags
+xrwm map normal "Super+Shift" Tab send-to-previous-tags
 
 # Tag Navigation
 for i in $(seq 1 9); do

@@ -63,6 +63,25 @@ impl AppState {
         }
     }
 
+    /// Toggles fullscreen state on the focused window.
+    pub fn toggle_fullscreen_focused(&mut self) -> Result<String, String> {
+        let focused_id = self.focused_window_id();
+        let Some(id) = focused_id else {
+            return Err("no view focused".to_string());
+        };
+
+        if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
+            w.fullscreen = !w.fullscreen;
+            w.pending_fullscreen_change = true;
+            let is_fs = w.fullscreen;
+            tracing::info!("toggle_fullscreen_focused: window {id} -> fullscreen={is_fs}");
+            self.manage_dirty();
+            Ok(format!("window {id} fullscreen={is_fs}"))
+        } else {
+            Err("window not found".to_string())
+        }
+    }
+
     /// Bumps the focused window to the master position in the layout stack.
     pub fn zoom_focused(&mut self) -> Result<String, String> {
         let focused_id = self.focused_window_id();
@@ -125,10 +144,35 @@ impl AppState {
         if mask == TAG_NONE {
             return Err("at least one tag must be focused".to_string());
         }
+        if self.tag_state.focused != mask {
+            self.previous_focused_tags = self.tag_state.focused;
+        }
         self.tag_state.set_focused_tags(mask);
         self.anim.start();
         self.manage_dirty();
         Ok(format!("focused tags set to {mask}"))
+    }
+
+    /// Toggles tags back to the previous tag setup.
+    pub fn focus_previous_tags(&mut self) -> Result<String, String> {
+        let prev = self.previous_focused_tags;
+        self.set_focused_tags(prev)
+    }
+
+    /// Sends the focused window to the previous tag setup.
+    pub fn send_to_previous_tags(&mut self) -> Result<String, String> {
+        let prev = self.previous_focused_tags;
+        self.set_view_tags(prev)
+    }
+
+    /// Sets the master area location in the layout engine.
+    pub fn set_main_location(
+        &mut self,
+        loc: crate::layout::MainLocation,
+    ) -> Result<String, String> {
+        self.layout_config.main_location = loc;
+        self.manage_dirty();
+        Ok(format!("main location set to {:?}", loc).to_lowercase())
     }
 
     /// Toggles the focused tags mask on the WM.
@@ -202,6 +246,7 @@ impl AppState {
             IpcCommand::Ping => Ok("pong".to_string()),
             IpcCommand::Close => self.close_focused(),
             IpcCommand::ToggleFloat => self.toggle_float_focused(),
+            IpcCommand::ToggleFullscreen => self.toggle_fullscreen_focused(),
             IpcCommand::Zoom => self.zoom_focused(),
             IpcCommand::FocusView(dir) => {
                 let next = !matches!(dir.as_str(), "previous" | "prev" | "up" | "left");
@@ -211,6 +256,9 @@ impl AppState {
             IpcCommand::ToggleFocusedTags(mask) => self.toggle_focused_tags(*mask),
             IpcCommand::SetViewTags(mask) => self.set_view_tags(*mask),
             IpcCommand::ToggleViewTags(mask) => self.toggle_view_tags(*mask),
+            IpcCommand::FocusPreviousTags => self.focus_previous_tags(),
+            IpcCommand::SendToPreviousTags => self.send_to_previous_tags(),
+            IpcCommand::SetMainLocation(loc) => self.set_main_location(*loc),
             IpcCommand::FocusTag(idx) => {
                 let mask = TagState::tag_index_to_mask(*idx);
                 self.set_focused_tags(mask)
@@ -368,6 +416,16 @@ impl AppState {
             "toggle-float" | "toggle-floating" => {
                 tracing::info!("Binding toggle-float pressed");
                 let _ = self.toggle_float_focused();
+            }
+            "toggle-fullscreen" | "fullscreen" => {
+                tracing::info!("Binding toggle-fullscreen pressed");
+                let _ = self.toggle_fullscreen_focused();
+            }
+            "focus-previous-tags" => {
+                let _ = self.focus_previous_tags();
+            }
+            "send-to-previous-tags" => {
+                let _ = self.send_to_previous_tags();
             }
             "zoom" => {
                 let _ = self.zoom_focused();
@@ -545,6 +603,25 @@ mod tests {
 
         let waybar = state.format_waybar_status();
         assert!(waybar.contains("\"text\":\"1\""));
+    }
+
+    #[test]
+    fn test_app_state_previous_tags_and_location() {
+        let mut state = AppState::new();
+        state.set_focused_tags(2).unwrap();
+        assert_eq!(state.tag_state.focused, 2);
+        assert_eq!(state.previous_focused_tags, 1);
+
+        state.focus_previous_tags().unwrap();
+        assert_eq!(state.tag_state.focused, 1);
+
+        state
+            .set_main_location(crate::layout::MainLocation::Right)
+            .unwrap();
+        assert_eq!(
+            state.layout_config.main_location,
+            crate::layout::MainLocation::Right
+        );
     }
 
     #[test]
