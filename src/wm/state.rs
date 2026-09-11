@@ -78,7 +78,9 @@ pub struct WindowItem {
     pub title: Option<String>,
     pub tags: TagMask,
     pub floating: bool,
+    pub fullscreen: bool,
     pub pending_close: bool,
+    pub pending_fullscreen_change: bool,
     pub float_geo: Option<Rect>,
     pub ssd: bool,
     pub x: i32,
@@ -111,6 +113,7 @@ pub struct AppState {
     pub seats: HashMap<ObjectId, SeatItem>,
 
     pub tag_state: TagState,
+    pub previous_focused_tags: TagMask,
     pub layout_config: LayoutConfig,
     pub border_width: u32,
     pub border_color_focused: String,
@@ -143,6 +146,7 @@ impl AppState {
             outputs: HashMap::new(),
             seats: HashMap::new(),
             tag_state: TagState::new(),
+            previous_focused_tags: 1,
             layout_config: LayoutConfig::default(),
             border_width: 2,
             border_color_focused: "0x7aa2f7".to_string(),
@@ -248,6 +252,21 @@ impl AppState {
             if w.pending_close {
                 w.proxy.close();
                 w.pending_close = false;
+            }
+        }
+
+        // Apply any pending fullscreen requests
+        let default_output = self.outputs.values().next().map(|o| o.proxy.clone());
+        for w in &mut self.windows {
+            if w.pending_fullscreen_change {
+                if w.fullscreen {
+                    if let Some(ref out) = default_output {
+                        w.proxy.fullscreen(out);
+                    }
+                } else {
+                    w.proxy.exit_fullscreen();
+                }
+                w.pending_fullscreen_change = false;
             }
         }
 
@@ -399,7 +418,7 @@ impl AppState {
         let tag_state = self.tag_state;
         let mut tiled_indices: Vec<usize> = Vec::new();
         for (i, w) in self.windows.iter().enumerate() {
-            if !w.floating && tag_state.is_view_visible(w.tags) {
+            if !w.floating && !w.fullscreen && tag_state.is_view_visible(w.tags) {
                 tiled_indices.push(i);
             }
         }
@@ -430,7 +449,11 @@ impl AppState {
         }
 
         // Floating windows
-        for w in self.windows.iter_mut().filter(|w| w.floating) {
+        for w in self
+            .windows
+            .iter_mut()
+            .filter(|w| w.floating && !w.fullscreen)
+        {
             let target = Rect::new(w.x, w.y, w.width, w.height);
             if w.anim_target_geo != Some(target) {
                 w.anim_start_geo = w.visual_geo.or(w.anim_target_geo).or(Some(target));
@@ -455,7 +478,9 @@ impl AppState {
             } else {
                 (ur, ug, ub, ua)
             };
-            if w.ssd {
+            if w.fullscreen {
+                w.proxy.set_borders(Edges::empty(), 0, 0, 0, 0, 0);
+            } else if w.ssd {
                 w.proxy.use_ssd();
                 w.proxy
                     .set_borders(Edges::all(), self.border_width as i32, cr, cg, cb, ca);
@@ -605,6 +630,15 @@ impl AppState {
             win.node.place_top();
         }
 
+        // Layer 3 (Absolute Top): Fullscreen windows
+        for w in self
+            .windows
+            .iter()
+            .filter(|w| w.fullscreen && self.tag_state.is_view_visible(w.tags))
+        {
+            w.node.place_top();
+        }
+
         for seat in self.seats.values_mut() {
             if seat.op_release {
                 if let SeatOp::Resize { proxy, .. } = &seat.op {
@@ -658,6 +692,7 @@ impl AppState {
                     "title": w.title.clone().unwrap_or_default(),
                     "tags": w.tags,
                     "floating": w.floating,
+                    "fullscreen": w.fullscreen,
                     "x": w.x,
                     "y": w.y,
                     "width": w.width,
@@ -678,6 +713,7 @@ impl AppState {
                 "floating": floating,
             },
             "layout": if self.layout_config.monocle { "monocle" } else { "master-stack" },
+            "main_location": format!("{:?}", self.layout_config.main_location).to_lowercase(),
             "focused_window_id": focused_id,
             "hovered_window_id": hovered_id,
             "pointer": { "x": self.pointer.0, "y": self.pointer.1 },

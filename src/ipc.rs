@@ -9,6 +9,7 @@ use std::path::PathBuf;
 pub enum IpcCommand {
     Close,
     ToggleFloat,
+    ToggleFullscreen,
     Zoom,
     FocusView(String),
     SetFocusedTags(u32),
@@ -17,6 +18,8 @@ pub enum IpcCommand {
     ToggleViewTags(u32),
     FocusTag(u8),
     MoveToTag(u8),
+    FocusPreviousTags,
+    SendToPreviousTags,
     SetWindowGaps(u32),
     SetBorderWidth(u32),
     SetBorderColorFocused(String),
@@ -24,6 +27,7 @@ pub enum IpcCommand {
     SetBorderColorUrgent(String),
     SetMainRatio(f32),
     SetMainCount(u32),
+    SetMainLocation(crate::layout::MainLocation),
     SetAnimation(bool),
     SetAnimationDuration(u64),
     Map {
@@ -128,6 +132,7 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
         "ping" => Ok(IpcCommand::Ping),
         "close" => Ok(IpcCommand::Close),
         "toggle-float" | "toggle-floating" => Ok(IpcCommand::ToggleFloat),
+        "toggle-fullscreen" | "fullscreen" => Ok(IpcCommand::ToggleFullscreen),
         "zoom" => Ok(IpcCommand::Zoom),
         "focus-view" => {
             let dir = args.get(1).cloned().unwrap_or_else(|| "next".to_string());
@@ -186,6 +191,23 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
                 return Err("Tag must be between 1 and 32".to_string());
             }
             Ok(IpcCommand::MoveToTag(tag))
+        }
+        "focus-previous-tags" => Ok(IpcCommand::FocusPreviousTags),
+        "send-to-previous-tags" => Ok(IpcCommand::SendToPreviousTags),
+        "set-main-location" | "main-location" => {
+            let loc_str = args
+                .get(1)
+                .ok_or("Missing location: top|bottom|left|right")?;
+            let loc = match loc_str.to_ascii_lowercase().as_str() {
+                "top" => crate::layout::MainLocation::Top,
+                "bottom" => crate::layout::MainLocation::Bottom,
+                "left" => crate::layout::MainLocation::Left,
+                "right" => crate::layout::MainLocation::Right,
+                _ => {
+                    return Err("Invalid main location, use top|bottom|left|right".to_string());
+                }
+            };
+            Ok(IpcCommand::SetMainLocation(loc))
         }
         "set-window-gaps" | "window-gaps" | "view-padding" => {
             let gaps = args
@@ -414,6 +436,22 @@ mod tests {
                 stream: false,
                 format: Some("waybar".into()),
             }
+        );
+        assert_eq!(
+            parse_cli_args(&["toggle-fullscreen".into()]).unwrap(),
+            IpcCommand::ToggleFullscreen
+        );
+        assert_eq!(
+            parse_cli_args(&["focus-previous-tags".into()]).unwrap(),
+            IpcCommand::FocusPreviousTags
+        );
+        assert_eq!(
+            parse_cli_args(&["send-to-previous-tags".into()]).unwrap(),
+            IpcCommand::SendToPreviousTags
+        );
+        assert_eq!(
+            parse_cli_args(&["main-location".into(), "top".into()]).unwrap(),
+            IpcCommand::SetMainLocation(crate::layout::MainLocation::Top)
         );
         assert_eq!(parse_cli_args(&["ping".into()]).unwrap(), IpcCommand::Ping);
         assert_eq!(
