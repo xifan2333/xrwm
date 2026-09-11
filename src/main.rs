@@ -86,6 +86,7 @@ pub enum PointerAction {
     None,
     Move,
     Resize,
+    ToggleFloating,
 }
 
 #[derive(Debug)]
@@ -261,6 +262,7 @@ impl AppData {
         // 4a. Start interactive operations requested by pointer bindings
         let mut start_move: Vec<(ObjectId, RiverWindowV1)> = Vec::new();
         let mut start_resize: Vec<(ObjectId, RiverWindowV1)> = Vec::new();
+        let mut toggle_floating: Vec<RiverWindowV1> = Vec::new();
         for (id, seat) in self.seats.iter_mut() {
             // Clicking a window focuses it.  Focus changes must NOT reorder the
             // tiling stack, otherwise the master/stack layout would shuffle
@@ -270,10 +272,16 @@ impl AppData {
             }
 
             if seat.pending_action != PointerAction::None {
+                tracing::debug!(
+                    "op: pending_action={:?} hovered={:?}",
+                    seat.pending_action,
+                    seat.hovered.as_ref().map(|p| p.id())
+                );
                 if let Some(win_proxy) = seat.hovered.clone() {
                     match seat.pending_action {
                         PointerAction::Move => start_move.push((id.clone(), win_proxy)),
                         PointerAction::Resize => start_resize.push((id.clone(), win_proxy)),
+                        PointerAction::ToggleFloating => toggle_floating.push(win_proxy),
                         PointerAction::None => {}
                     }
                     seat.pending_action = PointerAction::None;
@@ -281,11 +289,27 @@ impl AppData {
             }
         }
 
+        // Toggling is a one-shot gesture: flip the class and let the layout
+        // engine take over (or hand the window back to the user) next cycle.
+        for win_proxy in toggle_floating {
+            if let Some(w) = self.windows.iter_mut().find(|w| w.proxy == win_proxy) {
+                w.floating = !w.floating;
+                w.node.place_top();
+                tracing::debug!(
+                    "op: toggle floating on {:?} -> floating={}",
+                    w.proxy.id(),
+                    w.floating
+                );
+            }
+        }
+
         for (id, win_proxy) in start_move {
+            // Only floating windows are draggable.  A tiled window's position is
+            // owned by the layout engine, so dragging it would be a lie.
             let geo = self
                 .windows
                 .iter()
-                .find(|w| w.proxy == win_proxy)
+                .find(|w| w.proxy == win_proxy && w.floating)
                 .map(|w| (w.x, w.y));
             if let (Some((x, y)), Some(seat)) = (geo, self.seats.get_mut(&id)) {
                 tracing::debug!("op: start move on {:?} at ({x},{y})", win_proxy.id());
@@ -298,17 +322,13 @@ impl AppData {
                 seat.op_dx = 0;
                 seat.op_dy = 0;
             }
-            // Dragging detaches a window from the tiling layout so the move sticks.
-            if let Some(w) = self.windows.iter_mut().find(|w| w.proxy == win_proxy) {
-                w.floating = true;
-            }
         }
 
         for (id, win_proxy) in start_resize {
             let geo = self
                 .windows
                 .iter()
-                .find(|w| w.proxy == win_proxy)
+                .find(|w| w.proxy == win_proxy && w.floating)
                 .map(|w| (w.x, w.y, w.width, w.height));
             if let (Some((x, y, w, h)), Some(seat)) = (geo, self.seats.get_mut(&id)) {
                 tracing::debug!("op: start resize on {:?}", win_proxy.id());
@@ -324,9 +344,6 @@ impl AppData {
                 };
                 seat.op_dx = 0;
                 seat.op_dy = 0;
-            }
-            if let Some(w) = self.windows.iter_mut().find(|w| w.proxy == win_proxy) {
-                w.floating = true;
             }
         }
 
@@ -474,10 +491,16 @@ impl AppData {
 
     /// Mirror the live WM window list into the shared `AppState` for `xrwm status`.
     fn sync_shared_state(&mut self) {
-        let windows: Vec<(u32, Option<String>, Option<String>, u32)> = self
+        let windows: Vec<state::WindowSnapshot> = self
             .windows
             .iter()
-            .map(|w| (w.id, w.app_id.clone(), w.title.clone(), w.tags))
+            .map(|w| state::WindowSnapshot {
+                id: w.id,
+                app_id: w.app_id.clone(),
+                title: w.title.clone(),
+                tags: w.tags,
+                floating: w.floating,
+            })
             .collect();
         let focused = self
             .seats
@@ -485,9 +508,15 @@ impl AppData {
             .find_map(|s| s.focused.as_ref())
             .and_then(|p| self.windows.iter().find(|w| &w.proxy == p))
             .map(|w| w.id);
+        let hovered = self
+            .seats
+            .values()
+            .find_map(|s| s.hovered.as_ref())
+            .and_then(|p| self.windows.iter().find(|w| &w.proxy == p))
+            .map(|w| w.id);
 
         let mut st = self.state.lock().unwrap();
-        st.sync_windows(&windows, focused);
+        st.sync_windows(&windows, focused, hovered);
     }
 
     pub fn handle_render_start(&mut self, proxy: &RiverWindowManagerV1) {
@@ -617,12 +646,17 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppData {
                     pointer_bindings: HashMap::new(),
                 };
 
-                // Register default pointer bindings: Super+LMB move, Super+RMB resize
+                // Preset pointer bindings (overridable later via `xrwm map-pointer`):
+                //   Super+LMB    drag a floating window
+                //   Super+RMB    resize a floating window
+                //   Super+MMB    toggle floating/tiling for the hovered window
                 const BTN_LEFT: u32 = 0x110;
                 const BTN_RIGHT: u32 = 0x111;
+                const BTN_MIDDLE: u32 = 0x112;
                 for (button, action) in [
                     (BTN_LEFT, PointerAction::Move),
                     (BTN_RIGHT, PointerAction::Resize),
+                    (BTN_MIDDLE, PointerAction::ToggleFloating),
                 ] {
                     let binding = id.get_pointer_binding(button, Modifiers::Mod4, qh, id.id());
                     binding.enable();
@@ -802,6 +836,8 @@ impl Dispatch<RiverSeatV1, ()> for AppData {
             return;
         };
 
+        let mut needs_manage = false;
+
         match event {
             Event::PointerEnter { window } => {
                 tracing::debug!("seat: pointer_enter {:?}", window.id());
@@ -809,14 +845,17 @@ impl Dispatch<RiverSeatV1, ()> for AppData {
                 // Focus-follows-mouse: hovering a window gives it keyboard focus
                 // (and its focused border) without reordering the tiling stack.
                 seat.focused = Some(window);
+                needs_manage = true;
             }
             Event::PointerLeave => {
                 tracing::debug!("seat: pointer_leave");
                 seat.hovered = None;
+                needs_manage = true;
             }
             Event::WindowInteraction { window } => {
                 tracing::debug!("seat: window_interaction {:?}", window.id());
                 seat.interacted = Some(window);
+                needs_manage = true;
             }
             Event::OpDelta { dx, dy } => {
                 tracing::debug!("seat: op_delta {dx},{dy}");
@@ -833,9 +872,15 @@ impl Dispatch<RiverSeatV1, ()> for AppData {
             Event::Removed => unreachable!(),
         }
 
-        // Wake the compositor so pending actions and focus changes are applied now.
-        if let Some(wm) = state.river_wm.as_ref() {
-            wm.manage_dirty();
+        // Only focus changes need us to ask for a manage sequence.  River drives
+        // manage/render cycles for pointer operations itself, and the protocol
+        // forbids treating a pointer position change as a reason to start one:
+        // doing so creates an endless manage_start -> pointer_position -> dirty
+        // feedback loop that pegs the CPU.
+        if needs_manage {
+            if let Some(wm) = state.river_wm.as_ref() {
+                wm.manage_dirty();
+            }
         }
     }
 }

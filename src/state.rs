@@ -15,6 +15,17 @@ pub struct WindowRule {
     pub tags: Option<TagMask>,
 }
 
+/// Snapshot of a live window, used to mirror the window manager state into
+/// `AppState` for `xrwm status`.
+#[derive(Debug, Clone)]
+pub struct WindowSnapshot {
+    pub id: u32,
+    pub app_id: Option<String>,
+    pub title: Option<String>,
+    pub tags: TagMask,
+    pub floating: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct View {
     pub id: u32,
@@ -36,6 +47,7 @@ pub struct AppState {
     pub border_color_urgent: String,
     pub views: HashMap<u32, View>,
     pub focused_view_id: Option<u32>,
+    pub hovered_view_id: Option<u32>,
     pub rules: Vec<WindowRule>,
     pub next_view_id: u32,
 }
@@ -57,6 +69,7 @@ impl AppState {
             border_color_urgent: "0xf7768e".to_string(),
             views: HashMap::new(),
             focused_view_id: None,
+            hovered_view_id: None,
             rules: Vec::new(),
             next_view_id: 1,
         }
@@ -148,6 +161,23 @@ impl AppState {
         let title = focused_win.and_then(|v| v.title.as_deref()).unwrap_or("");
         let app_id = focused_win.and_then(|v| v.app_id.as_deref()).unwrap_or("");
 
+        let floating = focused_win.map(|v| v.floating).unwrap_or(false);
+
+        let mut window_list: Vec<serde_json::Value> = self
+            .views
+            .values()
+            .map(|v| {
+                serde_json::json!({
+                    "id": v.id,
+                    "app_id": v.app_id.clone().unwrap_or_default(),
+                    "title": v.title.clone().unwrap_or_default(),
+                    "tags": v.tags,
+                    "floating": v.floating,
+                })
+            })
+            .collect();
+        window_list.sort_by_key(|v| v["id"].as_u64().unwrap_or(0));
+
         let obj = serde_json::json!({
             "focused_tags": self.tag_state.focused,
             "occupied_tags": self.tag_state.occupied,
@@ -156,8 +186,12 @@ impl AppState {
             "focused_window": {
                 "title": title,
                 "app_id": app_id,
+                "floating": floating,
             },
-            "layout": if self.layout_config.monocle { "monocle" } else { "master-stack" }
+            "layout": if self.layout_config.monocle { "monocle" } else { "master-stack" },
+            "focused_window_id": self.focused_view_id,
+            "hovered_window_id": self.hovered_view_id,
+            "windows": window_list,
         });
 
         serde_json::to_string(&obj).unwrap_or_default()
@@ -224,31 +258,34 @@ impl AppState {
     /// `xrwm status` reports the truth and tag occupancy stays accurate.
     pub fn sync_windows(
         &mut self,
-        windows: &[(u32, Option<String>, Option<String>, TagMask)],
+        windows: &[WindowSnapshot],
         focused: Option<u32>,
+        hovered: Option<u32>,
     ) {
-        let live: std::collections::HashSet<u32> = windows.iter().map(|w| w.0).collect();
+        let live: std::collections::HashSet<u32> = windows.iter().map(|w| w.id).collect();
         self.views.retain(|id, _| live.contains(id));
 
-        for (id, app_id, title, tags) in windows {
-            let view = self.views.entry(*id).or_insert_with(|| View {
-                id: *id,
+        for snap in windows {
+            let view = self.views.entry(snap.id).or_insert_with(|| View {
+                id: snap.id,
                 app_id: None,
                 title: None,
-                tags: *tags,
-                floating: false,
+                tags: snap.tags,
+                floating: snap.floating,
                 fullscreen: false,
                 geometry: Rect::default(),
             });
-            view.app_id = app_id.clone();
-            view.title = title.clone();
-            view.tags = *tags;
+            view.app_id = snap.app_id.clone();
+            view.title = snap.title.clone();
+            view.tags = snap.tags;
+            view.floating = snap.floating;
         }
 
         self.focused_view_id = focused.filter(|id| self.views.contains_key(id));
         if self.focused_view_id.is_none() {
             self.focused_view_id = self.views.keys().next().copied();
         }
+        self.hovered_view_id = hovered.filter(|id| self.views.contains_key(id));
         self.sync_occupied_tags();
     }
 }
