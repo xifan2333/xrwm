@@ -11,6 +11,7 @@ use std::thread;
 
 use layout::Layout;
 use protocol::{
+    river_layer_shell_output_v1::RiverLayerShellOutputV1,
     river_layer_shell_v1::RiverLayerShellV1,
     river_node_v1::RiverNodeV1,
     river_output_v1::RiverOutputV1,
@@ -24,6 +25,21 @@ use protocol::{
 use state::{AppState, spawn_init_script};
 use wayland_backend::client::ObjectId;
 use wayland_client::{Connection, Dispatch, Proxy, QueueHandle, protocol::wl_registry};
+
+pub fn hex_to_river_rgba(hex_str: &str) -> (u32, u32, u32, u32) {
+    let h = hex_str
+        .trim_start_matches("0x")
+        .trim_start_matches('#')
+        .trim();
+    if h.len() < 6 {
+        return (u32::MAX, u32::MAX, u32::MAX, u32::MAX);
+    }
+    let r = u32::from_str_radix(&h[0..2], 16).unwrap_or(255) * (u32::MAX / 255);
+    let g = u32::from_str_radix(&h[2..4], 16).unwrap_or(255) * (u32::MAX / 255);
+    let b = u32::from_str_radix(&h[4..6], 16).unwrap_or(255) * (u32::MAX / 255);
+    let a = u32::MAX;
+    (r, g, b, a)
+}
 
 #[derive(Debug)]
 pub struct WindowItem {
@@ -41,9 +57,9 @@ pub struct WindowItem {
 #[derive(Debug)]
 pub struct OutputItem {
     pub proxy: RiverOutputV1,
+    pub ls_output: Option<RiverLayerShellOutputV1>,
     pub removed: bool,
-    pub width: u32,
-    pub height: u32,
+    pub usable_area: layout::Rect,
 }
 
 #[derive(Debug)]
@@ -83,6 +99,9 @@ impl AppData {
         // 2. Remove disconnected outputs
         self.outputs.retain(|_, out| {
             if out.removed {
+                if let Some(ref ls_out) = out.ls_output {
+                    ls_out.destroy();
+                }
                 out.proxy.destroy();
                 return false;
             }
@@ -91,14 +110,14 @@ impl AppData {
 
         // 3. Arrange windows for each output
         let st = self.state.lock().unwrap();
-        let default_area = layout::Rect::new(0, 0, 1280, 800);
+        let default_area = layout::Rect::new(0, 30, 1280, 770);
 
-        // Get usable area from first output or default
+        // Get usable area from first output or default (after subtracting Waybar/panels)
         let usable_area = self
             .outputs
             .values()
             .next()
-            .map(|out| layout::Rect::new(0, 0, out.width.max(1), out.height.max(1)))
+            .map(|out| out.usable_area)
             .unwrap_or(default_area);
 
         // Filter visible windows on active tags
@@ -110,6 +129,11 @@ impl AppData {
 
         let layout_engine = layout::MasterStackLayout;
         let rects = layout_engine.arrange(usable_area, visible_count, &st.layout_config);
+
+        let focused_color = hex_to_river_rgba(&st.border_color_focused);
+        let unfocused_color = hex_to_river_rgba(&st.border_color_unfocused);
+
+        let focused_win_proxy = self.seats.values().next().and_then(|s| s.focused.clone());
 
         let mut rect_idx = 0;
         for w in self.windows.iter_mut() {
@@ -123,6 +147,17 @@ impl AppData {
                     w.node.set_position(r.x, r.y);
                     w.proxy.propose_dimensions(r.width as i32, r.height as i32);
                     w.proxy.set_tiled(Edges::all());
+                    w.proxy.use_ssd();
+
+                    let is_focused = focused_win_proxy.as_ref() == Some(&w.proxy);
+                    let (cr, cg, cb, ca) = if is_focused {
+                        focused_color
+                    } else {
+                        unfocused_color
+                    };
+
+                    w.proxy
+                        .set_borders(Edges::all(), st.border_width as i32, cr, cg, cb, ca);
                 }
                 rect_idx += 1;
             }
@@ -212,6 +247,7 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppData {
             Event::SessionUnlocked => {}
             Event::Window { id } => {
                 let node = id.get_node(qh, ());
+                id.use_ssd();
                 let current_tag = state.state.lock().unwrap().tag_state.focused;
                 state.windows.push(WindowItem {
                     proxy: id,
@@ -226,13 +262,18 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppData {
                 });
             }
             Event::Output { id } => {
+                let ls_out = state
+                    .river_layer
+                    .as_ref()
+                    .map(|ls| ls.get_output(&id, qh, id.id()));
+
                 state.outputs.insert(
                     id.id(),
                     OutputItem {
                         proxy: id,
+                        ls_output: ls_out,
                         removed: false,
-                        width: 1280,
-                        height: 800,
+                        usable_area: layout::Rect::new(0, 30, 1280, 770),
                     },
                 );
             }
@@ -295,11 +336,34 @@ impl Dispatch<RiverOutputV1, ()> for AppData {
             match event {
                 Event::Removed => out.removed = true,
                 Event::Dimensions { width, height } => {
-                    out.width = width as u32;
-                    out.height = height as u32;
+                    out.usable_area.width = width as u32;
+                    out.usable_area.height =
+                        (height as u32).saturating_sub(out.usable_area.y as u32);
                 }
                 _ => {}
             }
+        }
+    }
+}
+
+impl Dispatch<RiverLayerShellOutputV1, ObjectId> for AppData {
+    fn event(
+        state: &mut Self,
+        _proxy: &RiverLayerShellOutputV1,
+        event: <RiverLayerShellOutputV1 as Proxy>::Event,
+        data: &ObjectId,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+        use protocol::river_layer_shell_output_v1::Event;
+        if let Some(out) = state.outputs.get_mut(data) {
+            let Event::NonExclusiveArea {
+                x,
+                y,
+                width,
+                height,
+            } = event;
+            out.usable_area = layout::Rect::new(x, y, width.max(1) as u32, height.max(1) as u32);
         }
     }
 }
