@@ -36,6 +36,29 @@ pub fn parse_modifiers(s: &str) -> Modifiers {
     mods
 }
 
+/// Resolves an XKB keysym name and modifier context to its 32-bit keysym value.
+///
+/// If the key is a single alphabetic character, automatically normalizes case
+/// based on whether Shift is held (e.g. `Super+Q` -> lowercase `q`, `Super+Shift+Q` -> uppercase `Q`).
+pub fn resolve_keysym(key_name: &str, modifiers: Modifiers) -> Option<u32> {
+    let name = key_name.trim();
+    if name.is_empty() {
+        return None;
+    }
+
+    let effective_name = if name.len() == 1 && name.chars().next().unwrap().is_ascii_alphabetic() {
+        if modifiers.contains(Modifiers::Shift) {
+            name.to_ascii_uppercase()
+        } else {
+            name.to_ascii_lowercase()
+        }
+    } else {
+        name.to_string()
+    };
+
+    parse_keysym(&effective_name)
+}
+
 /// Resolves an XKB keysym name to its 32-bit keysym value.
 ///
 /// Tries exact case first, then common aliases, then lowercase.

@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# xrwm — River 0.4+ Window Manager Configuration Template
+# ==============================================================================
+
+export PATH="$HOME/.local/bin:$PATH"
+
+# 1. Layout & Geometry
+xrwm set-window-gaps 8
+xrwm set-main-ratio 0.55
+xrwm set-main-count 1
+xrwm set-smart-borders true
+
+# 2. Tokyo Night Borders & Colors
+xrwm set-border-width 2
+xrwm set-border-color-focused '#7aa2f7'
+xrwm set-border-color-unfocused '#414868'
+xrwm set-border-color-urgent '#f7768e'
+
+# 3. Animation Engine
+xrwm set-animation true
+xrwm set-animation-duration 150
+
+# 4. Window Rules
+xrwm rule-add -app-id mpv float
+xrwm rule-add -app-id fuzzel float
+xrwm rule-add -app-id imv float
+xrwm rule-add -app-id satty float
+
+# 5. Keyboard Bindings
+# Applications
+xrwm map normal Super Return spawn foot
+xrwm map normal Super D spawn fuzzel
+
+# Window Actions
+xrwm map normal Super Q close
+xrwm map normal Super Space toggle-float
+xrwm map normal Super M zoom
+xrwm map normal Super J focus-view next
+xrwm map normal Super K focus-view previous
+
+# Tag Navigation
+for i in $(seq 1 9); do
+	xrwm map normal Super "$i" focus-tag "$i"
+	xrwm map normal "Super+Shift" "$i" move-to-tag "$i"
+done
+
+# Session Controls
+xrwm map normal "Super+Shift" Q exit

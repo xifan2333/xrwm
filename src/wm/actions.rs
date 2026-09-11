@@ -260,7 +260,7 @@ impl AppState {
                 action,
             } => {
                 let mods = crate::wm::binds::parse_modifiers(modifiers);
-                let Some(keysym) = crate::wm::binds::parse_keysym(key) else {
+                let Some(keysym) = crate::wm::binds::resolve_keysym(key, mods) else {
                     return Err(format!("Unknown keysym: {key}"));
                 };
                 self.pending_key_bindings
@@ -279,7 +279,7 @@ impl AppState {
                     None => ("None", combo.as_str()),
                 };
                 let mods = crate::wm::binds::parse_modifiers(mods_str);
-                let Some(keysym) = crate::wm::binds::parse_keysym(key_str) else {
+                let Some(keysym) = crate::wm::binds::resolve_keysym(key_str, mods) else {
                     return Err(format!("Unknown keysym: {key_str}"));
                 };
                 self.pending_key_bindings
