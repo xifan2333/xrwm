@@ -1,3 +1,4 @@
+pub mod animation;
 pub mod ipc;
 pub mod layout;
 pub mod protocol;
