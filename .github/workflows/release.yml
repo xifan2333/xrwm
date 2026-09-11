@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version (e.g. 0.1.0)"
+        description: "Release version override (e.g. 0.1.0)"
         required: false
 
 permissions:
@@ -29,23 +29,22 @@ jobs:
       - id: ver
         shell: bash
         run: |
+          cargo_version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+
           if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ inputs.version }}" ]]; then
             version="${{ inputs.version }}"
-            tag="v${version#v}"
           elif [[ "${GITHUB_REF_NAME}" =~ ^v ]]; then
-            tag="${GITHUB_REF_NAME}"
-            version="${tag#v}"
+            version="${GITHUB_REF_NAME#v}"
           else
-            version="$(tr -d '\n' < VERSION)"
-            tag="v${version}"
+            version="${cargo_version}"
           fi
 
-          version_file="$(tr -d '\n' < VERSION)"
-          if [[ "${version_file}" != "${version}" ]]; then
-            echo "VERSION file (${version_file}) does not match target release version (${version})" >&2
+          if [[ "${version}" != "${cargo_version}" ]]; then
+            echo "Target version (${version}) does not match Cargo.toml version (${cargo_version})" >&2
             exit 1
           fi
 
+          tag="v${version}"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
 
@@ -121,3 +120,16 @@ jobs:
             dist/SHA256SUMS
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  trigger-channels:
+    needs: [meta, publish-github-release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dispatch channels workflow for Arch AUR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run channels.yml \
+            --field ref="${{ needs.meta.outputs.tag }}" \
+            --field version="${{ needs.meta.outputs.version }}" || echo "Channels dispatch skipped"
