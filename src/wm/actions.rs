@@ -166,6 +166,77 @@ impl AppState {
         }
     }
 
+    /// Snaps the focused window to a screen half and sets it to floating.
+    pub fn snap_focused(&mut self, edge_str: &str) -> Result<String, String> {
+        let focused_id = self.focused_window_id();
+        let Some(id) = focused_id else {
+            return Err("no view focused".to_string());
+        };
+
+        let dir = match edge_str.to_ascii_lowercase().as_str() {
+            "left" | "h" => Direction::Left,
+            "right" | "l" => Direction::Right,
+            "up" | "k" => Direction::Up,
+            "down" | "j" => Direction::Down,
+            _ => {
+                return Err(format!(
+                    "Invalid snap edge: '{edge_str}', expected left|right|up|down"
+                ));
+            }
+        };
+
+        let default_usable_area = crate::layout::Rect::new(0, 30, 1280, 770);
+
+        if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
+            let usable = w
+                .output
+                .as_ref()
+                .and_then(|out_id| self.outputs.get(out_id))
+                .map(|o| o.usable_area)
+                .unwrap_or(default_usable_area);
+
+            w.floating = true;
+
+            let (new_x, new_y, new_w, new_h) = match dir {
+                Direction::Left => (usable.x, usable.y, usable.width / 2, usable.height),
+                Direction::Right => (
+                    usable.x + (usable.width as i32 / 2),
+                    usable.y,
+                    usable.width - (usable.width / 2),
+                    usable.height,
+                ),
+                Direction::Up => (usable.x, usable.y, usable.width, usable.height / 2),
+                Direction::Down => (
+                    usable.x,
+                    usable.y + (usable.height as i32 / 2),
+                    usable.width,
+                    usable.height - (usable.height / 2),
+                ),
+                _ => unreachable!(),
+            };
+
+            w.x = new_x;
+            w.y = new_y;
+            w.width = new_w.max(100);
+            w.height = new_h.max(100);
+            w.float_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
+            w.visual_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
+
+            if w.last_proposed_w != w.width || w.last_proposed_h != w.height {
+                w.proxy.propose_dimensions(w.width as i32, w.height as i32);
+                w.last_proposed_w = w.width;
+                w.last_proposed_h = w.height;
+            }
+            w.proxy
+                .set_tiled(crate::protocol::river_window_v1::Edges::empty());
+
+            self.manage_dirty();
+            Ok(format!("snapped window {id} {edge_str}"))
+        } else {
+            Err("window not found".to_string())
+        }
+    }
+
     /// Toggles fullscreen state on the focused window.
     pub fn toggle_fullscreen_focused(&mut self) -> Result<String, String> {
         let focused_id = self.focused_window_id();
@@ -842,6 +913,7 @@ impl AppState {
             IpcCommand::FocusOutput(dir) => self.focus_output(dir),
             IpcCommand::SendToOutput(dir) => self.send_to_output(dir),
             IpcCommand::Swap(dir) => self.swap_direction(dir),
+            IpcCommand::Snap(edge) => self.snap_focused(edge),
             IpcCommand::SetFocusedTags(mask) => self.set_focused_tags(*mask),
             IpcCommand::ToggleFocusedTags(mask) => self.toggle_focused_tags(*mask),
             IpcCommand::SetViewTags(mask) => self.set_view_tags(*mask),
@@ -1213,6 +1285,10 @@ impl AppState {
             "swap" => {
                 let dir = action.get(1).map(|s| s.as_str()).unwrap_or("next");
                 let _ = self.swap_direction(dir);
+            }
+            "snap" => {
+                let edge = action.get(1).map(|s| s.as_str()).unwrap_or("left");
+                let _ = self.snap_focused(edge);
             }
             "set-focused-tags" => {
                 if action.len() > 1

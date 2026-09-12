@@ -15,6 +15,7 @@ pub enum IpcCommand {
     FocusOutput(String),
     SendToOutput(String),
     Swap(String),
+    Snap(String),
     SetFocusedTags(u32),
     ToggleFocusedTags(u32),
     SetViewTags(u32),
@@ -170,6 +171,13 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
         "swap" => {
             let dir = args.get(1).cloned().unwrap_or_else(|| "next".to_string());
             Ok(IpcCommand::Swap(dir))
+        }
+        "snap" => {
+            let edge = args
+                .get(1)
+                .ok_or("Missing snap edge: left|right|up|down")?
+                .clone();
+            Ok(IpcCommand::Snap(edge))
         }
         "set-focused-tags" => {
             let mask = args
@@ -553,6 +561,14 @@ mod tests {
             }
         );
         assert_eq!(parse_cli_args(&["zoom".into()]).unwrap(), IpcCommand::Zoom);
+        assert_eq!(
+            parse_cli_args(&["snap".into(), "left".into()]).unwrap(),
+            IpcCommand::Snap("left".into())
+        );
+        assert_eq!(
+            parse_cli_args(&["snap".into(), "right".into()]).unwrap(),
+            IpcCommand::Snap("right".into())
+        );
         assert_eq!(
             parse_cli_args(&["set-focused-tags".into(), "3".into()]).unwrap(),
             IpcCommand::SetFocusedTags(3)
