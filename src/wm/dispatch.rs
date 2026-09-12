@@ -96,6 +96,7 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                 let vid = state.next_view_id;
                 state.next_view_id += 1;
                 let current_tags = state.tag_state.focused;
+                let current_out = state.get_focused_output_id();
 
                 state.attach_window(WindowItem {
                     id: vid,
@@ -112,6 +113,7 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                     pending_fullscreen_change: false,
                     float_geo: None,
                     ssd: true,
+                    output: current_out,
                     x: 0,
                     y: 0,
                     width: 0,
@@ -129,15 +131,23 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                     .as_ref()
                     .map(|ls| ls.get_output(&id, qh, id.id()));
 
+                let out_id = id.id();
                 state.outputs.insert(
-                    id.id(),
+                    out_id.clone(),
                     OutputItem {
                         proxy: id,
                         ls_output: ls_out,
                         removed: false,
                         usable_area: Rect::new(0, 30, 1280, 770),
+                        x: 0,
+                        y: 0,
+                        width: 1280,
+                        height: 800,
                     },
                 );
+                if state.focused_output.is_none() {
+                    state.focused_output = Some(out_id);
+                }
             }
             Event::Seat { id } => {
                 let seat = SeatItem::new(id.clone());
@@ -201,8 +211,33 @@ impl Dispatch<RiverOutputV1, ()> for AppState {
         _qh: &QueueHandle<Self>,
     ) {
         use crate::protocol::river_output_v1::Event;
-        if let Event::Removed = event {
-            state.outputs.remove(&proxy.id());
+        match event {
+            Event::Position { x, y } => {
+                if let Some(out) = state.outputs.get_mut(&proxy.id()) {
+                    out.x = x;
+                    out.y = y;
+                }
+            }
+            Event::Dimensions { width, height } => {
+                if let Some(out) = state.outputs.get_mut(&proxy.id()) {
+                    out.width = width as u32;
+                    out.height = height as u32;
+                }
+            }
+            Event::Removed => {
+                state.outputs.remove(&proxy.id());
+                let fallback = state.outputs.keys().next().cloned();
+                for w in &mut state.windows {
+                    if w.output == Some(proxy.id()) {
+                        w.output = fallback.clone();
+                    }
+                }
+                if state.focused_output == Some(proxy.id()) {
+                    state.focused_output = fallback;
+                }
+                state.manage_dirty();
+            }
+            _ => {}
         }
     }
 }
@@ -243,7 +278,12 @@ impl Dispatch<RiverSeatV1, ()> for AppState {
             Event::PointerEnter { window } => {
                 if let Some(seat) = state.seats.get_mut(&proxy.id()) {
                     seat.hovered = Some(window.clone());
-                    seat.focused = Some(window);
+                    seat.focused = Some(window.clone());
+                    if let Some(win) = state.windows.iter().find(|w| w.proxy == window)
+                        && let Some(ref out_id) = win.output
+                    {
+                        state.focused_output = Some(out_id.clone());
+                    }
                 }
                 state.manage_dirty();
             }

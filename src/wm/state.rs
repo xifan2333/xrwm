@@ -134,6 +134,7 @@ pub struct WindowItem {
     pub pending_fullscreen_change: bool,
     pub float_geo: Option<Rect>,
     pub ssd: bool,
+    pub output: Option<ObjectId>,
     pub x: i32,
     pub y: i32,
     pub width: u32,
@@ -152,6 +153,10 @@ pub struct OutputItem {
     pub ls_output: Option<RiverLayerShellOutputV1>,
     pub removed: bool,
     pub usable_area: Rect,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
 }
 
 pub struct AppState {
@@ -163,6 +168,7 @@ pub struct AppState {
     pub pointer: (i32, i32),
     pub windows: Vec<WindowItem>,
     pub outputs: HashMap<ObjectId, OutputItem>,
+    pub focused_output: Option<ObjectId>,
     pub seats: HashMap<ObjectId, SeatItem>,
 
     pub tag_state: TagState,
@@ -206,6 +212,7 @@ impl AppState {
             pointer: (0, 0),
             windows: Vec::new(),
             outputs: HashMap::new(),
+            focused_output: None,
             seats: HashMap::new(),
             tag_state: TagState::new(),
             previous_focused_tags: 1,
@@ -236,6 +243,23 @@ impl AppState {
         if let Some(wm) = &self.river_wm {
             wm.manage_dirty();
         }
+    }
+
+    /// Resolves the currently focused output ID with graceful fallbacks.
+    pub fn get_focused_output_id(&self) -> Option<ObjectId> {
+        if let Some(ref id) = self.focused_output
+            && self.outputs.contains_key(id)
+        {
+            return Some(id.clone());
+        }
+        if let Some(win_id) = self.focused_window_id()
+            && let Some(w) = self.windows.iter().find(|w| w.id == win_id)
+            && let Some(ref out) = w.output
+            && self.outputs.contains_key(out)
+        {
+            return Some(out.clone());
+        }
+        self.outputs.keys().next().cloned()
     }
 
     /// Attaches a new window according to the current `attach_mode`.
@@ -402,11 +426,16 @@ impl AppState {
         }
 
         // Apply any pending fullscreen requests
-        let default_output = self.outputs.values().next().map(|o| o.proxy.clone());
         for w in &mut self.windows {
             if w.pending_fullscreen_change {
                 if w.fullscreen {
-                    if let Some(ref out) = default_output {
+                    let out_proxy = w
+                        .output
+                        .as_ref()
+                        .and_then(|id| self.outputs.get(id))
+                        .map(|o| &o.proxy)
+                        .or_else(|| self.outputs.values().next().map(|o| &o.proxy));
+                    if let Some(out) = out_proxy {
                         w.proxy.fullscreen(out);
                     }
                 } else {
@@ -638,46 +667,59 @@ impl AppState {
         // 3. Arrange windows for each output
         let default_area = Rect::new(0, 30, 1280, 770);
         let layout_engine = MasterStackLayout;
-
-        let (out_id, usable_area) = self
-            .outputs
-            .iter()
-            .next()
-            .map(|(id, o)| (id.clone(), o.usable_area))
-            .unwrap_or((ObjectId::null(), default_area));
-
         let tag_state = self.tag_state;
-        let mut tiled_indices: Vec<usize> = Vec::new();
-        for (i, w) in self.windows.iter().enumerate() {
-            if !w.floating && !w.fullscreen && tag_state.is_view_visible(w.tags) {
-                tiled_indices.push(i);
-            }
-        }
-
-        let rects = layout_engine.arrange(usable_area, tiled_indices.len(), &self.layout_config);
         let mut any_geo_changed = false;
 
-        for (slot, &idx) in tiled_indices.iter().enumerate() {
-            if let Some(rect) = rects.get(slot) {
-                let w = &mut self.windows[idx];
-                let target = *rect;
-                if w.anim_target_geo != Some(target) {
-                    w.anim_start_geo = w.visual_geo.or(w.anim_target_geo).or(Some(target));
-                    w.anim_target_geo = Some(target);
-                    any_geo_changed = true;
-                }
-                w.x = rect.x;
-                w.y = rect.y;
-                w.width = rect.width;
-                w.height = rect.height;
+        let active_outputs: Vec<(ObjectId, Rect)> = if self.outputs.is_empty() {
+            vec![(ObjectId::null(), default_area)]
+        } else {
+            self.outputs
+                .iter()
+                .map(|(id, o)| (id.clone(), o.usable_area))
+                .collect()
+        };
 
-                if w.last_proposed_w != rect.width || w.last_proposed_h != rect.height {
-                    w.proxy
-                        .propose_dimensions(rect.width as i32, rect.height as i32);
-                    w.last_proposed_w = rect.width;
-                    w.last_proposed_h = rect.height;
+        for (out_id, usable_area) in active_outputs {
+            let mut tiled_indices: Vec<usize> = Vec::new();
+            for (i, w) in self.windows.iter().enumerate() {
+                let matches_output = match (&w.output, out_id.is_null()) {
+                    (Some(wo), false) => wo == &out_id,
+                    _ => true,
+                };
+                if matches_output
+                    && !w.floating
+                    && !w.fullscreen
+                    && tag_state.is_view_visible(w.tags)
+                {
+                    tiled_indices.push(i);
                 }
-                w.proxy.set_tiled(Edges::all());
+            }
+
+            let rects =
+                layout_engine.arrange(usable_area, tiled_indices.len(), &self.layout_config);
+
+            for (slot, &idx) in tiled_indices.iter().enumerate() {
+                if let Some(rect) = rects.get(slot) {
+                    let w = &mut self.windows[idx];
+                    let target = *rect;
+                    if w.anim_target_geo != Some(target) {
+                        w.anim_start_geo = w.visual_geo.or(w.anim_target_geo).or(Some(target));
+                        w.anim_target_geo = Some(target);
+                        any_geo_changed = true;
+                    }
+                    w.x = rect.x;
+                    w.y = rect.y;
+                    w.width = rect.width;
+                    w.height = rect.height;
+
+                    if w.last_proposed_w != rect.width || w.last_proposed_h != rect.height {
+                        w.proxy
+                            .propose_dimensions(rect.width as i32, rect.height as i32);
+                        w.last_proposed_w = rect.width;
+                        w.last_proposed_h = rect.height;
+                    }
+                    w.proxy.set_tiled(Edges::all());
+                }
             }
         }
 
@@ -730,6 +772,12 @@ impl AppState {
                 w.proxy.set_borders(Edges::empty(), 0, 0, 0, 0, 0);
             }
         }
+
+        let focused_out_area = self
+            .get_focused_output_id()
+            .and_then(|id| self.outputs.get(&id))
+            .map(|o| o.usable_area)
+            .unwrap_or(default_area);
 
         // 4. Interactive pointer operations (Move / Resize)
         for seat in self.seats.values_mut() {
@@ -792,8 +840,8 @@ impl AppState {
                     }
                 }
                 SeatOp::TiledResize { start_ratio } => {
-                    let usable_w = usable_area.width as f32;
-                    let usable_h = usable_area.height as f32;
+                    let usable_w = focused_out_area.width as f32;
+                    let usable_h = focused_out_area.height as f32;
                     match self.layout_config.main_location {
                         crate::layout::MainLocation::Left => {
                             let delta_ratio = (seat.op_dx as f32) / usable_w.max(1.0);
@@ -818,8 +866,8 @@ impl AppState {
                     }
                 }
                 SeatOp::TiledStackResize { start_ratio } => {
-                    let usable_w = usable_area.width as f32;
-                    let usable_h = usable_area.height as f32;
+                    let usable_w = focused_out_area.width as f32;
+                    let usable_h = focused_out_area.height as f32;
                     match self.layout_config.main_location {
                         crate::layout::MainLocation::Left | crate::layout::MainLocation::Right => {
                             let delta_ratio = (seat.op_dy as f32) / usable_h.max(1.0);
@@ -918,31 +966,16 @@ impl AppState {
 
         self.sync_occupied_tags();
         self.broadcast_status();
-        let _ = out_id;
         _proxy.manage_finish();
     }
 
     pub fn handle_render_start(&mut self, _proxy: &RiverWindowManagerV1) {
         let border_width = self.border_width as i32;
-        let usable_area = self
-            .outputs
-            .values()
-            .next()
-            .map(|o| o.usable_area)
-            .unwrap_or_else(|| Rect::new(0, 30, 1280, 770));
+        let default_usable_area = Rect::new(0, 30, 1280, 770);
 
         let is_animating = self.anim.is_animating();
         let progress = self.anim.progress();
         let is_tag_animating = self.tag_slide_dir.is_some() && is_animating;
-
-        let slide_offset = if let Some(dir) = self.tag_slide_dir {
-            match dir {
-                crate::animation::SlideDirection::Right => usable_area.width as i32,
-                crate::animation::SlideDirection::Left => -(usable_area.width as i32),
-            }
-        } else {
-            0
-        };
 
         let active_move_proxy = self.seats.values().find_map(|s| match &s.op {
             SeatOp::Move { proxy, .. } | SeatOp::Resize { proxy, .. } => Some(proxy.clone()),
@@ -950,6 +983,23 @@ impl AppState {
         });
 
         for w in &mut self.windows {
+            let usable_area = w
+                .output
+                .as_ref()
+                .and_then(|id| self.outputs.get(id))
+                .map(|o| o.usable_area)
+                .or_else(|| self.outputs.values().next().map(|o| o.usable_area))
+                .unwrap_or(default_usable_area);
+
+            let slide_offset = if let Some(dir) = self.tag_slide_dir {
+                match dir {
+                    crate::animation::SlideDirection::Right => usable_area.width as i32,
+                    crate::animation::SlideDirection::Left => -(usable_area.width as i32),
+                }
+            } else {
+                0
+            };
+
             let is_in_current = self.tag_state.is_view_visible(w.tags);
             let is_in_old = is_tag_animating && (w.tags & self.tag_anim_old_mask) != 0;
 
