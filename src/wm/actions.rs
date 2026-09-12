@@ -7,6 +7,7 @@ use crate::tag::TAG_NONE;
 use crate::tag::TagMask;
 use crate::tag::TagState;
 use crate::wm::state::AppState;
+use crate::wm::state::AttachMode;
 use crate::wm::state::WindowRule;
 use crate::wm::state::spawn_init_script;
 
@@ -326,6 +327,12 @@ impl AppState {
         Ok(format!("main location set to {:?}", loc).to_lowercase())
     }
 
+    /// Sets the attach mode for newly spawned windows.
+    pub fn set_attach_mode(&mut self, mode: AttachMode) -> Result<String, String> {
+        self.attach_mode = mode;
+        Ok(format!("attach mode set to {:?}", mode).to_lowercase())
+    }
+
     /// Toggles the focused tags mask on the WM.
     pub fn toggle_focused_tags(&mut self, mask: TagMask) -> Result<String, String> {
         let old_mask = self.tag_state.focused;
@@ -539,6 +546,7 @@ impl AppState {
             IpcCommand::FocusPreviousTags => self.focus_previous_tags(),
             IpcCommand::SendToPreviousTags => self.send_to_previous_tags(),
             IpcCommand::SetMainLocation(loc) => self.set_main_location(*loc),
+            IpcCommand::SetAttachMode(mode) => self.set_attach_mode(*mode),
             IpcCommand::FocusTag(idx) => {
                 let mask = TagState::tag_index_to_mask(*idx);
                 self.set_focused_tags(mask)
@@ -812,6 +820,14 @@ impl AppState {
                     let _ = self.set_main_location(loc);
                 }
             }
+            "default-attach-mode" | "attach-mode" => {
+                if action.len() > 1 {
+                    let raw = action[1..].join(" ");
+                    if let Ok(mode) = AttachMode::parse(&raw) {
+                        let _ = self.set_attach_mode(mode);
+                    }
+                }
+            }
             "zoom" => {
                 let _ = self.zoom_focused();
             }
@@ -1082,6 +1098,12 @@ mod tests {
         assert!((state.layout_config.stack_split_ratio - 0.60).abs() < 1e-4);
         state.execute_action_tokens(&["stack-ratio".into(), "+0.10".into()]);
         assert!((state.layout_config.stack_split_ratio - 0.70).abs() < 1e-4);
+
+        // Attach mode test
+        state.execute_action_tokens(&["default-attach-mode".into(), "bottom".into()]);
+        assert_eq!(state.attach_mode, AttachMode::Bottom);
+        state.execute_action_tokens(&["attach-mode".into(), "after".into(), "3".into()]);
+        assert_eq!(state.attach_mode, AttachMode::After(3));
 
         // Relative count adjustment
         assert_eq!(state.layout_config.main_count, 1);
