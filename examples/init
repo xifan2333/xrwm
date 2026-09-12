@@ -1,68 +1,103 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# xrwm — River 0.4+ Window Manager Configuration Template
+# xrwm — River 0.4+ Window Manager Configuration
+# Migrated from arch-post-install river configuration
 # ==============================================================================
 
 export PATH="$HOME/.local/bin:$PATH"
 
-# 1. Layout & Geometry
+# 1. 布局与间隙 (Layout & Gaps)
 xrwm set-window-gaps 8
 xrwm set-main-ratio 0.55
 xrwm set-main-count 1
 xrwm set-main-location left
 
-# 2. Tokyo Night Borders & Colors
+# 2. 边框与主题样式 (OneDark / Tokyo Night)
 xrwm set-border-width 2
-xrwm set-border-color-focused '#7aa2f7'
-xrwm set-border-color-unfocused '#414868'
-xrwm set-border-color-urgent '#f7768e'
+xrwm set-border-color-focused '#61afef'
+xrwm set-border-color-unfocused '#4b5263'
+xrwm set-border-color-urgent '#e06c75'
 
-# 3. Animation Engine
+# 3. 动画引擎 (Animations)
 xrwm set-animation true
 xrwm set-animation-duration 150
 
-# 4. Window Rules (float / no-float / ssd / csd)
-xrwm rule-add -app-id mpv float
-xrwm rule-add -app-id fuzzel float
-xrwm rule-add -app-id imv float
-xrwm rule-add -app-id satty float
+# 4. 窗口规则 (Window Rules)
+xrwm rule-add -app-id "wofi" float
+xrwm rule-add -app-id "wofi" csd
+xrwm rule-add -app-id "fuzzel" float
+xrwm rule-add -app-id "imv" float
+xrwm rule-add -app-id "mpv" float
+xrwm rule-add -app-id "scratchpad" float
+xrwm rule-add -app-id "floating-terminal*" float
+xrwm rule-add -app-id "lxqt-openssh-askpass" float
+xrwm rule-add -app-id "satty" float
 
-# 5. Keyboard Bindings
-# Applications
+# 5. 常用应用启动 (Applications)
 xrwm map normal Super Return spawn foot
-xrwm map normal Super D spawn fuzzel
+xrwm map normal Super Space spawn fuzzel
 
-# Window Actions & Vim Navigation (HJKL)
-xrwm map normal Super Q close
-xrwm map normal Super Space toggle-float
+# 6. 窗口管理 (Window Management)
+xrwm map normal Super W close
+xrwm map normal Super P toggle-float
 xrwm map normal Super F toggle-fullscreen
-xrwm map normal Super M zoom
-xrwm map normal Super H focus-view left
-xrwm map normal Super J focus-view down
-xrwm map normal Super K focus-view up
-xrwm map normal Super L focus-view right
-xrwm map normal "Super+Shift" H swap left
-xrwm map normal "Super+Shift" J swap down
-xrwm map normal "Super+Shift" K swap up
-xrwm map normal "Super+Shift" L swap right
-xrwm map normal Super Tab focus-previous-tags
-xrwm map normal "Super+Shift" Tab send-to-previous-tags
+xrwm map normal None F11 toggle-fullscreen
+xrwm map normal "Super+Shift" Return zoom
+xrwm map normal "Super+Shift" Q exit
 
-# Tag Navigation
+# 7. 焦点流转 HJKL
+xrwm map normal Super H focus-view left
+xrwm map normal Super J focus-view next
+xrwm map normal Super K focus-view previous
+xrwm map normal Super L focus-view right
+
+# 8. 焦点流转 方向键
+xrwm map normal Super Up focus-view previous
+xrwm map normal Super Down focus-view next
+
+# 9. 窗口物理对调 HJKL
+xrwm map normal "Super+Shift" H swap left
+xrwm map normal "Super+Shift" J swap next
+xrwm map normal "Super+Shift" K swap previous
+xrwm map normal "Super+Shift" L swap right
+
+# 10. 窗口物理对调 方向键
+xrwm map normal "Super+Shift" Up swap previous
+xrwm map normal "Super+Shift" Down swap next
+
+# 11. 布局方向快速切换 (YUIO)
+xrwm map normal Super Y main-location left
+xrwm map normal Super U main-location top
+xrwm map normal "Super+Shift" Left main-location left
+xrwm map normal "Super+Shift" Right main-location top
+
+# 12. 布局主栏比例调节 (即时响应，无需进入模式)
+xrwm map normal Super I main-ratio -0.05
+xrwm map normal Super O main-ratio +0.05
+xrwm map normal Super Left main-ratio -0.05
+xrwm map normal Super Right main-ratio +0.05
+
+# 13. 工作区 Tag 1 到 9
 for i in $(seq 1 9); do
 	xrwm map normal Super "$i" focus-tag "$i"
 	xrwm map normal "Super+Shift" "$i" move-to-tag "$i"
 done
 
-# Session Controls
-xrwm map normal "Super+Shift" Q exit
+# 14. 极速往返上一个 Tag
+xrwm map normal Super Tab focus-previous-tags
+xrwm map normal "Super+Shift" Tab send-to-previous-tags
 
-# 6. Modal Keybindings (Resize Mode)
-xrwm declare-mode resize
-xrwm map normal Super R enter-mode resize
-xrwm map resize None H main-ratio -0.05
-xrwm map resize None L main-ratio +0.05
-xrwm map resize None J resize vertical +20
-xrwm map resize None K resize vertical -20
-xrwm map resize None Escape enter-mode normal
-xrwm map resize None Return enter-mode normal
+# 15. 常规工作区全览 (Super + =)
+# (1 << 9) - 1 = 511
+xrwm map normal Super equal set-focused-tags 511
+
+# 16. 窗口常驻全部工作区 (Super + -)
+# (1 << 9) - 1 = 511
+xrwm map normal Super minus set-view-tags 511
+
+# 17. Scratchpad 便签抽屉 (Tag 32, 1 << 31 = 2147483648)
+# Super + 0 或 Alt + Space 一键弹出/收起
+xrwm map normal Super 0 toggle-focused-tags 2147483648
+xrwm map normal "Alt" Space toggle-focused-tags 2147483648
+# Super + Shift + 0 发送当前窗口到便签抽屉
+xrwm map normal "Super+Shift" 0 set-view-tags 2147483648

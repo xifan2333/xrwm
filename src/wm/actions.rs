@@ -696,6 +696,19 @@ impl AppState {
                     let _ = self.set_main_count_arg(&action[1]);
                 }
             }
+            "set-main-location" | "main-location" => {
+                if action.len() > 1 {
+                    let loc_str = &action[1];
+                    let loc = match loc_str.to_ascii_lowercase().as_str() {
+                        "top" => crate::layout::MainLocation::Top,
+                        "bottom" => crate::layout::MainLocation::Bottom,
+                        "left" => crate::layout::MainLocation::Left,
+                        "right" => crate::layout::MainLocation::Right,
+                        _ => crate::layout::MainLocation::Left,
+                    };
+                    let _ = self.set_main_location(loc);
+                }
+            }
             "zoom" => {
                 let _ = self.zoom_focused();
             }
