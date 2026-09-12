@@ -254,13 +254,11 @@ impl Dispatch<RiverSeatV1, ()> for AppState {
                     seat.op_dx = dx;
                     seat.op_dy = dy;
                 }
-                state.manage_dirty();
             }
             Event::OpRelease => {
                 if let Some(seat) = state.seats.get_mut(&proxy.id()) {
                     seat.op_release = true;
                 }
-                state.manage_dirty();
             }
             Event::PointerPosition { x, y } => {
                 state.pointer = (x, y);
