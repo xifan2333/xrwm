@@ -5,7 +5,6 @@ use std::time::Duration;
 use crate::ipc::IpcCommand;
 use crate::tag::TAG_NONE;
 use crate::tag::TagMask;
-use crate::tag::TagState;
 use crate::wm::state::AppState;
 use crate::wm::state::AttachMode;
 use crate::wm::state::WindowRule;
@@ -496,6 +495,13 @@ impl AppState {
         Ok(format!("main location set to {:?}", loc).to_lowercase())
     }
 
+    /// Sets the padding around views in pixels (gaps).
+    pub fn set_view_padding(&mut self, padding: u32) -> Result<String, String> {
+        self.layout_config.gaps = padding;
+        self.manage_dirty();
+        Ok(format!("view padding set to {padding}px"))
+    }
+
     /// Sets the attach mode for newly spawned windows.
     pub fn set_attach_mode(&mut self, mode: AttachMode) -> Result<String, String> {
         self.attach_mode = mode;
@@ -731,56 +737,44 @@ impl AppState {
             IpcCommand::ToggleViewTags(mask) => self.toggle_view_tags(*mask),
             IpcCommand::FocusPreviousTags => self.focus_previous_tags(),
             IpcCommand::SendToPreviousTags => self.send_to_previous_tags(),
-            IpcCommand::SetMainLocation(loc) => self.set_main_location(*loc),
-            IpcCommand::SetAttachMode(mode) => self.set_attach_mode(*mode),
+            IpcCommand::MainLocation(loc) => self.set_main_location(*loc),
+            IpcCommand::DefaultAttachMode(mode) => self.set_attach_mode(*mode),
             IpcCommand::SetCursorWarp(mode) => self.set_cursor_warp(*mode),
-            IpcCommand::SetFocusFollowsCursor(mode) => self.set_focus_follows_cursor(*mode),
-            IpcCommand::FocusTag(idx) => {
-                let mask = TagState::tag_index_to_mask(*idx);
-                self.set_focused_tags(mask)
-            }
-            IpcCommand::MoveToTag(idx) => {
-                let mask = TagState::tag_index_to_mask(*idx);
-                self.set_view_tags(mask)
-            }
-            IpcCommand::SetWindowGaps(g) => {
-                self.layout_config.gaps = *g;
-                self.manage_dirty();
-                Ok(format!("window gaps set to {g}px"))
-            }
-            IpcCommand::SetBorderWidth(w) => {
+            IpcCommand::FocusFollowsCursor(mode) => self.set_focus_follows_cursor(*mode),
+            IpcCommand::ViewPadding(g) => self.set_view_padding(*g),
+            IpcCommand::BorderWidth(w) => {
                 self.border_width = *w;
                 self.manage_dirty();
                 Ok(format!("border width set to {w}px"))
             }
-            IpcCommand::SetBorderColorFocused(c) => {
+            IpcCommand::BorderColorFocused(c) => {
                 self.border_color_focused = c.clone();
                 self.manage_dirty();
                 Ok(format!("focused border color set to {c}"))
             }
-            IpcCommand::SetBorderColorUnfocused(c) => {
+            IpcCommand::BorderColorUnfocused(c) => {
                 self.border_color_unfocused = c.clone();
                 self.manage_dirty();
                 Ok(format!("unfocused border color set to {c}"))
             }
-            IpcCommand::SetBorderColorUrgent(c) => {
+            IpcCommand::BorderColorUrgent(c) => {
                 self.border_color_urgent = c.clone();
                 self.manage_dirty();
                 Ok(format!("urgent border color set to {c}"))
             }
-            IpcCommand::SetMainRatio(r) => self.set_main_ratio_arg(r),
-            IpcCommand::SetStackRatio(r) => self.set_stack_ratio_arg(r),
-            IpcCommand::SetMainCount(c) => self.set_main_count_arg(c),
+            IpcCommand::MainRatio(r) => self.set_main_ratio_arg(r),
+            IpcCommand::StackRatio(r) => self.set_stack_ratio_arg(r),
+            IpcCommand::MainCount(c) => self.set_main_count_arg(c),
             IpcCommand::DeclareMode(mode) => self.declare_mode(mode),
             IpcCommand::EnterMode(mode) => self.enter_mode(mode),
             IpcCommand::ResizeWindow { horizontal, delta } => {
                 self.resize_window(*horizontal, *delta)
             }
-            IpcCommand::SetAnimation(enabled) => {
+            IpcCommand::Animation(enabled) => {
                 self.anim.enabled = *enabled;
                 Ok(format!("animations set to {enabled}"))
             }
-            IpcCommand::SetAnimationDuration(ms) => {
+            IpcCommand::AnimationDuration(ms) => {
                 self.anim.duration = Duration::from_millis(*ms);
                 Ok(format!("animation duration set to {ms}ms"))
             }
@@ -888,25 +882,6 @@ impl AppState {
                     "mapped-pointer [{mode}] {modifiers}+{button} -> {action:?}"
                 ))
             }
-            IpcCommand::Bind { combo, action } => {
-                let (mods_str, key_str) = match combo.rfind('+') {
-                    Some(idx) => (&combo[..idx], &combo[idx + 1..]),
-                    None => ("None", combo.as_str()),
-                };
-                let mods = crate::wm::binds::parse_modifiers(mods_str);
-                let Some(keysym) = crate::wm::binds::resolve_keysym(key_str, mods) else {
-                    return Err(format!("Unknown keysym: {key_str}"));
-                };
-                self.pending_key_bindings
-                    .push(crate::wm::binds::PendingKeyBinding {
-                        mode: "normal".to_string(),
-                        modifiers: mods,
-                        keysym,
-                        action: action.clone(),
-                    });
-                self.manage_dirty();
-                Ok(format!("bound {combo} -> {action:?}"))
-            }
             IpcCommand::Status { stream: _, format } => {
                 if format.as_deref() == Some("waybar") {
                     Ok(self.format_waybar_status())
@@ -980,22 +955,22 @@ impl AppState {
                 };
                 let _ = self.resize_window(horizontal, delta);
             }
-            "set-main-ratio" | "main-ratio" => {
+            "main-ratio" => {
                 if action.len() > 1 {
                     let _ = self.set_main_ratio_arg(&action[1]);
                 }
             }
-            "set-stack-ratio" | "stack-ratio" => {
+            "stack-ratio" => {
                 if action.len() > 1 {
                     let _ = self.set_stack_ratio_arg(&action[1]);
                 }
             }
-            "set-main-count" | "main-count" => {
+            "main-count" => {
                 if action.len() > 1 {
                     let _ = self.set_main_count_arg(&action[1]);
                 }
             }
-            "set-main-location" | "main-location" => {
+            "main-location" => {
                 if action.len() > 1 {
                     let loc_str = &action[1];
                     let loc = match loc_str.to_ascii_lowercase().as_str() {
@@ -1008,7 +983,14 @@ impl AppState {
                     let _ = self.set_main_location(loc);
                 }
             }
-            "default-attach-mode" | "attach-mode" => {
+            "view-padding" => {
+                if action.len() > 1
+                    && let Ok(p) = action[1].parse::<u32>()
+                {
+                    let _ = self.set_view_padding(p);
+                }
+            }
+            "default-attach-mode" => {
                 if action.len() > 1 {
                     let raw = action[1..].join(" ");
                     if let Ok(mode) = AttachMode::parse(&raw) {
@@ -1016,7 +998,7 @@ impl AppState {
                     }
                 }
             }
-            "set-cursor-warp" | "cursor-warp" => {
+            "set-cursor-warp" => {
                 if action.len() > 1
                     && let Ok(mode) = crate::wm::CursorWarp::parse(&action[1])
                 {
@@ -1028,6 +1010,44 @@ impl AppState {
                     && let Ok(mode) = crate::wm::FocusFollowsCursor::parse(&action[1])
                 {
                     let _ = self.set_focus_follows_cursor(mode);
+                }
+            }
+            "border-width" => {
+                if action.len() > 1
+                    && let Ok(w) = action[1].parse::<u32>()
+                {
+                    self.border_width = w;
+                    self.manage_dirty();
+                }
+            }
+            "border-color-focused" => {
+                if action.len() > 1 {
+                    self.border_color_focused = action[1].clone();
+                    self.manage_dirty();
+                }
+            }
+            "border-color-unfocused" => {
+                if action.len() > 1 {
+                    self.border_color_unfocused = action[1].clone();
+                    self.manage_dirty();
+                }
+            }
+            "border-color-urgent" => {
+                if action.len() > 1 {
+                    self.border_color_urgent = action[1].clone();
+                    self.manage_dirty();
+                }
+            }
+            "animation" => {
+                if action.len() > 1 {
+                    self.anim.enabled = matches!(action[1].as_str(), "true" | "1" | "on");
+                }
+            }
+            "animation-duration" => {
+                if action.len() > 1
+                    && let Ok(ms) = action[1].parse::<u64>()
+                {
+                    self.anim.duration = Duration::from_millis(ms);
                 }
             }
             "zoom" => {
@@ -1048,22 +1068,6 @@ impl AppState {
             "swap" => {
                 let dir = action.get(1).map(|s| s.as_str()).unwrap_or("next");
                 let _ = self.swap_direction(dir);
-            }
-            "focus-tag" => {
-                if action.len() > 1
-                    && let Ok(tag) = action[1].parse::<u8>()
-                {
-                    let mask = TagState::tag_index_to_mask(tag);
-                    let _ = self.set_focused_tags(mask);
-                }
-            }
-            "move-to-tag" => {
-                if action.len() > 1
-                    && let Ok(tag) = action[1].parse::<u8>()
-                {
-                    let mask = TagState::tag_index_to_mask(tag);
-                    let _ = self.set_view_tags(mask);
-                }
             }
             "set-focused-tags" => {
                 if action.len() > 1
@@ -1122,7 +1126,7 @@ mod tests {
     #[test]
     fn test_app_state_ipc_gaps() {
         let mut state = AppState::new();
-        let cmd = IpcCommand::SetWindowGaps(8);
+        let cmd = IpcCommand::ViewPadding(8);
         let res = state.handle_ipc_command(&cmd);
         assert!(res.is_ok());
         assert_eq!(state.layout_config.gaps, 8);
@@ -1188,33 +1192,33 @@ mod tests {
     fn test_app_state_ipc_layout_and_animation() {
         let mut state = AppState::new();
         state
-            .handle_ipc_command(&IpcCommand::SetMainRatio("0.65".into()))
+            .handle_ipc_command(&IpcCommand::MainRatio("0.65".into()))
             .unwrap();
         assert!((state.layout_config.split_ratio - 0.65).abs() < f32::EPSILON);
 
         state
-            .handle_ipc_command(&IpcCommand::SetStackRatio("0.70".into()))
+            .handle_ipc_command(&IpcCommand::StackRatio("0.70".into()))
             .unwrap();
         assert!((state.layout_config.stack_split_ratio - 0.70).abs() < f32::EPSILON);
 
         state
-            .handle_ipc_command(&IpcCommand::SetMainCount("2".into()))
+            .handle_ipc_command(&IpcCommand::MainCount("2".into()))
             .unwrap();
         assert_eq!(state.layout_config.main_count, 2);
 
         state
-            .handle_ipc_command(&IpcCommand::SetAnimation(false))
+            .handle_ipc_command(&IpcCommand::Animation(false))
             .unwrap();
         assert!(!state.anim.enabled);
 
         state
-            .handle_ipc_command(&IpcCommand::SetAnimationDuration(200))
+            .handle_ipc_command(&IpcCommand::AnimationDuration(200))
             .unwrap();
         assert_eq!(state.anim.duration, Duration::from_millis(200));
     }
 
     #[test]
-    fn test_app_state_ipc_map_and_bind() {
+    fn test_app_state_ipc_map() {
         let mut state = AppState::new();
         let map_cmd = IpcCommand::Map {
             mode: "normal".into(),
@@ -1225,14 +1229,6 @@ mod tests {
         let res = state.handle_ipc_command(&map_cmd);
         assert!(res.is_ok());
         assert_eq!(state.pending_key_bindings.len(), 1);
-
-        let bind_cmd = IpcCommand::Bind {
-            combo: "Super+Shift+Q".into(),
-            action: vec!["exit".into()],
-        };
-        let res2 = state.handle_ipc_command(&bind_cmd);
-        assert!(res2.is_ok());
-        assert_eq!(state.pending_key_bindings.len(), 2);
     }
 
     #[test]
@@ -1304,21 +1300,25 @@ mod tests {
         assert!((state.layout_config.stack_split_ratio - 0.1).abs() < f32::EPSILON);
 
         // Action tokens test
-        state.execute_action_tokens(&["set-stack-ratio".into(), "0.60".into()]);
+        state.execute_action_tokens(&["main-ratio".into(), "0.60".into()]);
+        assert!((state.layout_config.split_ratio - 0.60).abs() < 1e-4);
+        state.execute_action_tokens(&["stack-ratio".into(), "0.60".into()]);
         assert!((state.layout_config.stack_split_ratio - 0.60).abs() < 1e-4);
         state.execute_action_tokens(&["stack-ratio".into(), "+0.10".into()]);
         assert!((state.layout_config.stack_split_ratio - 0.70).abs() < 1e-4);
+        state.execute_action_tokens(&["view-padding".into(), "12".into()]);
+        assert_eq!(state.layout_config.gaps, 12);
 
         // Attach mode test
         state.execute_action_tokens(&["default-attach-mode".into(), "bottom".into()]);
         assert_eq!(state.attach_mode, AttachMode::Bottom);
-        state.execute_action_tokens(&["attach-mode".into(), "after".into(), "3".into()]);
+        state.execute_action_tokens(&["default-attach-mode".into(), "after".into(), "3".into()]);
         assert_eq!(state.attach_mode, AttachMode::After(3));
 
         // Cursor warp and focus-follows-cursor tests
         state.execute_action_tokens(&["set-cursor-warp".into(), "on-output-change".into()]);
         assert_eq!(state.cursor_warp, crate::wm::CursorWarp::OnOutputChange);
-        state.execute_action_tokens(&["cursor-warp".into(), "disabled".into()]);
+        state.execute_action_tokens(&["set-cursor-warp".into(), "disabled".into()]);
         assert_eq!(state.cursor_warp, crate::wm::CursorWarp::Disabled);
 
         state.execute_action_tokens(&["focus-follows-cursor".into(), "disabled".into()]);
