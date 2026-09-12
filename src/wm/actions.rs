@@ -340,6 +340,22 @@ impl AppState {
                 seat.focused = Some(proxy.clone());
             }
         }
+
+        // Warp pointer if cursor_warp is enabled
+        if self.cursor_warp != crate::wm::CursorWarp::Disabled
+            && let Some(out) = self.outputs.get(&out_id)
+        {
+            let (cx, cy) = match (self.cursor_warp, dest_win) {
+                (crate::wm::CursorWarp::OnFocusChange, Some(w)) => {
+                    (w.x + w.width as i32 / 2, w.y + w.height as i32 / 2)
+                }
+                _ => (out.x + out.width as i32 / 2, out.y + out.height as i32 / 2),
+            };
+            for seat in self.seats.values() {
+                seat.proxy.pointer_warp(cx, cy);
+            }
+        }
+
         self.manage_dirty();
         Ok(format!("focused output {:?}", out_id))
     }
@@ -384,8 +400,16 @@ impl AppState {
 
         if let Some(win) = self.windows.iter().find(|w| w.id == new_id) {
             let proxy = win.proxy.clone();
+            let (cx, cy) = (win.x + win.width as i32 / 2, win.y + win.height as i32 / 2);
+            let out_id = win.output.clone();
             for seat in self.seats.values_mut() {
                 seat.focused = Some(proxy.clone());
+                if self.cursor_warp == crate::wm::CursorWarp::OnFocusChange {
+                    seat.proxy.pointer_warp(cx, cy);
+                }
+            }
+            if let Some(out) = out_id {
+                self.focused_output = Some(out);
             }
             self.manage_dirty();
             Ok(format!("focused window {new_id}"))
