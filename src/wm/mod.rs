@@ -6,6 +6,8 @@ pub mod dispatch;
 pub mod seat;
 pub mod state;
 
+pub use seat::CursorWarp;
+pub use seat::FocusFollowsCursor;
 pub use seat::PointerAction;
 pub use seat::PointerBinding;
 pub use seat::SeatItem;
