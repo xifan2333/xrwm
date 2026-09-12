@@ -719,6 +719,117 @@ impl AppState {
         Ok(format!("main count set to {c}"))
     }
 
+    /// Lists active window rules, optionally filtered by action.
+    pub fn list_rules(&self, filter_action: Option<&str>) -> Result<String, String> {
+        let mut lines = Vec::new();
+
+        for r in &self.rules {
+            let mut match_desc = Vec::new();
+            if let Some(ref id) = r.app_id {
+                match_desc.push(format!("-app-id {id}"));
+            }
+            if let Some(ref t) = r.title {
+                match_desc.push(format!("-title {t}"));
+            }
+            let match_str = if match_desc.is_empty() {
+                "*".to_string()
+            } else {
+                match_desc.join(" ")
+            };
+
+            let mut actions = Vec::new();
+            if let Some(fl) = r.float {
+                if fl {
+                    actions.push("float".to_string());
+                } else {
+                    actions.push("no-float".to_string());
+                }
+            }
+            if let Some(ssd) = r.ssd {
+                if ssd {
+                    actions.push("ssd".to_string());
+                } else {
+                    actions.push("csd".to_string());
+                }
+            }
+            if let Some(tags) = r.tags {
+                actions.push(format!("tags {tags}"));
+            }
+            if let Some((w, h)) = r.dimensions {
+                actions.push(format!("dimensions {w} {h}"));
+            }
+            if let Some((x, y)) = r.position {
+                actions.push(format!("position {x} {y}"));
+            }
+            if let Some(fs) = r.fullscreen
+                && fs
+            {
+                actions.push("fullscreen".to_string());
+            }
+            if let Some(ref out) = r.output {
+                actions.push(format!("output {out}"));
+            }
+
+            for act in actions {
+                if let Some(filter) = filter_action {
+                    let act_prefix = act.split_whitespace().next().unwrap_or(&act);
+                    if !act_prefix.eq_ignore_ascii_case(filter) {
+                        continue;
+                    }
+                }
+                lines.push(format!("{match_str} {act}"));
+            }
+        }
+
+        if lines.is_empty() {
+            Ok("no matching rules".to_string())
+        } else {
+            Ok(lines.join("\n"))
+        }
+    }
+
+    /// Deletes a rule matching app_id, title, and action.
+    pub fn rule_del(
+        &mut self,
+        app_id: Option<&str>,
+        title: Option<&str>,
+        action: &[String],
+    ) -> Result<String, String> {
+        if action.is_empty() {
+            return Err("Rule action cannot be empty".to_string());
+        }
+
+        let act = action[0].to_ascii_lowercase();
+        let initial_len = self.rules.len();
+
+        self.rules.retain(|r| {
+            let app_match = r.app_id.as_deref() == app_id;
+            let title_match = r.title.as_deref() == title;
+            if !app_match || !title_match {
+                return true;
+            }
+            let action_match = match act.as_str() {
+                "float" | "no-float" => r.float.is_some(),
+                "ssd" | "csd" | "no-ssd" | "no-border" => r.ssd.is_some(),
+                "tags" => r.tags.is_some(),
+                "dimensions" => r.dimensions.is_some(),
+                "position" => r.position.is_some(),
+                "fullscreen" | "no-fullscreen" => r.fullscreen.is_some(),
+                "output" => r.output.is_some(),
+                _ => false,
+            };
+            !action_match
+        });
+
+        if self.rules.len() < initial_len {
+            Ok(format!(
+                "rule deleted for app_id={app_id:?} title={title:?} action={action:?}"
+            ))
+        } else {
+            Ok("no matching rule found".to_string())
+        }
+    }
+
     /// Handles an incoming IPC command and synchronously applies it to the WM.
     pub fn handle_ipc_command(&mut self, cmd: &IpcCommand) -> Result<String, String> {
         match cmd {
@@ -867,6 +978,12 @@ impl AppState {
                     "rule added for app_id={app_id:?} title={title:?} action={action:?}"
                 ))
             }
+            IpcCommand::RuleDel {
+                app_id,
+                title,
+                action,
+            } => self.rule_del(app_id.as_deref(), title.as_deref(), action),
+            IpcCommand::ListRules { action } => self.list_rules(action.as_deref()),
             IpcCommand::Map {
                 mode,
                 modifiers,
@@ -1222,6 +1339,35 @@ mod tests {
         };
         assert!(state.handle_ipc_command(&out_cmd).is_ok());
         assert_eq!(state.rules[6].output, Some("DP-1".into()));
+
+        // Test list-rules
+        let all_rules = state.list_rules(None).unwrap();
+        assert!(all_rules.contains("-app-id mpv float"));
+        assert!(all_rules.contains("-app-id calc position 100 200"));
+        assert!(all_rules.contains("-app-id gamescope fullscreen"));
+
+        let float_rules = state.list_rules(Some("float")).unwrap();
+        assert!(float_rules.contains("-app-id mpv float"));
+        assert!(!float_rules.contains("position"));
+
+        // Test rule-del
+        let del_cmd = IpcCommand::RuleDel {
+            app_id: Some("mpv".into()),
+            title: None,
+            action: vec!["float".into()],
+        };
+        assert!(state.handle_ipc_command(&del_cmd).is_ok());
+        assert_eq!(state.rules.len(), 6);
+
+        let del_not_found = IpcCommand::RuleDel {
+            app_id: Some("nonexistent".into()),
+            title: None,
+            action: vec!["float".into()],
+        };
+        assert_eq!(
+            state.handle_ipc_command(&del_not_found).unwrap(),
+            "no matching rule found"
+        );
     }
 
     #[test]

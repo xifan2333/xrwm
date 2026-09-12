@@ -58,6 +58,14 @@ pub enum IpcCommand {
         title: Option<String>,
         action: Vec<String>,
     },
+    RuleDel {
+        app_id: Option<String>,
+        title: Option<String>,
+        action: Vec<String>,
+    },
+    ListRules {
+        action: Option<String>,
+    },
     Status {
         stream: bool,
         format: Option<String>,
@@ -367,6 +375,48 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
                 action: action_tokens,
             })
         }
+        "rule-del" => {
+            let mut app_id = None;
+            let mut title = None;
+            let mut action_tokens = Vec::new();
+            let mut i = 1;
+
+            while i < args.len() {
+                match args[i].as_str() {
+                    "-app-id" => {
+                        i += 1;
+                        if i < args.len() {
+                            app_id = Some(args[i].clone());
+                        }
+                    }
+                    "-title" => {
+                        i += 1;
+                        if i < args.len() {
+                            title = Some(args[i].clone());
+                        }
+                    }
+                    val => {
+                        action_tokens.push(val.to_string());
+                    }
+                }
+                i += 1;
+            }
+
+            if action_tokens.is_empty() {
+                return Err(
+                    "Usage: xrwm rule-del [-app-id <id>] [-title <title>] <action>".to_string(),
+                );
+            }
+            Ok(IpcCommand::RuleDel {
+                app_id,
+                title,
+                action: action_tokens,
+            })
+        }
+        "list-rules" => {
+            let action = args.get(1).cloned();
+            Ok(IpcCommand::ListRules { action })
+        }
         "map-pointer" => {
             if args.len() < 5 {
                 return Err(
@@ -447,6 +497,32 @@ mod tests {
                 app_id: Some("mpv".into()),
                 title: None,
                 action: vec!["dimensions".into(), "960".into(), "540".into()],
+            }
+        );
+
+        let del_rule_args = vec![
+            "rule-del".into(),
+            "-app-id".into(),
+            "mpv".into(),
+            "float".into(),
+        ];
+        assert_eq!(
+            parse_cli_args(&del_rule_args).unwrap(),
+            IpcCommand::RuleDel {
+                app_id: Some("mpv".into()),
+                title: None,
+                action: vec!["float".into()],
+            }
+        );
+
+        assert_eq!(
+            parse_cli_args(&["list-rules".into()]).unwrap(),
+            IpcCommand::ListRules { action: None }
+        );
+        assert_eq!(
+            parse_cli_args(&["list-rules".into(), "float".into()]).unwrap(),
+            IpcCommand::ListRules {
+                action: Some("float".into())
             }
         );
 
