@@ -638,6 +638,29 @@ impl AppState {
                 self.manage_dirty();
                 Ok(format!("mapped [{mode}] {modifiers}+{key} -> {action:?}"))
             }
+            IpcCommand::MapPointer {
+                mode,
+                modifiers,
+                button,
+                action,
+            } => {
+                let mods = crate::wm::binds::parse_modifiers(modifiers);
+                let Some(btn_code) = crate::wm::binds::parse_button(button) else {
+                    return Err(format!("Unknown pointer button: {button}"));
+                };
+                let ptr_action = crate::wm::seat::PointerAction::from_tokens(action);
+                self.pending_pointer_bindings
+                    .push(crate::wm::binds::PendingPointerBinding {
+                        mode: mode.clone(),
+                        modifiers: mods,
+                        button: btn_code,
+                        action: ptr_action,
+                    });
+                self.manage_dirty();
+                Ok(format!(
+                    "mapped-pointer [{mode}] {modifiers}+{button} -> {action:?}"
+                ))
+            }
             IpcCommand::Bind { combo, action } => {
                 let (mods_str, key_str) = match combo.rfind('+') {
                     Some(idx) => (&combo[..idx], &combo[idx + 1..]),
@@ -675,13 +698,8 @@ impl AppState {
         }
     }
 
-    /// Handles a keybinding press event triggered by river-xkb-bindings.
-    pub fn handle_key_binding_pressed(&mut self, binding_id: &wayland_backend::client::ObjectId) {
-        let action_opt = self.key_bindings.get(binding_id).map(|b| b.action.clone());
-        let Some(action) = action_opt else {
-            return;
-        };
-
+    /// Executes a list of action tokens triggered by keyboard or pointer binding.
+    pub fn execute_action_tokens(&mut self, action: &[String]) {
         if action.is_empty() {
             return;
         }
@@ -820,9 +838,18 @@ impl AppState {
                 spawn_init_script();
             }
             other => {
-                tracing::warn!("Unknown keybinding action: {other}");
+                tracing::warn!("Unknown action: {other}");
             }
         }
+    }
+
+    /// Handles a keybinding press event triggered by river-xkb-bindings.
+    pub fn handle_key_binding_pressed(&mut self, binding_id: &wayland_backend::client::ObjectId) {
+        let action_opt = self.key_bindings.get(binding_id).map(|b| b.action.clone());
+        let Some(action) = action_opt else {
+            return;
+        };
+        self.execute_action_tokens(&action);
     }
 }
 
@@ -939,6 +966,20 @@ mod tests {
         let res2 = state.handle_ipc_command(&bind_cmd);
         assert!(res2.is_ok());
         assert_eq!(state.pending_key_bindings.len(), 2);
+    }
+
+    #[test]
+    fn test_app_state_ipc_map_pointer() {
+        let mut state = AppState::new();
+        let cmd = IpcCommand::MapPointer {
+            mode: "normal".into(),
+            modifiers: "Super".into(),
+            button: "BTN_LEFT".into(),
+            action: vec!["move-view".into()],
+        };
+        assert!(state.handle_ipc_command(&cmd).is_ok());
+        assert_eq!(state.pending_pointer_bindings.len(), 1);
+        assert_eq!(state.pending_pointer_bindings[0].button, 0x110);
     }
 
     #[test]

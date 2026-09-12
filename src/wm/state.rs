@@ -123,6 +123,7 @@ pub struct AppState {
     pub rules: Vec<WindowRule>,
     pub pending_key_bindings: Vec<PendingKeyBinding>,
     pub key_bindings: HashMap<ObjectId, ActiveKeyBinding>,
+    pub pending_pointer_bindings: Vec<crate::wm::binds::PendingPointerBinding>,
     pub active_mode: String,
     pub modes: Vec<String>,
     pub mode_dirty: bool,
@@ -161,6 +162,7 @@ impl AppState {
             rules: Vec::new(),
             pending_key_bindings: Vec::new(),
             key_bindings: HashMap::new(),
+            pending_pointer_bindings: Vec::new(),
             active_mode: "normal".to_string(),
             modes: vec!["normal".to_string(), "locked".to_string()],
             mode_dirty: false,
@@ -286,7 +288,43 @@ impl AppState {
                     kb.proxy.disable();
                 }
             }
+            for seat in self.seats.values() {
+                for pb in seat.pointer_bindings.values() {
+                    if pb.mode == self.active_mode {
+                        pb.proxy.enable();
+                    } else {
+                        pb.proxy.disable();
+                    }
+                }
+            }
             self.mode_dirty = false;
+        }
+
+        // Register any pending pointer bindings during the manage sequence
+        if !self.pending_pointer_bindings.is_empty() {
+            for pending in self.pending_pointer_bindings.drain(..) {
+                for (seat_id, seat) in self.seats.iter_mut() {
+                    let pb = seat.proxy.get_pointer_binding(
+                        pending.button,
+                        pending.modifiers,
+                        qh,
+                        seat_id.clone(),
+                    );
+                    if pending.mode == self.active_mode {
+                        pb.enable();
+                    } else {
+                        pb.disable();
+                    }
+                    seat.pointer_bindings.insert(
+                        pb.id(),
+                        crate::wm::seat::PointerBinding {
+                            proxy: pb,
+                            mode: pending.mode.clone(),
+                            action: pending.action.clone(),
+                        },
+                    );
+                }
+            }
         }
 
         // 0. Process any pending close requests inside the manage sequence
@@ -361,7 +399,7 @@ impl AppState {
         // 2. Consume pointer gestures before arranging (so float <-> tile takes effect in this cycle)
         let mut start_move: Vec<(ObjectId, RiverWindowV1)> = Vec::new();
         let mut start_resize: Vec<(ObjectId, RiverWindowV1)> = Vec::new();
-        let mut toggle_floating: Vec<RiverWindowV1> = Vec::new();
+        let mut pointer_commands: Vec<Vec<String>> = Vec::new();
 
         for (id, seat) in self.seats.iter_mut() {
             if let Some(win_proxy) = seat.interacted.take() {
@@ -378,42 +416,16 @@ impl AppState {
             match action {
                 PointerAction::Move => start_move.push((id.clone(), win_proxy)),
                 PointerAction::Resize => start_resize.push((id.clone(), win_proxy)),
-                PointerAction::ToggleFloating => toggle_floating.push(win_proxy),
+                PointerAction::Command(cmd) => {
+                    seat.focused = Some(win_proxy);
+                    pointer_commands.push(cmd);
+                }
                 PointerAction::None => {}
             }
         }
 
-        let default_area = Rect::new(0, 30, 1280, 770);
-        let layout_engine = MasterStackLayout;
-
-        let (out_id, usable_area) = self
-            .outputs
-            .iter()
-            .next()
-            .map(|(id, o)| (id.clone(), o.usable_area))
-            .unwrap_or((ObjectId::null(), default_area));
-
-        for win_proxy in toggle_floating {
-            if let Some(w) = self.windows.iter_mut().find(|w| w.proxy == win_proxy) {
-                w.floating = !w.floating;
-                if w.floating {
-                    if let Some(saved) = w.float_geo {
-                        w.x = saved.x;
-                        w.y = saved.y;
-                        w.width = saved.width;
-                        w.height = saved.height;
-                    } else {
-                        w.float_geo = Some(Rect::new(w.x, w.y, w.width, w.height));
-                    }
-                } else {
-                    w.float_geo = Some(Rect::new(w.x, w.y, w.width, w.height));
-                }
-                tracing::debug!(
-                    "op: toggle floating on {:?} -> {}",
-                    w.proxy.id(),
-                    w.floating
-                );
-            }
+        for cmd in pointer_commands {
+            self.execute_action_tokens(&cmd);
         }
 
         for (id, win_proxy) in start_move {
@@ -457,6 +469,16 @@ impl AppState {
         }
 
         // 3. Arrange windows for each output
+        let default_area = Rect::new(0, 30, 1280, 770);
+        let layout_engine = MasterStackLayout;
+
+        let (out_id, usable_area) = self
+            .outputs
+            .iter()
+            .next()
+            .map(|(id, o)| (id.clone(), o.usable_area))
+            .unwrap_or((ObjectId::null(), default_area));
+
         let tag_state = self.tag_state;
         let mut tiled_indices: Vec<usize> = Vec::new();
         for (i, w) in self.windows.iter().enumerate() {
@@ -841,13 +863,9 @@ pub fn spawn_init_script() {
 
     if init_script.is_file() {
         tracing::info!("Spawning xrwm init script: {:?}", init_script);
-        let home = std::env::var("HOME").unwrap_or_default();
-        let current_path = std::env::var("PATH").unwrap_or_default();
-        let path = format!("{home}/.local/bin:{current_path}");
         let _ = std::process::Command::new("bash")
             .arg("-c")
             .arg(&init_script)
-            .env("PATH", path)
             .spawn();
     }
 }
