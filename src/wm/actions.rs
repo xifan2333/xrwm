@@ -288,10 +288,18 @@ impl AppState {
             return Err("at least one tag must be focused".to_string());
         }
         if self.tag_state.focused != mask {
-            self.previous_focused_tags = self.tag_state.focused;
+            let old_mask = self.tag_state.focused;
+            self.previous_focused_tags = old_mask;
+            let dir = if mask > old_mask {
+                crate::animation::SlideDirection::Right
+            } else {
+                crate::animation::SlideDirection::Left
+            };
+            self.tag_slide_dir = Some(dir);
+            self.tag_anim_old_mask = old_mask;
+            self.anim.start();
         }
         self.tag_state.set_focused_tags(mask);
-        self.anim.start();
         self.manage_dirty();
         Ok(format!("focused tags set to {mask}"))
     }
@@ -320,8 +328,19 @@ impl AppState {
 
     /// Toggles the focused tags mask on the WM.
     pub fn toggle_focused_tags(&mut self, mask: TagMask) -> Result<String, String> {
+        let old_mask = self.tag_state.focused;
+        let new_mask = self.tag_state.focused ^ mask;
+        if new_mask != TAG_NONE && new_mask != old_mask {
+            let dir = if new_mask > old_mask {
+                crate::animation::SlideDirection::Right
+            } else {
+                crate::animation::SlideDirection::Left
+            };
+            self.tag_slide_dir = Some(dir);
+            self.tag_anim_old_mask = old_mask;
+            self.anim.start();
+        }
         self.tag_state.toggle_focused_tags(mask);
-        self.anim.start();
         self.manage_dirty();
         Ok(format!("focused tags toggled with {mask}"))
     }
@@ -961,6 +980,29 @@ mod tests {
         assert_eq!(state.layout_config.main_count, 2);
         state.set_main_count_arg("-1").unwrap();
         assert_eq!(state.layout_config.main_count, 1);
+    }
+
+    #[test]
+    fn test_workspace_slide_direction() {
+        let mut state = AppState::new();
+        assert_eq!(state.tag_state.focused, 1);
+        assert!(state.tag_slide_dir.is_none());
+
+        // Tag 1 -> Tag 2 (higher index) => SlideDirection::Right
+        state.set_focused_tags(2).unwrap();
+        assert_eq!(
+            state.tag_slide_dir,
+            Some(crate::animation::SlideDirection::Right)
+        );
+        assert_eq!(state.tag_anim_old_mask, 1);
+
+        // Tag 2 -> Tag 1 (lower index) => SlideDirection::Left
+        state.set_focused_tags(1).unwrap();
+        assert_eq!(
+            state.tag_slide_dir,
+            Some(crate::animation::SlideDirection::Left)
+        );
+        assert_eq!(state.tag_anim_old_mask, 2);
     }
 
     #[test]

@@ -7,6 +7,13 @@ use crate::layout::Rect;
 /// Default animation duration in milliseconds.
 pub const DEFAULT_ANIMATION_DURATION_MS: u64 = 150;
 
+/// Direction for workspace slide transition animations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SlideDirection {
+    Left,
+    Right,
+}
+
 /// Cubic Ease-Out curve: `1 - (1 - p)^3`.
 ///
 /// Fast initial burst, deceleration near the end, producing a natural physical feel.
