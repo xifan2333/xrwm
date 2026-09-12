@@ -5,7 +5,6 @@ use std::time::Duration;
 use crate::ipc::IpcCommand;
 use crate::tag::TAG_NONE;
 use crate::tag::TagMask;
-use crate::tag::TagState;
 use crate::wm::state::AppState;
 use crate::wm::state::AttachMode;
 use crate::wm::state::WindowRule;
@@ -742,14 +741,6 @@ impl AppState {
             IpcCommand::DefaultAttachMode(mode) => self.set_attach_mode(*mode),
             IpcCommand::SetCursorWarp(mode) => self.set_cursor_warp(*mode),
             IpcCommand::FocusFollowsCursor(mode) => self.set_focus_follows_cursor(*mode),
-            IpcCommand::FocusTag(idx) => {
-                let mask = TagState::tag_index_to_mask(*idx);
-                self.set_focused_tags(mask)
-            }
-            IpcCommand::MoveToTag(idx) => {
-                let mask = TagState::tag_index_to_mask(*idx);
-                self.set_view_tags(mask)
-            }
             IpcCommand::ViewPadding(g) => self.set_view_padding(*g),
             IpcCommand::BorderWidth(w) => {
                 self.border_width = *w;
@@ -1077,22 +1068,6 @@ impl AppState {
             "swap" => {
                 let dir = action.get(1).map(|s| s.as_str()).unwrap_or("next");
                 let _ = self.swap_direction(dir);
-            }
-            "focus-tag" => {
-                if action.len() > 1
-                    && let Ok(tag) = action[1].parse::<u8>()
-                {
-                    let mask = TagState::tag_index_to_mask(tag);
-                    let _ = self.set_focused_tags(mask);
-                }
-            }
-            "move-to-tag" => {
-                if action.len() > 1
-                    && let Ok(tag) = action[1].parse::<u8>()
-                {
-                    let mask = TagState::tag_index_to_mask(tag);
-                    let _ = self.set_view_tags(mask);
-                }
             }
             "set-focused-tags" => {
                 if action.len() > 1

@@ -19,8 +19,6 @@ pub enum IpcCommand {
     ToggleFocusedTags(u32),
     SetViewTags(u32),
     ToggleViewTags(u32),
-    FocusTag(u8),
-    MoveToTag(u8),
     FocusPreviousTags,
     SendToPreviousTags,
     ViewPadding(u32),
@@ -196,28 +194,6 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
                 .parse::<u32>()
                 .map_err(|_| "Tagmask must be an unsigned integer")?;
             Ok(IpcCommand::ToggleViewTags(mask))
-        }
-        "focus-tag" => {
-            let tag = args
-                .get(1)
-                .ok_or("Missing tag number (1..32)")?
-                .parse::<u8>()
-                .map_err(|_| "Tag must be an integer between 1 and 32")?;
-            if !(1..=32).contains(&tag) {
-                return Err("Tag must be between 1 and 32".to_string());
-            }
-            Ok(IpcCommand::FocusTag(tag))
-        }
-        "move-to-tag" => {
-            let tag = args
-                .get(1)
-                .ok_or("Missing tag number (1..32)")?
-                .parse::<u8>()
-                .map_err(|_| "Tag must be an integer between 1 and 32")?;
-            if !(1..=32).contains(&tag) {
-                return Err("Tag must be between 1 and 32".to_string());
-            }
-            Ok(IpcCommand::MoveToTag(tag))
         }
         "focus-previous-tags" => Ok(IpcCommand::FocusPreviousTags),
         "send-to-previous-tags" => Ok(IpcCommand::SendToPreviousTags),
@@ -504,10 +480,6 @@ mod tests {
         assert_eq!(
             parse_cli_args(&["set-focused-tags".into(), "3".into()]).unwrap(),
             IpcCommand::SetFocusedTags(3)
-        );
-        assert_eq!(
-            parse_cli_args(&["move-to-tag".into(), "4".into()]).unwrap(),
-            IpcCommand::MoveToTag(4)
         );
         assert_eq!(
             parse_cli_args(&["focus-view".into(), "next".into()]).unwrap(),
