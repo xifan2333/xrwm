@@ -11,7 +11,10 @@ pub enum IpcCommand {
     ToggleFloat,
     ToggleFullscreen,
     Zoom,
-    FocusView(String),
+    FocusView {
+        direction: String,
+        skip_floating: bool,
+    },
     FocusOutput(String),
     SendToOutput(String),
     Swap(String),
@@ -157,8 +160,19 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
         "toggle-fullscreen" => Ok(IpcCommand::ToggleFullscreen),
         "zoom" => Ok(IpcCommand::Zoom),
         "focus-view" => {
-            let dir = args.get(1).cloned().unwrap_or_else(|| "next".to_string());
-            Ok(IpcCommand::FocusView(dir))
+            let mut skip_floating = false;
+            let mut direction = "next".to_string();
+            for arg in &args[1..] {
+                if arg == "-skip-floating" {
+                    skip_floating = true;
+                } else {
+                    direction = arg.clone();
+                }
+            }
+            Ok(IpcCommand::FocusView {
+                direction,
+                skip_floating,
+            })
         }
         "focus-output" => {
             let dir = args.get(1).cloned().unwrap_or_else(|| "next".to_string());
@@ -575,7 +589,17 @@ mod tests {
         );
         assert_eq!(
             parse_cli_args(&["focus-view".into(), "next".into()]).unwrap(),
-            IpcCommand::FocusView("next".into())
+            IpcCommand::FocusView {
+                direction: "next".into(),
+                skip_floating: false,
+            }
+        );
+        assert_eq!(
+            parse_cli_args(&["focus-view".into(), "-skip-floating".into(), "left".into()]).unwrap(),
+            IpcCommand::FocusView {
+                direction: "left".into(),
+                skip_floating: true,
+            }
         );
         assert_eq!(
             parse_cli_args(&["focus-output".into(), "right".into()]).unwrap(),

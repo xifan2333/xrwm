@@ -277,12 +277,14 @@ impl AppState {
     }
 
     /// Finds the target window in the given direction.
-    pub fn find_target_window(&self, dir: Direction) -> Option<u32> {
+    pub fn find_target_window(&self, dir: Direction, skip_floating: bool) -> Option<u32> {
         let tag_state = self.tag_state;
         let visible: Vec<&crate::wm::state::WindowItem> = self
             .windows
             .iter()
-            .filter(|w| !w.closed && tag_state.is_view_visible(w.tags))
+            .filter(|w| {
+                !w.closed && (!skip_floating || !w.floating) && tag_state.is_view_visible(w.tags)
+            })
             .collect();
 
         if visible.len() <= 1 {
@@ -452,18 +454,25 @@ impl AppState {
     }
 
     /// Shifts focus in the specified direction (next, prev, left, right, up, down).
-    pub fn focus_view_direction(&mut self, dir_str: &str) -> Result<String, String> {
+    pub fn focus_view_direction(
+        &mut self,
+        dir_str: &str,
+        skip_floating: bool,
+    ) -> Result<String, String> {
+        let tag_state = self.tag_state;
         let visible_count = self
             .windows
             .iter()
-            .filter(|w| !w.closed && self.tag_state.is_view_visible(w.tags))
+            .filter(|w| {
+                !w.closed && (!skip_floating || !w.floating) && tag_state.is_view_visible(w.tags)
+            })
             .count();
         if visible_count == 0 {
             return Ok("no visible windows".to_string());
         }
 
         let dir = Direction::parse(dir_str).unwrap_or(Direction::Next);
-        let target_id = self.find_target_window(dir);
+        let target_id = self.find_target_window(dir, skip_floating);
         let Some(new_id) = target_id else {
             return Ok("no target window in direction".to_string());
         };
@@ -496,7 +505,7 @@ impl AppState {
             return Err("no view focused".to_string());
         };
 
-        let target_id = self.find_target_window(dir);
+        let target_id = self.find_target_window(dir, false);
         let Some(t_id) = target_id else {
             return Ok("no target window to swap with".to_string());
         };
@@ -516,9 +525,9 @@ impl AppState {
     /// Shifts focus to the next or previous visible window.
     pub fn focus_view(&mut self, next: bool) -> Result<String, String> {
         if next {
-            self.focus_view_direction("next")
+            self.focus_view_direction("next", false)
         } else {
-            self.focus_view_direction("previous")
+            self.focus_view_direction("previous", false)
         }
     }
 
@@ -909,7 +918,10 @@ impl AppState {
             IpcCommand::ToggleFloat => self.toggle_float_focused(),
             IpcCommand::ToggleFullscreen => self.toggle_fullscreen_focused(),
             IpcCommand::Zoom => self.zoom_focused(),
-            IpcCommand::FocusView(dir) => self.focus_view_direction(dir),
+            IpcCommand::FocusView {
+                direction,
+                skip_floating,
+            } => self.focus_view_direction(direction, *skip_floating),
             IpcCommand::FocusOutput(dir) => self.focus_output(dir),
             IpcCommand::SendToOutput(dir) => self.send_to_output(dir),
             IpcCommand::Swap(dir) => self.swap_direction(dir),
@@ -1271,8 +1283,16 @@ impl AppState {
                 let _ = self.zoom_focused();
             }
             "focus-view" => {
-                let dir = action.get(1).map(|s| s.as_str()).unwrap_or("next");
-                let _ = self.focus_view_direction(dir);
+                let mut skip_floating = false;
+                let mut dir = "next";
+                for tok in &action[1..] {
+                    if tok == "-skip-floating" {
+                        skip_floating = true;
+                    } else {
+                        dir = tok.as_str();
+                    }
+                }
+                let _ = self.focus_view_direction(dir, skip_floating);
             }
             "focus-output" => {
                 let dir = action.get(1).map(|s| s.as_str()).unwrap_or("next");
