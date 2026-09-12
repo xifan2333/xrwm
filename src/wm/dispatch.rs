@@ -182,18 +182,26 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
                 state.manage_dirty();
             }
             Event::AppId { app_id } => {
-                let usable = state.outputs.values().next().map(|o| o.usable_area);
+                let usable = state
+                    .get_focused_output_id()
+                    .and_then(|id| state.outputs.get(&id))
+                    .map(|o| o.usable_area);
                 if let Some(w) = state.windows.iter_mut().find(|w| &w.proxy == proxy) {
                     w.app_id = app_id;
-                    AppState::apply_rules_to_window(&state.rules, w, usable);
+                    AppState::apply_rules_to_window(&state.rules, w, usable, &state.outputs);
                 }
+                state.manage_dirty();
             }
             Event::Title { title } => {
-                let usable = state.outputs.values().next().map(|o| o.usable_area);
+                let usable = state
+                    .get_focused_output_id()
+                    .and_then(|id| state.outputs.get(&id))
+                    .map(|o| o.usable_area);
                 if let Some(w) = state.windows.iter_mut().find(|w| &w.proxy == proxy) {
                     w.title = title;
-                    AppState::apply_rules_to_window(&state.rules, w, usable);
+                    AppState::apply_rules_to_window(&state.rules, w, usable, &state.outputs);
                 }
+                state.manage_dirty();
             }
             Event::Dimensions { .. } => {}
             _ => {}

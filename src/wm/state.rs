@@ -283,6 +283,7 @@ impl AppState {
         rules: &[WindowRule],
         w: &mut WindowItem,
         usable_area: Option<Rect>,
+        outputs: &HashMap<ObjectId, OutputItem>,
     ) {
         for r in rules {
             let app_matches = match &r.app_id {
@@ -303,6 +304,28 @@ impl AppState {
                 if let Some(tags) = r.tags {
                     w.tags = tags;
                 }
+                if let Some(fs) = r.fullscreen {
+                    w.fullscreen = fs;
+                    w.pending_fullscreen_change = true;
+                }
+                if let Some(ref out_str) = r.output {
+                    let matched_out = outputs
+                        .iter()
+                        .find(|(id, _)| id.to_string() == *out_str)
+                        .or_else(|| {
+                            if let Ok(num) = out_str.parse::<usize>()
+                                && num >= 1
+                                && num <= outputs.len()
+                            {
+                                outputs.keys().nth(num - 1).map(|id| (id, &outputs[id]))
+                            } else {
+                                None
+                            }
+                        });
+                    if let Some((id, _)) = matched_out {
+                        w.output = Some(id.clone());
+                    }
+                }
                 if let Some((width, height)) = r.dimensions {
                     w.width = width;
                     w.height = height;
@@ -313,6 +336,11 @@ impl AppState {
                         w.y = cy;
                         w.float_geo = Some(Rect::new(cx, cy, width, height));
                     }
+                }
+                if let Some((px, py)) = r.position {
+                    w.x = px;
+                    w.y = py;
+                    w.float_geo = Some(Rect::new(px, py, w.width, w.height));
                 }
             }
         }
