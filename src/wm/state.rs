@@ -225,6 +225,42 @@ impl AppState {
         }
     }
 
+    /// Attaches a new window according to the current `attach_mode`.
+    pub fn attach_window(&mut self, item: WindowItem) {
+        match self.attach_mode {
+            AttachMode::Top => {
+                self.windows.insert(0, item);
+            }
+            AttachMode::Bottom => {
+                self.windows.push(item);
+            }
+            AttachMode::Above => {
+                let focused_id = self.focused_window_id();
+                let focused_idx =
+                    focused_id.and_then(|id| self.windows.iter().position(|w| w.id == id));
+                if let Some(idx) = focused_idx {
+                    self.windows.insert(idx, item);
+                } else {
+                    self.windows.insert(0, item);
+                }
+            }
+            AttachMode::Below => {
+                let focused_id = self.focused_window_id();
+                let focused_idx =
+                    focused_id.and_then(|id| self.windows.iter().position(|w| w.id == id));
+                if let Some(idx) = focused_idx {
+                    self.windows.insert((idx + 1).min(self.windows.len()), item);
+                } else {
+                    self.windows.push(item);
+                }
+            }
+            AttachMode::After(n) => {
+                let idx = (n as usize).min(self.windows.len());
+                self.windows.insert(idx, item);
+            }
+        }
+    }
+
     pub fn apply_rules_to_window(
         rules: &[WindowRule],
         w: &mut WindowItem,

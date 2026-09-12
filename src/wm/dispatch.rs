@@ -97,7 +97,7 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                 state.next_view_id += 1;
                 let current_tags = state.tag_state.focused;
 
-                state.windows.push(WindowItem {
+                state.attach_window(WindowItem {
                     id: vid,
                     proxy: id,
                     node,
