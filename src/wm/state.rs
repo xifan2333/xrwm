@@ -129,6 +129,8 @@ pub struct AppState {
     pub next_view_id: u32,
 
     pub anim: AnimationController,
+    pub tag_slide_dir: Option<crate::animation::SlideDirection>,
+    pub tag_anim_old_mask: TagMask,
     pub status_listeners: Vec<(UnixStream, Option<String>)>,
     pub should_exit: bool,
 }
@@ -164,6 +166,8 @@ impl AppState {
             mode_dirty: false,
             next_view_id: 1,
             anim: AnimationController::default(),
+            tag_slide_dir: None,
+            tag_anim_old_mask: TAG_NONE,
             status_listeners: Vec::new(),
             should_exit: false,
         }
@@ -576,6 +580,9 @@ impl AppState {
         }
         if self.anim.is_animating() {
             self.manage_dirty();
+        } else if self.tag_slide_dir.is_some() {
+            self.tag_slide_dir = None;
+            self.tag_anim_old_mask = TAG_NONE;
         }
 
         self.sync_occupied_tags();
@@ -595,6 +602,16 @@ impl AppState {
 
         let is_animating = self.anim.is_animating();
         let progress = self.anim.progress();
+        let is_tag_animating = self.tag_slide_dir.is_some() && is_animating;
+
+        let slide_offset = if let Some(dir) = self.tag_slide_dir {
+            match dir {
+                crate::animation::SlideDirection::Right => usable_area.width as i32,
+                crate::animation::SlideDirection::Left => -(usable_area.width as i32),
+            }
+        } else {
+            0
+        };
 
         let active_move_proxy = self.seats.values().find_map(|s| match &s.op {
             SeatOp::Move { proxy, .. } | SeatOp::Resize { proxy, .. } => Some(proxy.clone()),
@@ -602,11 +619,41 @@ impl AppState {
         });
 
         for w in &mut self.windows {
-            if self.tag_state.is_view_visible(w.tags) {
+            let is_in_current = self.tag_state.is_view_visible(w.tags);
+            let is_in_old = is_tag_animating && (w.tags & self.tag_anim_old_mask) != 0;
+
+            if is_in_current || is_in_old {
                 let is_interactive = active_move_proxy.as_ref() == Some(&w.proxy);
                 let target = Rect::new(w.x, w.y, w.width, w.height);
 
-                let render_geo = if is_animating && !is_interactive {
+                let render_geo = if is_interactive {
+                    w.proxy.set_clip_box(0, 0, 0, 0);
+                    target
+                } else if is_tag_animating {
+                    let is_shared = is_in_current && (w.tags & self.tag_anim_old_mask) != 0;
+                    if is_shared {
+                        w.proxy.set_clip_box(0, 0, 0, 0);
+                        target
+                    } else if is_in_old && !is_in_current {
+                        // Old tag window sliding out
+                        let end_x = target.x - slide_offset;
+                        let cur_x = crate::animation::interpolate(target.x, end_x, progress);
+                        let cur_geo = Rect::new(cur_x, target.y, target.width, target.height);
+                        let (cx, cy, cw, ch) =
+                            calculate_clip_box(cur_geo, usable_area, border_width);
+                        w.proxy.set_clip_box(cx, cy, cw, ch);
+                        cur_geo
+                    } else {
+                        // New tag window sliding in
+                        let start_x = target.x + slide_offset;
+                        let cur_x = crate::animation::interpolate(start_x, target.x, progress);
+                        let cur_geo = Rect::new(cur_x, target.y, target.width, target.height);
+                        let (cx, cy, cw, ch) =
+                            calculate_clip_box(cur_geo, usable_area, border_width);
+                        w.proxy.set_clip_box(cx, cy, cw, ch);
+                        cur_geo
+                    }
+                } else if is_animating {
                     let start = w.anim_start_geo.unwrap_or(target);
                     let geo = interpolate_rect(start, target, progress);
                     let (cx, cy, cw, ch) = calculate_clip_box(geo, usable_area, border_width);
