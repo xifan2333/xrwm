@@ -56,3 +56,13 @@ done
 
 # Session Controls
 xrwm map normal "Super+Shift" Q exit
+
+# 6. Modal Keybindings (Resize Mode)
+xrwm declare-mode resize
+xrwm map normal Super R enter-mode resize
+xrwm map resize None H main-ratio -0.05
+xrwm map resize None L main-ratio +0.05
+xrwm map resize None J resize vertical +20
+xrwm map resize None K resize vertical -20
+xrwm map resize None Escape enter-mode normal
+xrwm map resize None Return enter-mode normal
