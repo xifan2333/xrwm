@@ -1095,6 +1095,8 @@ impl AppState {
                     geo
                 } else {
                     w.proxy.set_clip_box(0, 0, 0, 0);
+                    w.anim_start_geo = Some(target);
+                    w.anim_target_geo = Some(target);
                     target
                 };
 
