@@ -438,7 +438,12 @@ impl AppState {
                 self.manage_dirty();
                 Ok(format!("main ratio adjusted to {:.2}", new_ratio))
             } else {
-                Ok("vertical resize on tiled window ignored".to_string())
+                let ratio_delta = (delta as f32) / 1000.0;
+                let new_ratio =
+                    (self.layout_config.stack_split_ratio + ratio_delta).clamp(0.1, 0.9);
+                self.layout_config.stack_split_ratio = new_ratio;
+                self.manage_dirty();
+                Ok(format!("stack ratio adjusted to {:.2}", new_ratio))
             }
         } else {
             Err("window not found".to_string())
@@ -462,6 +467,23 @@ impl AppState {
         Ok(format!("main ratio set to {:.2}", new_ratio))
     }
 
+    /// Sets or adjusts the layout stack split ratio (supports absolute 0.50 or relative +/-0.05).
+    pub fn set_stack_ratio_arg(&mut self, arg: &str) -> Result<String, String> {
+        let trimmed = arg.trim();
+        let new_ratio = if trimmed.starts_with('+') || trimmed.starts_with('-') {
+            let delta = trimmed.parse::<f32>().map_err(|_| "Invalid ratio delta")?;
+            (self.layout_config.stack_split_ratio + delta).clamp(0.1, 0.9)
+        } else {
+            trimmed
+                .parse::<f32>()
+                .map_err(|_| "Invalid ratio float")?
+                .clamp(0.1, 0.9)
+        };
+        self.layout_config.stack_split_ratio = new_ratio;
+        self.manage_dirty();
+        Ok(format!("stack ratio set to {:.2}", new_ratio))
+    }
+
     /// Sets or adjusts the number of windows in the master layout area (supports +/-1).
     pub fn set_main_count_arg(&mut self, arg: &str) -> Result<String, String> {
         let trimmed = arg.trim();
@@ -482,6 +504,14 @@ impl AppState {
         self.layout_config.split_ratio = clamped;
         self.manage_dirty();
         Ok(format!("main ratio set to {clamped:.2}"))
+    }
+
+    /// Sets the layout stack split ratio (clamped to 0.1 .. 0.9).
+    pub fn set_stack_ratio(&mut self, ratio: f32) -> Result<String, String> {
+        let clamped = ratio.clamp(0.1, 0.9);
+        self.layout_config.stack_split_ratio = clamped;
+        self.manage_dirty();
+        Ok(format!("stack ratio set to {clamped:.2}"))
     }
 
     /// Sets the number of windows in the master layout area.
@@ -543,6 +573,7 @@ impl AppState {
                 Ok(format!("urgent border color set to {c}"))
             }
             IpcCommand::SetMainRatio(r) => self.set_main_ratio_arg(r),
+            IpcCommand::SetStackRatio(r) => self.set_stack_ratio_arg(r),
             IpcCommand::SetMainCount(c) => self.set_main_count_arg(c),
             IpcCommand::DeclareMode(mode) => self.declare_mode(mode),
             IpcCommand::EnterMode(mode) => self.enter_mode(mode),
@@ -758,6 +789,11 @@ impl AppState {
                     let _ = self.set_main_ratio_arg(&action[1]);
                 }
             }
+            "set-stack-ratio" | "stack-ratio" => {
+                if action.len() > 1 {
+                    let _ = self.set_stack_ratio_arg(&action[1]);
+                }
+            }
             "set-main-count" | "main-count" => {
                 if action.len() > 1 {
                     let _ = self.set_main_count_arg(&action[1]);
@@ -931,6 +967,11 @@ mod tests {
         assert!((state.layout_config.split_ratio - 0.65).abs() < f32::EPSILON);
 
         state
+            .handle_ipc_command(&IpcCommand::SetStackRatio("0.70".into()))
+            .unwrap();
+        assert!((state.layout_config.stack_split_ratio - 0.70).abs() < f32::EPSILON);
+
+        state
             .handle_ipc_command(&IpcCommand::SetMainCount("2".into()))
             .unwrap();
         assert_eq!(state.layout_config.main_count, 2);
@@ -1014,6 +1055,18 @@ mod tests {
 
         state.set_main_ratio_arg("-0.10").unwrap();
         assert!((state.layout_config.split_ratio - (initial_ratio - 0.05)).abs() < 1e-4);
+
+        // Stack ratio adjustment
+        let initial_stack_ratio = state.layout_config.stack_split_ratio;
+        state.set_stack_ratio_arg("+0.05").unwrap();
+        assert!(
+            (state.layout_config.stack_split_ratio - (initial_stack_ratio + 0.05)).abs() < 1e-4
+        );
+
+        state.set_stack_ratio_arg("-0.10").unwrap();
+        assert!(
+            (state.layout_config.stack_split_ratio - (initial_stack_ratio - 0.05)).abs() < 1e-4
+        );
 
         // Relative count adjustment
         assert_eq!(state.layout_config.main_count, 1);
