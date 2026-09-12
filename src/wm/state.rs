@@ -6,6 +6,7 @@ use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 
 use wayland_backend::client::ObjectId;
+use wayland_client::protocol::wl_registry;
 use wayland_client::{Proxy, QueueHandle};
 
 use crate::animation::AnimationController;
@@ -20,6 +21,7 @@ use crate::protocol::{
     river_window_manager_v1::RiverWindowManagerV1,
     river_window_v1::{Edges, RiverWindowV1},
     river_xkb_bindings_v1::RiverXkbBindingsV1,
+    wp_cursor_shape_manager_v1::WpCursorShapeManagerV1,
 };
 use crate::tag::TAG_NONE;
 use crate::tag::TagMask;
@@ -108,6 +110,8 @@ pub struct AppState {
     pub river_wm: Option<RiverWindowManagerV1>,
     pub river_xkb: Option<RiverXkbBindingsV1>,
     pub river_layer: Option<RiverLayerShellV1>,
+    pub wl_registry: Option<wl_registry::WlRegistry>,
+    pub cursor_shape_manager: Option<WpCursorShapeManagerV1>,
     pub pointer: (i32, i32),
     pub windows: Vec<WindowItem>,
     pub outputs: HashMap<ObjectId, OutputItem>,
@@ -148,6 +152,8 @@ impl AppState {
             river_wm: None,
             river_xkb: None,
             river_layer: None,
+            wl_registry: None,
+            cursor_shape_manager: None,
             pointer: (0, 0),
             windows: Vec::new(),
             outputs: HashMap::new(),
@@ -435,6 +441,12 @@ impl AppState {
                 .find(|w| w.proxy == win_proxy && w.floating)
                 .map(|w| (w.x, w.y));
             if let (Some((x, y)), Some(seat)) = (geo, self.seats.get_mut(&id)) {
+                if let Some(ref dev) = seat.cursor_shape_device {
+                    dev.set_shape(
+                        0,
+                        crate::protocol::wp_cursor_shape_device_v1::Shape::Grabbing,
+                    );
+                }
                 seat.proxy.op_start_pointer();
                 seat.op = SeatOp::Move {
                     proxy: win_proxy.clone(),
@@ -466,6 +478,17 @@ impl AppState {
                     edges |= Edges::Top;
                 } else {
                     edges |= Edges::Bottom;
+                }
+
+                let shape = if edges.contains(Edges::Top) && edges.contains(Edges::Left)
+                    || edges.contains(Edges::Bottom) && edges.contains(Edges::Right)
+                {
+                    crate::protocol::wp_cursor_shape_device_v1::Shape::NwseResize
+                } else {
+                    crate::protocol::wp_cursor_shape_device_v1::Shape::NeswResize
+                };
+                if let Some(ref dev) = seat.cursor_shape_device {
+                    dev.set_shape(0, shape);
                 }
 
                 seat.proxy.op_start_pointer();
@@ -569,11 +592,15 @@ impl AppState {
             if w.fullscreen {
                 w.proxy.set_borders(Edges::empty(), 0, 0, 0, 0, 0);
             } else if w.ssd {
-                w.proxy.use_ssd();
+                if w.new {
+                    w.proxy.use_ssd();
+                }
                 w.proxy
                     .set_borders(Edges::all(), self.border_width as i32, cr, cg, cb, ca);
             } else {
-                w.proxy.use_csd();
+                if w.new {
+                    w.proxy.use_csd();
+                }
                 w.proxy.set_borders(Edges::empty(), 0, 0, 0, 0, 0);
             }
         }
@@ -649,6 +676,29 @@ impl AppState {
                     proxy.inform_resize_end();
                 }
                 seat.proxy.op_end();
+
+                let target_proxy = match &seat.op {
+                    SeatOp::Move { proxy, .. } | SeatOp::Resize { proxy, .. } => {
+                        Some(proxy.clone())
+                    }
+                    SeatOp::None => None,
+                };
+                if let Some(target) = target_proxy
+                    && let Some(w) = self.windows.iter_mut().find(|w| w.proxy == target)
+                {
+                    let resting = Rect::new(w.x, w.y, w.width, w.height);
+                    w.anim_target_geo = Some(resting);
+                    w.anim_start_geo = Some(resting);
+                    w.visual_geo = Some(resting);
+                }
+
+                if let Some(ref dev) = seat.cursor_shape_device {
+                    dev.set_shape(
+                        0,
+                        crate::protocol::wp_cursor_shape_device_v1::Shape::Default,
+                    );
+                }
+
                 seat.op = SeatOp::None;
                 seat.op_release = false;
                 seat.op_dx = 0;

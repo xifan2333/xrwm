@@ -8,6 +8,8 @@ use crate::protocol::{
     river_pointer_binding_v1::RiverPointerBindingV1,
     river_seat_v1::RiverSeatV1,
     river_window_v1::{Edges, RiverWindowV1},
+    wl_pointer::WlPointer,
+    wp_cursor_shape_device_v1::WpCursorShapeDeviceV1,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,6 +71,8 @@ pub struct SeatItem {
     pub op_dx: i32,
     pub op_dy: i32,
     pub op_release: bool,
+    pub cursor_shape_device: Option<WpCursorShapeDeviceV1>,
+    pub wl_pointer: Option<WlPointer>,
     pub pointer_bindings: HashMap<ObjectId, PointerBinding>,
 }
 
@@ -85,6 +89,8 @@ impl SeatItem {
             op_dx: 0,
             op_dy: 0,
             op_release: false,
+            cursor_shape_device: None,
+            wl_pointer: None,
             pointer_bindings: HashMap::new(),
         }
     }

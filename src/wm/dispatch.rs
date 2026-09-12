@@ -24,6 +24,7 @@ impl Dispatch<wl_registry::WlRegistry, ()> for AppState {
         _conn: &Connection,
         qh: &QueueHandle<Self>,
     ) {
+        state.wl_registry = Some(registry.clone());
         if let wl_registry::Event::Global {
             name,
             interface,
@@ -45,6 +46,15 @@ impl Dispatch<wl_registry::WlRegistry, ()> for AppState {
                     let layer =
                         registry.bind::<RiverLayerShellV1, _, _>(name, version.min(1), qh, ());
                     state.river_layer = Some(layer);
+                }
+                "wp_cursor_shape_manager_v1" => {
+                    let mgr = registry.bind::<crate::protocol::wp_cursor_shape_manager_v1::WpCursorShapeManagerV1, _, _>(
+                        name,
+                        version.min(2),
+                        qh,
+                        (),
+                    );
+                    state.cursor_shape_manager = Some(mgr);
                 }
                 _ => {}
             }
@@ -226,7 +236,7 @@ impl Dispatch<RiverSeatV1, ()> for AppState {
         event: <RiverSeatV1 as Proxy>::Event,
         _data: &(),
         _conn: &Connection,
-        _qh: &QueueHandle<Self>,
+        qh: &QueueHandle<Self>,
     ) {
         use crate::protocol::river_seat_v1::Event;
         match event {
@@ -263,7 +273,25 @@ impl Dispatch<RiverSeatV1, ()> for AppState {
             Event::PointerPosition { x, y } => {
                 state.pointer = (x, y);
             }
-            Event::ShellSurfaceInteraction { .. } | Event::WlSeat { .. } => {}
+            Event::WlSeat { name } => {
+                if let Some(ref reg) = state.wl_registry {
+                    let wl_seat = reg.bind::<wayland_client::protocol::wl_seat::WlSeat, _, _>(
+                        name,
+                        1,
+                        qh,
+                        (),
+                    );
+                    let pointer = wl_seat.get_pointer(qh, ());
+                    if let Some(ref shape_mgr) = state.cursor_shape_manager {
+                        let device = shape_mgr.get_pointer(&pointer, qh, ());
+                        if let Some(seat) = state.seats.get_mut(&proxy.id()) {
+                            seat.cursor_shape_device = Some(device);
+                            seat.wl_pointer = Some(pointer);
+                        }
+                    }
+                }
+            }
+            Event::ShellSurfaceInteraction { .. } => {}
             Event::Removed => {
                 state.seats.remove(&proxy.id());
             }
@@ -295,6 +323,10 @@ impl Dispatch<RiverPointerBindingV1, ObjectId> for AppState {
 wayland_client::delegate_noop!(AppState: ignore RiverLayerShellV1);
 wayland_client::delegate_noop!(AppState: ignore RiverXkbBindingsV1);
 wayland_client::delegate_noop!(AppState: ignore RiverNodeV1);
+wayland_client::delegate_noop!(AppState: ignore wayland_client::protocol::wl_seat::WlSeat);
+wayland_client::delegate_noop!(AppState: ignore wayland_client::protocol::wl_pointer::WlPointer);
+wayland_client::delegate_noop!(AppState: ignore crate::protocol::wp_cursor_shape_manager_v1::WpCursorShapeManagerV1);
+wayland_client::delegate_noop!(AppState: ignore crate::protocol::wp_cursor_shape_device_v1::WpCursorShapeDeviceV1);
 
 impl Dispatch<crate::protocol::river_xkb_binding_v1::RiverXkbBindingV1, ()> for AppState {
     fn event(

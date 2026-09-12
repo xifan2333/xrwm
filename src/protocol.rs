@@ -19,8 +19,14 @@ pub mod interfaces {
         use super::rwm::*;
         wayland_scanner::generate_interfaces!("./protocols/river-layer-shell-v1.xml");
     }
+
+    pub mod rcursor {
+        use super::rwm::*;
+        wayland_scanner::generate_interfaces!("./protocols/cursor-shape-v1.xml");
+    }
 }
 
+use self::interfaces::rcursor::*;
 use self::interfaces::rlayer::*;
 use self::interfaces::rwm::*;
 use self::interfaces::rxkb::*;
@@ -28,3 +34,4 @@ use self::interfaces::rxkb::*;
 wayland_scanner::generate_client_code!("./protocols/river-window-management-v1.xml");
 wayland_scanner::generate_client_code!("./protocols/river-xkb-bindings-v1.xml");
 wayland_scanner::generate_client_code!("./protocols/river-layer-shell-v1.xml");
+wayland_scanner::generate_client_code!("./protocols/cursor-shape-v1.xml");

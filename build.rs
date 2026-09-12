@@ -6,6 +6,7 @@ fn main() {
         "protocols/river-input-management-v1.xml",
         "protocols/river-libinput-config-v1.xml",
         "protocols/river-xkb-config-v1.xml",
+        "protocols/cursor-shape-v1.xml",
     ];
 
     for protocol in protocols {
