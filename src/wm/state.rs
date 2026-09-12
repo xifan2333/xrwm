@@ -134,6 +134,7 @@ pub struct WindowItem {
     pub pending_fullscreen_change: bool,
     pub float_geo: Option<Rect>,
     pub ssd: bool,
+    pub output: Option<ObjectId>,
     pub x: i32,
     pub y: i32,
     pub width: u32,
@@ -152,6 +153,10 @@ pub struct OutputItem {
     pub ls_output: Option<RiverLayerShellOutputV1>,
     pub removed: bool,
     pub usable_area: Rect,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
 }
 
 pub struct AppState {
@@ -163,6 +168,7 @@ pub struct AppState {
     pub pointer: (i32, i32),
     pub windows: Vec<WindowItem>,
     pub outputs: HashMap<ObjectId, OutputItem>,
+    pub focused_output: Option<ObjectId>,
     pub seats: HashMap<ObjectId, SeatItem>,
 
     pub tag_state: TagState,
@@ -206,6 +212,7 @@ impl AppState {
             pointer: (0, 0),
             windows: Vec::new(),
             outputs: HashMap::new(),
+            focused_output: None,
             seats: HashMap::new(),
             tag_state: TagState::new(),
             previous_focused_tags: 1,
@@ -236,6 +243,23 @@ impl AppState {
         if let Some(wm) = &self.river_wm {
             wm.manage_dirty();
         }
+    }
+
+    /// Resolves the currently focused output ID with graceful fallbacks.
+    pub fn get_focused_output_id(&self) -> Option<ObjectId> {
+        if let Some(ref id) = self.focused_output
+            && self.outputs.contains_key(id)
+        {
+            return Some(id.clone());
+        }
+        if let Some(win_id) = self.focused_window_id()
+            && let Some(w) = self.windows.iter().find(|w| w.id == win_id)
+            && let Some(ref out) = w.output
+            && self.outputs.contains_key(out)
+        {
+            return Some(out.clone());
+        }
+        self.outputs.keys().next().cloned()
     }
 
     /// Attaches a new window according to the current `attach_mode`.
