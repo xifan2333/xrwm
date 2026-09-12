@@ -478,6 +478,21 @@ impl AppState {
         Ok(format!("attach mode set to {:?}", mode).to_lowercase())
     }
 
+    /// Sets cursor warp mode.
+    pub fn set_cursor_warp(&mut self, warp: crate::wm::CursorWarp) -> Result<String, String> {
+        self.cursor_warp = warp;
+        Ok(format!("cursor warp set to {:?}", warp).to_lowercase())
+    }
+
+    /// Sets focus-follows-cursor mode.
+    pub fn set_focus_follows_cursor(
+        &mut self,
+        mode: crate::wm::FocusFollowsCursor,
+    ) -> Result<String, String> {
+        self.focus_follows_cursor = mode;
+        Ok(format!("focus-follows-cursor set to {:?}", mode).to_lowercase())
+    }
+
     /// Toggles the focused tags mask on the WM.
     pub fn toggle_focused_tags(&mut self, mask: TagMask) -> Result<String, String> {
         let old_mask = self.tag_state.focused;
@@ -694,6 +709,8 @@ impl AppState {
             IpcCommand::SendToPreviousTags => self.send_to_previous_tags(),
             IpcCommand::SetMainLocation(loc) => self.set_main_location(*loc),
             IpcCommand::SetAttachMode(mode) => self.set_attach_mode(*mode),
+            IpcCommand::SetCursorWarp(mode) => self.set_cursor_warp(*mode),
+            IpcCommand::SetFocusFollowsCursor(mode) => self.set_focus_follows_cursor(*mode),
             IpcCommand::FocusTag(idx) => {
                 let mask = TagState::tag_index_to_mask(*idx);
                 self.set_focused_tags(mask)
@@ -973,6 +990,20 @@ impl AppState {
                     if let Ok(mode) = AttachMode::parse(&raw) {
                         let _ = self.set_attach_mode(mode);
                     }
+                }
+            }
+            "set-cursor-warp" | "cursor-warp" => {
+                if action.len() > 1
+                    && let Ok(mode) = crate::wm::CursorWarp::parse(&action[1])
+                {
+                    let _ = self.set_cursor_warp(mode);
+                }
+            }
+            "focus-follows-cursor" => {
+                if action.len() > 1
+                    && let Ok(mode) = crate::wm::FocusFollowsCursor::parse(&action[1])
+                {
+                    let _ = self.set_focus_follows_cursor(mode);
                 }
             }
             "zoom" => {
@@ -1259,6 +1290,23 @@ mod tests {
         assert_eq!(state.attach_mode, AttachMode::Bottom);
         state.execute_action_tokens(&["attach-mode".into(), "after".into(), "3".into()]);
         assert_eq!(state.attach_mode, AttachMode::After(3));
+
+        // Cursor warp and focus-follows-cursor tests
+        state.execute_action_tokens(&["set-cursor-warp".into(), "on-output-change".into()]);
+        assert_eq!(state.cursor_warp, crate::wm::CursorWarp::OnOutputChange);
+        state.execute_action_tokens(&["cursor-warp".into(), "disabled".into()]);
+        assert_eq!(state.cursor_warp, crate::wm::CursorWarp::Disabled);
+
+        state.execute_action_tokens(&["focus-follows-cursor".into(), "disabled".into()]);
+        assert_eq!(
+            state.focus_follows_cursor,
+            crate::wm::FocusFollowsCursor::Disabled
+        );
+        state.execute_action_tokens(&["focus-follows-cursor".into(), "always".into()]);
+        assert_eq!(
+            state.focus_follows_cursor,
+            crate::wm::FocusFollowsCursor::Always
+        );
 
         // Relative count adjustment
         assert_eq!(state.layout_config.main_count, 1);
