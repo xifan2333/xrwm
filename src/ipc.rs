@@ -26,9 +26,15 @@ pub enum IpcCommand {
     SetBorderColorFocused(String),
     SetBorderColorUnfocused(String),
     SetBorderColorUrgent(String),
-    SetMainRatio(f32),
-    SetMainCount(u32),
+    SetMainRatio(String),
+    SetMainCount(String),
     SetMainLocation(crate::layout::MainLocation),
+    DeclareMode(String),
+    EnterMode(String),
+    ResizeWindow {
+        horizontal: bool,
+        delta: i32,
+    },
     SetAnimation(bool),
     SetAnimationDuration(u64),
     Map {
@@ -242,20 +248,36 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
             let color = args.get(1).ok_or("Missing color value")?.clone();
             Ok(IpcCommand::SetBorderColorUrgent(color))
         }
-        "set-main-ratio" | "main-ratio" => {
-            let ratio = args
+        "declare-mode" => {
+            let mode = args.get(1).ok_or("Missing mode name")?.clone();
+            Ok(IpcCommand::DeclareMode(mode))
+        }
+        "enter-mode" => {
+            let mode = args.get(1).ok_or("Missing mode name")?.clone();
+            Ok(IpcCommand::EnterMode(mode))
+        }
+        "resize" => {
+            let orientation = args
                 .get(1)
-                .ok_or("Missing ratio value")?
-                .parse::<f32>()
-                .map_err(|_| "Ratio must be a float (e.g. 0.55)")?;
+                .ok_or("Missing orientation: horizontal|vertical")?;
+            let horizontal = match orientation.to_ascii_lowercase().as_str() {
+                "horizontal" | "h" | "width" => true,
+                "vertical" | "v" | "height" => false,
+                _ => return Err("Invalid orientation, use horizontal|vertical".to_string()),
+            };
+            let delta = args
+                .get(2)
+                .ok_or("Missing delta pixels (e.g. +20, -20, 20)")?
+                .parse::<i32>()
+                .map_err(|_| "Delta must be an integer (e.g. 20, -20)")?;
+            Ok(IpcCommand::ResizeWindow { horizontal, delta })
+        }
+        "set-main-ratio" | "main-ratio" => {
+            let ratio = args.get(1).ok_or("Missing ratio value")?.clone();
             Ok(IpcCommand::SetMainRatio(ratio))
         }
         "set-main-count" | "main-count" => {
-            let count = args
-                .get(1)
-                .ok_or("Missing count value")?
-                .parse::<u32>()
-                .map_err(|_| "Count must be a positive integer")?;
+            let count = args.get(1).ok_or("Missing count value")?.clone();
             Ok(IpcCommand::SetMainCount(count))
         }
         "set-animation" | "animation" => {
@@ -420,12 +442,35 @@ mod tests {
             IpcCommand::FocusView("next".into())
         );
         assert_eq!(
+            parse_cli_args(&["declare-mode".into(), "resize".into()]).unwrap(),
+            IpcCommand::DeclareMode("resize".into())
+        );
+        assert_eq!(
+            parse_cli_args(&["enter-mode".into(), "resize".into()]).unwrap(),
+            IpcCommand::EnterMode("resize".into())
+        );
+        assert_eq!(
+            parse_cli_args(&["resize".into(), "horizontal".into(), "20".into()]).unwrap(),
+            IpcCommand::ResizeWindow {
+                horizontal: true,
+                delta: 20,
+            }
+        );
+        assert_eq!(
+            parse_cli_args(&["main-ratio".into(), "+0.05".into()]).unwrap(),
+            IpcCommand::SetMainRatio("+0.05".into())
+        );
+        assert_eq!(
+            parse_cli_args(&["main-count".into(), "+1".into()]).unwrap(),
+            IpcCommand::SetMainCount("+1".into())
+        );
+        assert_eq!(
             parse_cli_args(&["main-ratio".into(), "0.60".into()]).unwrap(),
-            IpcCommand::SetMainRatio(0.60)
+            IpcCommand::SetMainRatio("0.60".into())
         );
         assert_eq!(
             parse_cli_args(&["main-count".into(), "2".into()]).unwrap(),
-            IpcCommand::SetMainCount(2)
+            IpcCommand::SetMainCount("2".into())
         );
         assert_eq!(
             parse_cli_args(&["set-animation".into(), "true".into()]).unwrap(),

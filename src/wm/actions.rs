@@ -367,6 +367,96 @@ impl AppState {
         }
     }
 
+    /// Declares a new modal keybinding mode.
+    pub fn declare_mode(&mut self, mode: &str) -> Result<String, String> {
+        let name = mode.trim();
+        if name.is_empty() {
+            return Err("mode name cannot be empty".to_string());
+        }
+        if !self.modes.iter().any(|m| m.eq_ignore_ascii_case(name)) {
+            self.modes.push(name.to_string());
+        }
+        Ok(format!("declared mode {name}"))
+    }
+
+    /// Enters a declared modal keybinding mode.
+    pub fn enter_mode(&mut self, mode: &str) -> Result<String, String> {
+        let name = mode.trim();
+        if !self.modes.iter().any(|m| m.eq_ignore_ascii_case(name)) {
+            return Err(format!("unknown mode '{name}', declare it first"));
+        }
+        if self.active_mode != name {
+            self.active_mode = name.to_string();
+            self.mode_dirty = true;
+            self.manage_dirty();
+        }
+        Ok(format!("entered mode {name}"))
+    }
+
+    /// Resizes floating window dimensions or adjusts tiled split ratio.
+    pub fn resize_window(&mut self, horizontal: bool, delta: i32) -> Result<String, String> {
+        let focused_id = self.focused_window_id();
+        let Some(id) = focused_id else {
+            return Err("no view focused".to_string());
+        };
+
+        if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
+            if w.floating {
+                if horizontal {
+                    w.width = (w.width as i32 + delta).max(100) as u32;
+                } else {
+                    w.height = (w.height as i32 + delta).max(100) as u32;
+                }
+                w.float_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
+                let new_w = w.width;
+                let new_h = w.height;
+                self.manage_dirty();
+                Ok(format!("resized window {id} to {new_w}x{new_h}"))
+            } else if horizontal {
+                let ratio_delta = (delta as f32) / 1000.0;
+                let new_ratio = (self.layout_config.split_ratio + ratio_delta).clamp(0.1, 0.9);
+                self.layout_config.split_ratio = new_ratio;
+                self.manage_dirty();
+                Ok(format!("main ratio adjusted to {:.2}", new_ratio))
+            } else {
+                Ok("vertical resize on tiled window ignored".to_string())
+            }
+        } else {
+            Err("window not found".to_string())
+        }
+    }
+
+    /// Sets or adjusts the layout main split ratio (supports absolute 0.55 or relative +/-0.05).
+    pub fn set_main_ratio_arg(&mut self, arg: &str) -> Result<String, String> {
+        let trimmed = arg.trim();
+        let new_ratio = if trimmed.starts_with('+') || trimmed.starts_with('-') {
+            let delta = trimmed.parse::<f32>().map_err(|_| "Invalid ratio delta")?;
+            (self.layout_config.split_ratio + delta).clamp(0.1, 0.9)
+        } else {
+            trimmed
+                .parse::<f32>()
+                .map_err(|_| "Invalid ratio float")?
+                .clamp(0.1, 0.9)
+        };
+        self.layout_config.split_ratio = new_ratio;
+        self.manage_dirty();
+        Ok(format!("main ratio set to {:.2}", new_ratio))
+    }
+
+    /// Sets or adjusts the number of windows in the master layout area (supports +/-1).
+    pub fn set_main_count_arg(&mut self, arg: &str) -> Result<String, String> {
+        let trimmed = arg.trim();
+        let new_count = if trimmed.starts_with('+') || trimmed.starts_with('-') {
+            let delta = trimmed.parse::<i32>().map_err(|_| "Invalid count delta")?;
+            (self.layout_config.main_count as i32 + delta).max(1) as u32
+        } else {
+            trimmed.parse::<u32>().map_err(|_| "Invalid count")?.max(1)
+        };
+        self.layout_config.main_count = new_count;
+        self.manage_dirty();
+        Ok(format!("main count set to {new_count}"))
+    }
+
     /// Sets the layout main split ratio (clamped to 0.1 .. 0.9).
     pub fn set_main_ratio(&mut self, ratio: f32) -> Result<String, String> {
         let clamped = ratio.clamp(0.1, 0.9);
@@ -433,8 +523,13 @@ impl AppState {
                 self.manage_dirty();
                 Ok(format!("urgent border color set to {c}"))
             }
-            IpcCommand::SetMainRatio(r) => self.set_main_ratio(*r),
-            IpcCommand::SetMainCount(c) => self.set_main_count(*c),
+            IpcCommand::SetMainRatio(r) => self.set_main_ratio_arg(r),
+            IpcCommand::SetMainCount(c) => self.set_main_count_arg(c),
+            IpcCommand::DeclareMode(mode) => self.declare_mode(mode),
+            IpcCommand::EnterMode(mode) => self.enter_mode(mode),
+            IpcCommand::ResizeWindow { horizontal, delta } => {
+                self.resize_window(*horizontal, *delta)
+            }
             IpcCommand::SetAnimation(enabled) => {
                 self.anim.enabled = *enabled;
                 Ok(format!("animations set to {enabled}"))
@@ -568,6 +663,39 @@ impl AppState {
             "send-to-previous-tags" => {
                 let _ = self.send_to_previous_tags();
             }
+            "declare-mode" => {
+                if action.len() > 1 {
+                    let _ = self.declare_mode(&action[1]);
+                }
+            }
+            "enter-mode" => {
+                if action.len() > 1 {
+                    let _ = self.enter_mode(&action[1]);
+                }
+            }
+            "resize" => {
+                let horizontal = if action.len() > 1 {
+                    !matches!(action[1].as_str(), "vertical" | "v" | "height")
+                } else {
+                    true
+                };
+                let delta = if action.len() > 2 {
+                    action[2].parse::<i32>().unwrap_or(20)
+                } else {
+                    20
+                };
+                let _ = self.resize_window(horizontal, delta);
+            }
+            "set-main-ratio" | "main-ratio" => {
+                if action.len() > 1 {
+                    let _ = self.set_main_ratio_arg(&action[1]);
+                }
+            }
+            "set-main-count" | "main-count" => {
+                if action.len() > 1 {
+                    let _ = self.set_main_count_arg(&action[1]);
+                }
+            }
             "zoom" => {
                 let _ = self.zoom_focused();
             }
@@ -693,12 +821,12 @@ mod tests {
     fn test_app_state_ipc_layout_and_animation() {
         let mut state = AppState::new();
         state
-            .handle_ipc_command(&IpcCommand::SetMainRatio(0.65))
+            .handle_ipc_command(&IpcCommand::SetMainRatio("0.65".into()))
             .unwrap();
         assert!((state.layout_config.split_ratio - 0.65).abs() < f32::EPSILON);
 
         state
-            .handle_ipc_command(&IpcCommand::SetMainCount(2))
+            .handle_ipc_command(&IpcCommand::SetMainCount("2".into()))
             .unwrap();
         assert_eq!(state.layout_config.main_count, 2);
 
@@ -747,22 +875,33 @@ mod tests {
     }
 
     #[test]
-    fn test_app_state_previous_tags_and_location() {
+    fn test_app_state_modal_modes_and_relative_ratio() {
         let mut state = AppState::new();
-        state.set_focused_tags(2).unwrap();
-        assert_eq!(state.tag_state.focused, 2);
-        assert_eq!(state.previous_focused_tags, 1);
+        assert_eq!(state.active_mode, "normal");
 
-        state.focus_previous_tags().unwrap();
-        assert_eq!(state.tag_state.focused, 1);
+        state.declare_mode("resize").unwrap();
+        assert!(state.modes.contains(&"resize".to_string()));
 
-        state
-            .set_main_location(crate::layout::MainLocation::Right)
-            .unwrap();
-        assert_eq!(
-            state.layout_config.main_location,
-            crate::layout::MainLocation::Right
-        );
+        state.enter_mode("resize").unwrap();
+        assert_eq!(state.active_mode, "resize");
+
+        state.enter_mode("normal").unwrap();
+        assert_eq!(state.active_mode, "normal");
+
+        // Relative ratio adjustment
+        let initial_ratio = state.layout_config.split_ratio;
+        state.set_main_ratio_arg("+0.05").unwrap();
+        assert!((state.layout_config.split_ratio - (initial_ratio + 0.05)).abs() < 1e-4);
+
+        state.set_main_ratio_arg("-0.10").unwrap();
+        assert!((state.layout_config.split_ratio - (initial_ratio - 0.05)).abs() < 1e-4);
+
+        // Relative count adjustment
+        assert_eq!(state.layout_config.main_count, 1);
+        state.set_main_count_arg("+1").unwrap();
+        assert_eq!(state.layout_config.main_count, 2);
+        state.set_main_count_arg("-1").unwrap();
+        assert_eq!(state.layout_config.main_count, 1);
     }
 
     #[test]

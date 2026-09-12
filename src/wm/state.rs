@@ -122,6 +122,9 @@ pub struct AppState {
     pub rules: Vec<WindowRule>,
     pub pending_key_bindings: Vec<PendingKeyBinding>,
     pub key_bindings: HashMap<ObjectId, ActiveKeyBinding>,
+    pub active_mode: String,
+    pub modes: Vec<String>,
+    pub mode_dirty: bool,
     pub next_view_id: u32,
 
     pub anim: AnimationController,
@@ -155,6 +158,9 @@ impl AppState {
             rules: Vec::new(),
             pending_key_bindings: Vec::new(),
             key_bindings: HashMap::new(),
+            active_mode: "normal".to_string(),
+            modes: vec!["normal".to_string(), "locked".to_string()],
+            mode_dirty: false,
             next_view_id: 1,
             anim: AnimationController::default(),
             status_listeners: Vec::new(),
@@ -234,7 +240,11 @@ impl AppState {
                         qh,
                         (),
                     );
-                    binding.enable();
+                    if pending.mode == self.active_mode {
+                        binding.enable();
+                    } else {
+                        binding.disable();
+                    }
                     self.key_bindings.insert(
                         binding.id(),
                         ActiveKeyBinding {
@@ -245,6 +255,18 @@ impl AppState {
                     );
                 }
             }
+        }
+
+        // Sync mode activation (enable active mode bindings, disable others)
+        if self.mode_dirty {
+            for kb in self.key_bindings.values() {
+                if kb.mode == self.active_mode {
+                    kb.proxy.enable();
+                } else {
+                    kb.proxy.disable();
+                }
+            }
+            self.mode_dirty = false;
         }
 
         // 0. Process any pending close requests inside the manage sequence
@@ -714,6 +736,7 @@ impl AppState {
             },
             "layout": if self.layout_config.monocle { "monocle" } else { "master-stack" },
             "main_location": format!("{:?}", self.layout_config.main_location).to_lowercase(),
+            "mode": self.active_mode,
             "focused_window_id": focused_id,
             "hovered_window_id": hovered_id,
             "pointer": { "x": self.pointer.0, "y": self.pointer.1 },
@@ -737,7 +760,7 @@ impl AppState {
 
         let obj = serde_json::json!({
             "text": tags_text,
-            "tooltip": format!("Focused: {title}"),
+            "tooltip": format!("Mode: [{}], Focused: {}", self.active_mode, title),
             "class": if self.layout_config.monocle { "monocle" } else { "tiled" },
         });
 
