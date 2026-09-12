@@ -60,6 +60,9 @@ pub enum SeatOp {
     TiledResize {
         start_ratio: f32,
     },
+    TiledStackResize {
+        start_ratio: f32,
+    },
     TiledMove {
         proxy: RiverWindowV1,
         start_win_id: u32,

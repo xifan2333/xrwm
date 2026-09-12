@@ -367,7 +367,9 @@ impl AppState {
         if !closed.is_empty() {
             for seat in self.seats.values_mut() {
                 let op_target = match &seat.op {
-                    SeatOp::None | SeatOp::TiledResize { .. } => None,
+                    SeatOp::None | SeatOp::TiledResize { .. } | SeatOp::TiledStackResize { .. } => {
+                        None
+                    }
                     SeatOp::Move { proxy, .. }
                     | SeatOp::Resize { proxy, .. }
                     | SeatOp::TiledMove { proxy, .. } => Some(proxy.clone()),
@@ -473,7 +475,7 @@ impl AppState {
                 .iter()
                 .find(|w| w.proxy == win_proxy)
                 .map(|w| (w.id, w.floating, w.x, w.y, w.width, w.height));
-            if let (Some((_win_id, floating, x, y, w, h)), Some(seat)) =
+            if let (Some((win_id, floating, x, y, w, h)), Some(seat)) =
                 (win_info, self.seats.get_mut(&id))
             {
                 seat.proxy.op_start_pointer();
@@ -516,20 +518,57 @@ impl AppState {
                         edges,
                     };
                 } else {
-                    let shape = match self.layout_config.main_location {
-                        crate::layout::MainLocation::Left | crate::layout::MainLocation::Right => {
-                            crate::protocol::wp_cursor_shape_device_v1::Shape::EwResize
+                    let tag_state = self.tag_state;
+                    let tiled_wins: Vec<u32> = self
+                        .windows
+                        .iter()
+                        .filter(|w| !w.closed && !w.floating && tag_state.is_view_visible(w.tags))
+                        .map(|w| w.id)
+                        .collect();
+                    let main_count =
+                        (self.layout_config.main_count as usize).clamp(1, tiled_wins.len().max(1));
+                    let is_stack = tiled_wins
+                        .iter()
+                        .position(|&id| id == win_id)
+                        .map(|idx| idx >= main_count)
+                        .unwrap_or(false);
+                    let stack_count = tiled_wins.len().saturating_sub(main_count);
+
+                    if is_stack && stack_count >= 2 {
+                        let shape = match self.layout_config.main_location {
+                            crate::layout::MainLocation::Left
+                            | crate::layout::MainLocation::Right => {
+                                crate::protocol::wp_cursor_shape_device_v1::Shape::NsResize
+                            }
+                            crate::layout::MainLocation::Top
+                            | crate::layout::MainLocation::Bottom => {
+                                crate::protocol::wp_cursor_shape_device_v1::Shape::EwResize
+                            }
+                        };
+                        if let Some(ref dev) = seat.cursor_shape_device {
+                            dev.set_shape(0, shape);
                         }
-                        crate::layout::MainLocation::Top | crate::layout::MainLocation::Bottom => {
-                            crate::protocol::wp_cursor_shape_device_v1::Shape::NsResize
+                        seat.op = SeatOp::TiledStackResize {
+                            start_ratio: self.layout_config.stack_split_ratio,
+                        };
+                    } else {
+                        let shape = match self.layout_config.main_location {
+                            crate::layout::MainLocation::Left
+                            | crate::layout::MainLocation::Right => {
+                                crate::protocol::wp_cursor_shape_device_v1::Shape::EwResize
+                            }
+                            crate::layout::MainLocation::Top
+                            | crate::layout::MainLocation::Bottom => {
+                                crate::protocol::wp_cursor_shape_device_v1::Shape::NsResize
+                            }
+                        };
+                        if let Some(ref dev) = seat.cursor_shape_device {
+                            dev.set_shape(0, shape);
                         }
-                    };
-                    if let Some(ref dev) = seat.cursor_shape_device {
-                        dev.set_shape(0, shape);
+                        seat.op = SeatOp::TiledResize {
+                            start_ratio: self.layout_config.split_ratio,
+                        };
                     }
-                    seat.op = SeatOp::TiledResize {
-                        start_ratio: self.layout_config.split_ratio,
-                    };
                 }
                 seat.op_dx = 0;
                 seat.op_dy = 0;
@@ -714,6 +753,22 @@ impl AppState {
                         crate::layout::MainLocation::Bottom => {
                             let delta_ratio = -(seat.op_dy as f32) / usable_h.max(1.0);
                             self.layout_config.split_ratio =
+                                (*start_ratio + delta_ratio).clamp(0.1, 0.9);
+                        }
+                    }
+                }
+                SeatOp::TiledStackResize { start_ratio } => {
+                    let usable_w = usable_area.width as f32;
+                    let usable_h = usable_area.height as f32;
+                    match self.layout_config.main_location {
+                        crate::layout::MainLocation::Left | crate::layout::MainLocation::Right => {
+                            let delta_ratio = (seat.op_dy as f32) / usable_h.max(1.0);
+                            self.layout_config.stack_split_ratio =
+                                (*start_ratio + delta_ratio).clamp(0.1, 0.9);
+                        }
+                        crate::layout::MainLocation::Top | crate::layout::MainLocation::Bottom => {
+                            let delta_ratio = (seat.op_dx as f32) / usable_w.max(1.0);
+                            self.layout_config.stack_split_ratio =
                                 (*start_ratio + delta_ratio).clamp(0.1, 0.9);
                         }
                     }

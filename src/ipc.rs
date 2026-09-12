@@ -27,6 +27,7 @@ pub enum IpcCommand {
     SetBorderColorUnfocused(String),
     SetBorderColorUrgent(String),
     SetMainRatio(String),
+    SetStackRatio(String),
     SetMainCount(String),
     SetMainLocation(crate::layout::MainLocation),
     DeclareMode(String),
@@ -282,6 +283,10 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
             let ratio = args.get(1).ok_or("Missing ratio value")?.clone();
             Ok(IpcCommand::SetMainRatio(ratio))
         }
+        "set-stack-ratio" | "stack-ratio" => {
+            let ratio = args.get(1).ok_or("Missing ratio value")?.clone();
+            Ok(IpcCommand::SetStackRatio(ratio))
+        }
         "set-main-count" | "main-count" => {
             let count = args.get(1).ok_or("Missing count value")?.clone();
             Ok(IpcCommand::SetMainCount(count))
@@ -514,6 +519,18 @@ mod tests {
         assert_eq!(
             parse_cli_args(&["main-ratio".into(), "+0.05".into()]).unwrap(),
             IpcCommand::SetMainRatio("+0.05".into())
+        );
+        assert_eq!(
+            parse_cli_args(&["set-stack-ratio".into(), "0.60".into()]).unwrap(),
+            IpcCommand::SetStackRatio("0.60".into())
+        );
+        assert_eq!(
+            parse_cli_args(&["stack-ratio".into(), "+0.05".into()]).unwrap(),
+            IpcCommand::SetStackRatio("+0.05".into())
+        );
+        assert_eq!(
+            parse_cli_args(&["stack-ratio".into(), "-0.05".into()]).unwrap(),
+            IpcCommand::SetStackRatio("-0.05".into())
         );
         assert_eq!(
             parse_cli_args(&["main-count".into(), "+1".into()]).unwrap(),
