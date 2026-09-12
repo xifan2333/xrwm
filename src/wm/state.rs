@@ -187,6 +187,8 @@ pub struct AppState {
     pub mode_dirty: bool,
     pub next_view_id: u32,
     pub attach_mode: AttachMode,
+    pub cursor_warp: crate::wm::seat::CursorWarp,
+    pub focus_follows_cursor: crate::wm::seat::FocusFollowsCursor,
 
     pub anim: AnimationController,
     pub tag_slide_dir: Option<crate::animation::SlideDirection>,
@@ -230,6 +232,8 @@ impl AppState {
             mode_dirty: false,
             next_view_id: 1,
             attach_mode: AttachMode::default(),
+            cursor_warp: crate::wm::seat::CursorWarp::default(),
+            focus_follows_cursor: crate::wm::seat::FocusFollowsCursor::default(),
             anim: AnimationController::default(),
             tag_slide_dir: None,
             tag_anim_old_mask: TAG_NONE,

@@ -33,6 +33,8 @@ pub enum IpcCommand {
     SetMainCount(String),
     SetMainLocation(crate::layout::MainLocation),
     SetAttachMode(crate::wm::AttachMode),
+    SetCursorWarp(crate::wm::CursorWarp),
+    SetFocusFollowsCursor(crate::wm::FocusFollowsCursor),
     DeclareMode(String),
     EnterMode(String),
     ResizeWindow {
@@ -245,6 +247,20 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
             let raw_arg = args[1..].join(" ");
             let mode = crate::wm::AttachMode::parse(&raw_arg)?;
             Ok(IpcCommand::SetAttachMode(mode))
+        }
+        "set-cursor-warp" | "cursor-warp" => {
+            let raw = args
+                .get(1)
+                .ok_or("Missing cursor warp mode: disabled|on-output-change|on-focus-change")?;
+            let mode = crate::wm::CursorWarp::parse(raw)?;
+            Ok(IpcCommand::SetCursorWarp(mode))
+        }
+        "focus-follows-cursor" => {
+            let raw = args
+                .get(1)
+                .ok_or("Missing focus-follows-cursor mode: disabled|normal|always")?;
+            let mode = crate::wm::FocusFollowsCursor::parse(raw)?;
+            Ok(IpcCommand::SetFocusFollowsCursor(mode))
         }
         "set-window-gaps" | "window-gaps" | "view-padding" => {
             let gaps = args
@@ -605,6 +621,18 @@ mod tests {
         assert_eq!(
             parse_cli_args(&["attach-mode".into(), "after".into(), "2".into()]).unwrap(),
             IpcCommand::SetAttachMode(crate::wm::AttachMode::After(2))
+        );
+        assert_eq!(
+            parse_cli_args(&["set-cursor-warp".into(), "on-output-change".into()]).unwrap(),
+            IpcCommand::SetCursorWarp(crate::wm::CursorWarp::OnOutputChange)
+        );
+        assert_eq!(
+            parse_cli_args(&["cursor-warp".into(), "disabled".into()]).unwrap(),
+            IpcCommand::SetCursorWarp(crate::wm::CursorWarp::Disabled)
+        );
+        assert_eq!(
+            parse_cli_args(&["focus-follows-cursor".into(), "always".into()]).unwrap(),
+            IpcCommand::SetFocusFollowsCursor(crate::wm::FocusFollowsCursor::Always)
         );
         assert_eq!(
             parse_cli_args(&["main-location".into(), "top".into()]).unwrap(),

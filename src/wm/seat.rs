@@ -12,6 +12,48 @@ use crate::protocol::{
     wp_cursor_shape_device_v1::WpCursorShapeDeviceV1,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum CursorWarp {
+    #[default]
+    Disabled,
+    OnOutputChange,
+    OnFocusChange,
+}
+
+impl CursorWarp {
+    pub fn parse(s: &str) -> Result<Self, String> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "disabled" | "off" | "none" => Ok(Self::Disabled),
+            "on-output-change" | "output" => Ok(Self::OnOutputChange),
+            "on-focus-change" | "focus" => Ok(Self::OnFocusChange),
+            _ => Err(format!(
+                "Invalid cursor warp mode: '{s}', expected disabled|on-output-change|on-focus-change"
+            )),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum FocusFollowsCursor {
+    Disabled,
+    #[default]
+    Normal,
+    Always,
+}
+
+impl FocusFollowsCursor {
+    pub fn parse(s: &str) -> Result<Self, String> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "disabled" | "off" | "false" => Ok(Self::Disabled),
+            "normal" | "on" | "true" => Ok(Self::Normal),
+            "always" => Ok(Self::Always),
+            _ => Err(format!(
+                "Invalid focus-follows-cursor mode: '{s}', expected disabled|normal|always"
+            )),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PointerAction {
     None,
@@ -103,5 +145,45 @@ impl SeatItem {
             wl_pointer: None,
             pointer_bindings: HashMap::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cursor_warp_parse() {
+        assert_eq!(CursorWarp::parse("disabled").unwrap(), CursorWarp::Disabled);
+        assert_eq!(
+            CursorWarp::parse("on-output-change").unwrap(),
+            CursorWarp::OnOutputChange
+        );
+        assert_eq!(
+            CursorWarp::parse("on-focus-change").unwrap(),
+            CursorWarp::OnFocusChange
+        );
+        assert_eq!(
+            CursorWarp::parse("output").unwrap(),
+            CursorWarp::OnOutputChange
+        );
+        assert!(CursorWarp::parse("invalid").is_err());
+    }
+
+    #[test]
+    fn test_focus_follows_cursor_parse() {
+        assert_eq!(
+            FocusFollowsCursor::parse("disabled").unwrap(),
+            FocusFollowsCursor::Disabled
+        );
+        assert_eq!(
+            FocusFollowsCursor::parse("normal").unwrap(),
+            FocusFollowsCursor::Normal
+        );
+        assert_eq!(
+            FocusFollowsCursor::parse("always").unwrap(),
+            FocusFollowsCursor::Always
+        );
+        assert!(FocusFollowsCursor::parse("invalid").is_err());
     }
 }
