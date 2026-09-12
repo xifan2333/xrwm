@@ -28,6 +28,7 @@ pub enum IpcCommand {
     ToggleViewTags(u32),
     FocusPreviousTags,
     SendToPreviousTags,
+    SpawnTagmask(u32),
     ViewPadding(u32),
     BorderWidth(u32),
     BorderColorFocused(String),
@@ -241,6 +242,14 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
         }
         "focus-previous-tags" => Ok(IpcCommand::FocusPreviousTags),
         "send-to-previous-tags" => Ok(IpcCommand::SendToPreviousTags),
+        "spawn-tagmask" => {
+            let mask = args
+                .get(1)
+                .ok_or("Missing tagmask value")?
+                .parse::<u32>()
+                .map_err(|_| "Tagmask must be an unsigned integer")?;
+            Ok(IpcCommand::SpawnTagmask(mask))
+        }
         "main-location" => {
             let loc_str = args
                 .get(1)
@@ -560,6 +569,11 @@ mod tests {
             IpcCommand::ListRules {
                 action: Some("float".into())
             }
+        );
+
+        assert_eq!(
+            parse_cli_args(&["spawn-tagmask".into(), "511".into()]).unwrap(),
+            IpcCommand::SpawnTagmask(511)
         );
 
         let gaps_args = vec!["view-padding".into(), "8".into()];

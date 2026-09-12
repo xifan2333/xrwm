@@ -660,6 +660,12 @@ impl AppState {
         }
     }
 
+    /// Sets the spawn tagmask restricting tags of new views.
+    pub fn set_spawn_tagmask(&mut self, mask: TagMask) -> Result<String, String> {
+        self.spawn_tagmask = mask;
+        Ok(format!("spawn tagmask set to {mask}"))
+    }
+
     /// Declares a new modal keybinding mode.
     pub fn declare_mode(&mut self, mode: &str) -> Result<String, String> {
         let name = mode.trim();
@@ -932,6 +938,7 @@ impl AppState {
             IpcCommand::ToggleViewTags(mask) => self.toggle_view_tags(*mask),
             IpcCommand::FocusPreviousTags => self.focus_previous_tags(),
             IpcCommand::SendToPreviousTags => self.send_to_previous_tags(),
+            IpcCommand::SpawnTagmask(mask) => self.set_spawn_tagmask(*mask),
             IpcCommand::MainLocation(loc) => self.set_main_location(*loc),
             IpcCommand::DefaultAttachMode(mode) => self.set_attach_mode(*mode),
             IpcCommand::SetCursorWarp(mode) => self.set_cursor_warp(*mode),
@@ -1346,6 +1353,13 @@ impl AppState {
                     let _ = self.toggle_view_tags(mask);
                 }
             }
+            "spawn-tagmask" => {
+                if action.len() > 1
+                    && let Ok(mask) = action[1].parse::<u32>()
+                {
+                    let _ = self.set_spawn_tagmask(mask);
+                }
+            }
             "exit" => {
                 self.should_exit = true;
             }
@@ -1488,6 +1502,11 @@ mod tests {
             .handle_ipc_command(&IpcCommand::ToggleFocusedTags(2))
             .unwrap();
         assert_eq!(state.tag_state.focused, 7);
+
+        state
+            .handle_ipc_command(&IpcCommand::SpawnTagmask(511))
+            .unwrap();
+        assert_eq!(state.spawn_tagmask, 511);
     }
 
     #[test]

@@ -95,7 +95,10 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                 id.use_ssd();
                 let vid = state.next_view_id;
                 state.next_view_id += 1;
-                let current_tags = state.tag_state.focused;
+                let mut current_tags = state.tag_state.focused & state.spawn_tagmask;
+                if current_tags == crate::tag::TAG_NONE {
+                    current_tags = state.tag_state.focused;
+                }
                 let current_out = state.get_focused_output_id();
 
                 state.attach_window(WindowItem {
