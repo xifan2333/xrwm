@@ -57,6 +57,13 @@ pub enum SeatOp {
         start_height: u32,
         edges: Edges,
     },
+    TiledResize {
+        start_ratio: f32,
+    },
+    TiledMove {
+        proxy: RiverWindowV1,
+        start_win_id: u32,
+    },
 }
 
 #[derive(Debug)]
