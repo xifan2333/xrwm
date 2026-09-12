@@ -225,6 +225,24 @@ xrwm rule-add -app-id "mpv" dimensions 960 540
 xrwm rule-add -app-id "imv" dimensions 960 540
 xrwm rule-add -app-id "wofi" dimensions 800 600
 
+# 初始坐标规则（指定浮动窗口弹出的精确 x y 坐标，覆盖默认居中）
+xrwm rule-add -app-id "calculator" position 100 100
+
+# 初始全屏规则（特定应用启动即以全屏模式运行）
+xrwm rule-add -app-id "gamescope" fullscreen
+xrwm rule-add -app-id "mpv" fullscreen
+
+# 固定显示器规则（指定应用生成在特定屏幕上，支持 output ID 或 1..N 序号）
+xrwm rule-add -app-id "wechat" output 1
+
+# 列出当前生效的所有窗口规则列表（可选按 action 过滤，如 float/dimensions/tags）
+xrwm list-rules
+xrwm list-rules float
+
+# 动态删除已配置的单条窗口规则
+xrwm rule-del -app-id "mpv" float
+xrwm rule-del -app-id "wofi" csd
+
 
 # ==============================================================================
 # 8. 状态查询与第三方工具集成 (Status & Integration)
@@ -247,28 +265,7 @@ xrwm status --format waybar --stream
 
 ```bash
 # ==============================================================================
-# 候选 A：规则系统闭环 (Rule System Completion)
-# ==============================================================================
-
-# 1. 浮动窗口初始生成坐标（指定精确 x y，不使用默认屏幕居中）
-xrwm rule-add -app-id "calculator" position 100 100
-
-# 2. 初始启动即全屏（观影、游戏类应用启动即占满屏幕）
-xrwm rule-add -app-id "gamescope" fullscreen
-xrwm rule-add -app-id "mpv" fullscreen
-
-# 3. 指定应用固定在特定显示器上打开（多屏工作流分流）
-xrwm rule-add -app-id "obs" output HDMI-A-1
-
-# 4. 打印当前生效的所有窗口规则列表（CLI 可观测性）
-xrwm list-rules
-
-# 5. 动态删除已配置的单条窗口规则
-xrwm rule-del -app-id "mpv" float
-
-
-# ==============================================================================
-# 候选 B：边缘半屏吸附 (Edge Snapping)
+# 候选 A：边缘半屏吸附 (Edge Snapping)
 # ==============================================================================
 
 # 将当前聚焦窗口转换为浮动窗，并精准贴附到屏幕边缘半屏（Windows Snap 经典手感）
@@ -280,7 +277,7 @@ xrwm snap down
 
 
 # ==============================================================================
-# 候选 C：焦点跳过浮动窗口 (Focus Filter)
+# 候选 B：焦点跳过浮动窗口 (Focus Filter)
 # ==============================================================================
 
 # 在平铺流中巡回切窗时，选择性跳过悬浮小窗（例如画中画播放器、弹窗）
@@ -289,7 +286,7 @@ xrwm focus-view -skip-floating left
 
 
 # ==============================================================================
-# 候选 D：运行时解绑 (Unmapping)
+# 候选 C：运行时解绑 (Unmapping)
 # ==============================================================================
 
 # 动态卸载指定模式下的按键映射
