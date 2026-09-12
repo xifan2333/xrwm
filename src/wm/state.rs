@@ -93,6 +93,19 @@ impl AttachMode {
             )),
         }
     }
+
+    /// Computes the index in `windows` where a new window should be inserted.
+    pub fn calculate_insert_index(&self, focused_idx: Option<usize>, total_len: usize) -> usize {
+        match self {
+            AttachMode::Top => 0,
+            AttachMode::Bottom => total_len,
+            AttachMode::Above => focused_idx.unwrap_or(0),
+            AttachMode::Below => focused_idx
+                .map(|i| (i + 1).min(total_len))
+                .unwrap_or(total_len),
+            AttachMode::After(n) => (*n as usize).min(total_len),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -227,38 +240,12 @@ impl AppState {
 
     /// Attaches a new window according to the current `attach_mode`.
     pub fn attach_window(&mut self, item: WindowItem) {
-        match self.attach_mode {
-            AttachMode::Top => {
-                self.windows.insert(0, item);
-            }
-            AttachMode::Bottom => {
-                self.windows.push(item);
-            }
-            AttachMode::Above => {
-                let focused_id = self.focused_window_id();
-                let focused_idx =
-                    focused_id.and_then(|id| self.windows.iter().position(|w| w.id == id));
-                if let Some(idx) = focused_idx {
-                    self.windows.insert(idx, item);
-                } else {
-                    self.windows.insert(0, item);
-                }
-            }
-            AttachMode::Below => {
-                let focused_id = self.focused_window_id();
-                let focused_idx =
-                    focused_id.and_then(|id| self.windows.iter().position(|w| w.id == id));
-                if let Some(idx) = focused_idx {
-                    self.windows.insert((idx + 1).min(self.windows.len()), item);
-                } else {
-                    self.windows.push(item);
-                }
-            }
-            AttachMode::After(n) => {
-                let idx = (n as usize).min(self.windows.len());
-                self.windows.insert(idx, item);
-            }
-        }
+        let focused_id = self.focused_window_id();
+        let focused_idx = focused_id.and_then(|id| self.windows.iter().position(|w| w.id == id));
+        let idx = self
+            .attach_mode
+            .calculate_insert_index(focused_idx, self.windows.len());
+        self.windows.insert(idx, item);
     }
 
     pub fn apply_rules_to_window(
@@ -1195,5 +1182,31 @@ mod tests {
         assert!(AttachMode::parse("after").is_err());
         assert!(AttachMode::parse("after foo").is_err());
         assert!(AttachMode::parse("invalid").is_err());
+    }
+
+    #[test]
+    fn test_attach_mode_insert_index() {
+        // When empty
+        assert_eq!(AttachMode::Top.calculate_insert_index(None, 0), 0);
+        assert_eq!(AttachMode::Bottom.calculate_insert_index(None, 0), 0);
+        assert_eq!(AttachMode::Above.calculate_insert_index(None, 0), 0);
+        assert_eq!(AttachMode::Below.calculate_insert_index(None, 0), 0);
+        assert_eq!(AttachMode::After(3).calculate_insert_index(None, 0), 0);
+
+        // When 3 windows exist, focused at index 1
+        let focused = Some(1);
+        let len = 3;
+        assert_eq!(AttachMode::Top.calculate_insert_index(focused, len), 0);
+        assert_eq!(AttachMode::Bottom.calculate_insert_index(focused, len), 3);
+        assert_eq!(AttachMode::Above.calculate_insert_index(focused, len), 1);
+        assert_eq!(AttachMode::Below.calculate_insert_index(focused, len), 2);
+        assert_eq!(AttachMode::After(0).calculate_insert_index(focused, len), 0);
+        assert_eq!(AttachMode::After(1).calculate_insert_index(focused, len), 1);
+        assert_eq!(AttachMode::After(2).calculate_insert_index(focused, len), 2);
+        assert_eq!(AttachMode::After(5).calculate_insert_index(focused, len), 3);
+
+        // When 3 windows exist, no focus
+        assert_eq!(AttachMode::Above.calculate_insert_index(None, len), 0);
+        assert_eq!(AttachMode::Below.calculate_insert_index(None, len), 3);
     }
 }
