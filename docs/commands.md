@@ -35,10 +35,11 @@ xrwm toggle-float
 # 切换当前聚焦窗口的全屏状态
 xrwm toggle-fullscreen
 
-# 沿逻辑顺序或 2D 空间方向流转窗口焦点
+# 沿逻辑顺序或 2D 空间方向流转窗口焦点（可选 -skip-floating 忽略悬浮窗口）
 # 方向参数支持：next | previous | left | right | up | down
 xrwm focus-view next
 xrwm focus-view left
+xrwm focus-view -skip-floating next
 
 # 将当前聚焦窗口与目标方向上的窗口物理位置对调
 # 方向参数支持：next | previous | left | right | up | down
@@ -50,8 +51,16 @@ xrwm focus-output next
 xrwm focus-output right
 
 # 将当前聚焦窗口发送到目标显示器，并自动接入目标显示器的独立布局栈
+# 可选 -current-tags 参数自动将窗口 tags 同步为目标显示器的当前激活 tags
 xrwm send-to-output next
-xrwm send-to-output left
+xrwm send-to-output -current-tags right
+
+# 将当前聚焦窗口转换为浮动窗，并精准贴附到屏幕边缘半屏（Windows Snap 经典手感）
+# 支持：left（左半屏）| right（右半屏）| up（上半屏）| down（下半屏）
+xrwm snap left
+xrwm snap right
+xrwm snap up
+xrwm snap down
 
 # 调整窗口尺寸：
 # - 悬浮窗口：调整宽度/高度像素（+/-delta）
@@ -265,28 +274,7 @@ xrwm status --format waybar --stream
 
 ```bash
 # ==============================================================================
-# 候选 A：边缘半屏吸附 (Edge Snapping)
-# ==============================================================================
-
-# 将当前聚焦窗口转换为浮动窗，并精准贴附到屏幕边缘半屏（Windows Snap 经典手感）
-# 支持：left（左半屏）| right（右半屏）| up（上半屏）| down（下半屏）
-xrwm snap left
-xrwm snap right
-xrwm snap up
-xrwm snap down
-
-
-# ==============================================================================
-# 候选 B：焦点跳过浮动窗口 (Focus Filter)
-# ==============================================================================
-
-# 在平铺流中巡回切窗时，选择性跳过悬浮小窗（例如画中画播放器、弹窗）
-xrwm focus-view -skip-floating next
-xrwm focus-view -skip-floating left
-
-
-# ==============================================================================
-# 候选 C：运行时解绑 (Unmapping)
+# 候选 A：运行时解绑 (Unmapping)
 # ==============================================================================
 
 # 动态卸载指定模式下的按键映射

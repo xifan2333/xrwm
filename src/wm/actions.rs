@@ -222,14 +222,6 @@ impl AppState {
             w.float_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
             w.visual_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
 
-            if w.last_proposed_w != w.width || w.last_proposed_h != w.height {
-                w.proxy.propose_dimensions(w.width as i32, w.height as i32);
-                w.last_proposed_w = w.width;
-                w.last_proposed_h = w.height;
-            }
-            w.proxy
-                .set_tiled(crate::protocol::river_window_v1::Edges::empty());
-
             self.manage_dirty();
             Ok(format!("snapped window {id} {edge_str}"))
         } else {
@@ -1680,6 +1672,19 @@ mod tests {
         assert!(state.toggle_float_focused().is_err());
         assert!(state.zoom_focused().is_err());
         assert_eq!(state.focus_view(true).unwrap(), "no visible windows");
+        assert!(state.snap_focused("left").is_err());
+        assert_eq!(
+            state.focus_view_direction("next", true).unwrap(),
+            "no visible windows"
+        );
+
+        state.execute_action_tokens(&["snap".into(), "left".into()]);
+        state.execute_action_tokens(&["focus-view".into(), "-skip-floating".into(), "next".into()]);
+        state.execute_action_tokens(&[
+            "send-to-output".into(),
+            "-current-tags".into(),
+            "right".into(),
+        ]);
 
         // Multi-output on empty state
         assert_eq!(
