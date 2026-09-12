@@ -11,10 +11,17 @@ pub enum IpcCommand {
     ToggleFloat,
     ToggleFullscreen,
     Zoom,
-    FocusView(String),
+    FocusView {
+        direction: String,
+        skip_floating: bool,
+    },
     FocusOutput(String),
-    SendToOutput(String),
+    SendToOutput {
+        direction: String,
+        current_tags: bool,
+    },
     Swap(String),
+    Snap(String),
     SetFocusedTags(u32),
     ToggleFocusedTags(u32),
     SetViewTags(u32),
@@ -156,20 +163,49 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
         "toggle-fullscreen" => Ok(IpcCommand::ToggleFullscreen),
         "zoom" => Ok(IpcCommand::Zoom),
         "focus-view" => {
-            let dir = args.get(1).cloned().unwrap_or_else(|| "next".to_string());
-            Ok(IpcCommand::FocusView(dir))
+            let mut skip_floating = false;
+            let mut direction = "next".to_string();
+            for arg in &args[1..] {
+                if arg == "-skip-floating" {
+                    skip_floating = true;
+                } else {
+                    direction = arg.clone();
+                }
+            }
+            Ok(IpcCommand::FocusView {
+                direction,
+                skip_floating,
+            })
         }
         "focus-output" => {
             let dir = args.get(1).cloned().unwrap_or_else(|| "next".to_string());
             Ok(IpcCommand::FocusOutput(dir))
         }
         "send-to-output" => {
-            let dir = args.get(1).cloned().unwrap_or_else(|| "next".to_string());
-            Ok(IpcCommand::SendToOutput(dir))
+            let mut current_tags = false;
+            let mut direction = "next".to_string();
+            for arg in &args[1..] {
+                if arg == "-current-tags" {
+                    current_tags = true;
+                } else {
+                    direction = arg.clone();
+                }
+            }
+            Ok(IpcCommand::SendToOutput {
+                direction,
+                current_tags,
+            })
         }
         "swap" => {
             let dir = args.get(1).cloned().unwrap_or_else(|| "next".to_string());
             Ok(IpcCommand::Swap(dir))
+        }
+        "snap" => {
+            let edge = args
+                .get(1)
+                .ok_or("Missing snap edge: left|right|up|down")?
+                .clone();
+            Ok(IpcCommand::Snap(edge))
         }
         "set-focused-tags" => {
             let mask = args
@@ -554,12 +590,30 @@ mod tests {
         );
         assert_eq!(parse_cli_args(&["zoom".into()]).unwrap(), IpcCommand::Zoom);
         assert_eq!(
+            parse_cli_args(&["snap".into(), "left".into()]).unwrap(),
+            IpcCommand::Snap("left".into())
+        );
+        assert_eq!(
+            parse_cli_args(&["snap".into(), "right".into()]).unwrap(),
+            IpcCommand::Snap("right".into())
+        );
+        assert_eq!(
             parse_cli_args(&["set-focused-tags".into(), "3".into()]).unwrap(),
             IpcCommand::SetFocusedTags(3)
         );
         assert_eq!(
             parse_cli_args(&["focus-view".into(), "next".into()]).unwrap(),
-            IpcCommand::FocusView("next".into())
+            IpcCommand::FocusView {
+                direction: "next".into(),
+                skip_floating: false,
+            }
+        );
+        assert_eq!(
+            parse_cli_args(&["focus-view".into(), "-skip-floating".into(), "left".into()]).unwrap(),
+            IpcCommand::FocusView {
+                direction: "left".into(),
+                skip_floating: true,
+            }
         );
         assert_eq!(
             parse_cli_args(&["focus-output".into(), "right".into()]).unwrap(),
@@ -567,7 +621,22 @@ mod tests {
         );
         assert_eq!(
             parse_cli_args(&["send-to-output".into(), "left".into()]).unwrap(),
-            IpcCommand::SendToOutput("left".into())
+            IpcCommand::SendToOutput {
+                direction: "left".into(),
+                current_tags: false,
+            }
+        );
+        assert_eq!(
+            parse_cli_args(&[
+                "send-to-output".into(),
+                "-current-tags".into(),
+                "right".into()
+            ])
+            .unwrap(),
+            IpcCommand::SendToOutput {
+                direction: "right".into(),
+                current_tags: true,
+            }
         );
         assert_eq!(
             parse_cli_args(&["declare-mode".into(), "resize".into()]).unwrap(),

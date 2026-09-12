@@ -166,6 +166,69 @@ impl AppState {
         }
     }
 
+    /// Snaps the focused window to a screen half and sets it to floating.
+    pub fn snap_focused(&mut self, edge_str: &str) -> Result<String, String> {
+        let focused_id = self.focused_window_id();
+        let Some(id) = focused_id else {
+            return Err("no view focused".to_string());
+        };
+
+        let dir = match edge_str.to_ascii_lowercase().as_str() {
+            "left" | "h" => Direction::Left,
+            "right" | "l" => Direction::Right,
+            "up" | "k" => Direction::Up,
+            "down" | "j" => Direction::Down,
+            _ => {
+                return Err(format!(
+                    "Invalid snap edge: '{edge_str}', expected left|right|up|down"
+                ));
+            }
+        };
+
+        let default_usable_area = crate::layout::Rect::new(0, 30, 1280, 770);
+
+        if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
+            let usable = w
+                .output
+                .as_ref()
+                .and_then(|out_id| self.outputs.get(out_id))
+                .map(|o| o.usable_area)
+                .unwrap_or(default_usable_area);
+
+            w.floating = true;
+
+            let (new_x, new_y, new_w, new_h) = match dir {
+                Direction::Left => (usable.x, usable.y, usable.width / 2, usable.height),
+                Direction::Right => (
+                    usable.x + (usable.width as i32 / 2),
+                    usable.y,
+                    usable.width - (usable.width / 2),
+                    usable.height,
+                ),
+                Direction::Up => (usable.x, usable.y, usable.width, usable.height / 2),
+                Direction::Down => (
+                    usable.x,
+                    usable.y + (usable.height as i32 / 2),
+                    usable.width,
+                    usable.height - (usable.height / 2),
+                ),
+                _ => unreachable!(),
+            };
+
+            w.x = new_x;
+            w.y = new_y;
+            w.width = new_w.max(100);
+            w.height = new_h.max(100);
+            w.float_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
+            w.visual_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
+
+            self.manage_dirty();
+            Ok(format!("snapped window {id} {edge_str}"))
+        } else {
+            Err("window not found".to_string())
+        }
+    }
+
     /// Toggles fullscreen state on the focused window.
     pub fn toggle_fullscreen_focused(&mut self) -> Result<String, String> {
         let focused_id = self.focused_window_id();
@@ -206,12 +269,14 @@ impl AppState {
     }
 
     /// Finds the target window in the given direction.
-    pub fn find_target_window(&self, dir: Direction) -> Option<u32> {
+    pub fn find_target_window(&self, dir: Direction, skip_floating: bool) -> Option<u32> {
         let tag_state = self.tag_state;
         let visible: Vec<&crate::wm::state::WindowItem> = self
             .windows
             .iter()
-            .filter(|w| !w.closed && tag_state.is_view_visible(w.tags))
+            .filter(|w| {
+                !w.closed && (!skip_floating || !w.floating) && tag_state.is_view_visible(w.tags)
+            })
             .collect();
 
         if visible.len() <= 1 {
@@ -360,7 +425,7 @@ impl AppState {
     }
 
     /// Sends the focused window to output in the specified direction.
-    pub fn send_to_output(&mut self, dir_str: &str) -> Result<String, String> {
+    pub fn send_to_output(&mut self, dir_str: &str, current_tags: bool) -> Result<String, String> {
         let target_id = self.find_target_output(dir_str);
         let Some(out_id) = target_id else {
             return Ok("no destination output found".to_string());
@@ -371,8 +436,13 @@ impl AppState {
             return Err("no view focused".to_string());
         };
 
+        let dest_tags = self.tag_state.focused;
+
         if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
             w.output = Some(out_id.clone());
+            if current_tags {
+                w.tags = dest_tags;
+            }
             self.manage_dirty();
             Ok(format!("sent window {id} to output {:?}", out_id))
         } else {
@@ -381,18 +451,25 @@ impl AppState {
     }
 
     /// Shifts focus in the specified direction (next, prev, left, right, up, down).
-    pub fn focus_view_direction(&mut self, dir_str: &str) -> Result<String, String> {
+    pub fn focus_view_direction(
+        &mut self,
+        dir_str: &str,
+        skip_floating: bool,
+    ) -> Result<String, String> {
+        let tag_state = self.tag_state;
         let visible_count = self
             .windows
             .iter()
-            .filter(|w| !w.closed && self.tag_state.is_view_visible(w.tags))
+            .filter(|w| {
+                !w.closed && (!skip_floating || !w.floating) && tag_state.is_view_visible(w.tags)
+            })
             .count();
         if visible_count == 0 {
             return Ok("no visible windows".to_string());
         }
 
         let dir = Direction::parse(dir_str).unwrap_or(Direction::Next);
-        let target_id = self.find_target_window(dir);
+        let target_id = self.find_target_window(dir, skip_floating);
         let Some(new_id) = target_id else {
             return Ok("no target window in direction".to_string());
         };
@@ -425,7 +502,7 @@ impl AppState {
             return Err("no view focused".to_string());
         };
 
-        let target_id = self.find_target_window(dir);
+        let target_id = self.find_target_window(dir, false);
         let Some(t_id) = target_id else {
             return Ok("no target window to swap with".to_string());
         };
@@ -445,9 +522,9 @@ impl AppState {
     /// Shifts focus to the next or previous visible window.
     pub fn focus_view(&mut self, next: bool) -> Result<String, String> {
         if next {
-            self.focus_view_direction("next")
+            self.focus_view_direction("next", false)
         } else {
-            self.focus_view_direction("previous")
+            self.focus_view_direction("previous", false)
         }
     }
 
@@ -838,10 +915,17 @@ impl AppState {
             IpcCommand::ToggleFloat => self.toggle_float_focused(),
             IpcCommand::ToggleFullscreen => self.toggle_fullscreen_focused(),
             IpcCommand::Zoom => self.zoom_focused(),
-            IpcCommand::FocusView(dir) => self.focus_view_direction(dir),
+            IpcCommand::FocusView {
+                direction,
+                skip_floating,
+            } => self.focus_view_direction(direction, *skip_floating),
             IpcCommand::FocusOutput(dir) => self.focus_output(dir),
-            IpcCommand::SendToOutput(dir) => self.send_to_output(dir),
+            IpcCommand::SendToOutput {
+                direction,
+                current_tags,
+            } => self.send_to_output(direction, *current_tags),
             IpcCommand::Swap(dir) => self.swap_direction(dir),
+            IpcCommand::Snap(edge) => self.snap_focused(edge),
             IpcCommand::SetFocusedTags(mask) => self.set_focused_tags(*mask),
             IpcCommand::ToggleFocusedTags(mask) => self.toggle_focused_tags(*mask),
             IpcCommand::SetViewTags(mask) => self.set_view_tags(*mask),
@@ -1199,20 +1283,40 @@ impl AppState {
                 let _ = self.zoom_focused();
             }
             "focus-view" => {
-                let dir = action.get(1).map(|s| s.as_str()).unwrap_or("next");
-                let _ = self.focus_view_direction(dir);
+                let mut skip_floating = false;
+                let mut dir = "next";
+                for tok in &action[1..] {
+                    if tok == "-skip-floating" {
+                        skip_floating = true;
+                    } else {
+                        dir = tok.as_str();
+                    }
+                }
+                let _ = self.focus_view_direction(dir, skip_floating);
             }
             "focus-output" => {
                 let dir = action.get(1).map(|s| s.as_str()).unwrap_or("next");
                 let _ = self.focus_output(dir);
             }
             "send-to-output" => {
-                let dir = action.get(1).map(|s| s.as_str()).unwrap_or("next");
-                let _ = self.send_to_output(dir);
+                let mut current_tags = false;
+                let mut dir = "next";
+                for tok in &action[1..] {
+                    if tok == "-current-tags" {
+                        current_tags = true;
+                    } else {
+                        dir = tok.as_str();
+                    }
+                }
+                let _ = self.send_to_output(dir, current_tags);
             }
             "swap" => {
                 let dir = action.get(1).map(|s| s.as_str()).unwrap_or("next");
                 let _ = self.swap_direction(dir);
+            }
+            "snap" => {
+                let edge = action.get(1).map(|s| s.as_str()).unwrap_or("left");
+                let _ = self.snap_focused(edge);
             }
             "set-focused-tags" => {
                 if action.len() > 1
@@ -1568,6 +1672,19 @@ mod tests {
         assert!(state.toggle_float_focused().is_err());
         assert!(state.zoom_focused().is_err());
         assert_eq!(state.focus_view(true).unwrap(), "no visible windows");
+        assert!(state.snap_focused("left").is_err());
+        assert_eq!(
+            state.focus_view_direction("next", true).unwrap(),
+            "no visible windows"
+        );
+
+        state.execute_action_tokens(&["snap".into(), "left".into()]);
+        state.execute_action_tokens(&["focus-view".into(), "-skip-floating".into(), "next".into()]);
+        state.execute_action_tokens(&[
+            "send-to-output".into(),
+            "-current-tags".into(),
+            "right".into(),
+        ]);
 
         // Multi-output on empty state
         assert_eq!(
@@ -1578,7 +1695,10 @@ mod tests {
         );
         assert_eq!(
             state
-                .handle_ipc_command(&IpcCommand::SendToOutput("next".into()))
+                .handle_ipc_command(&IpcCommand::SendToOutput {
+                    direction: "next".into(),
+                    current_tags: false,
+                })
                 .unwrap(),
             "no destination output found"
         );
