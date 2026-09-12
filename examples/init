@@ -25,12 +25,18 @@ xrwm set-animation-duration 150
 # 4. 窗口规则 (Window Rules)
 xrwm rule-add -app-id "wofi" float
 xrwm rule-add -app-id "wofi" csd
+xrwm rule-add -app-id "wofi" dimensions 800 600
 xrwm rule-add -app-id "fuzzel" float
+xrwm rule-add -app-id "fuzzel" dimensions 800 600
 xrwm rule-add -app-id "imv" float
+xrwm rule-add -app-id "imv" dimensions 960 540
 xrwm rule-add -app-id "mpv" float
+xrwm rule-add -app-id "mpv" dimensions 960 540
 xrwm rule-add -app-id "scratchpad" float
 xrwm rule-add -app-id "floating-terminal*" float
+xrwm rule-add -app-id "floating-terminal*" dimensions 960 540
 xrwm rule-add -app-id "lxqt-openssh-askpass" float
+xrwm rule-add -app-id "lxqt-openssh-askpass" dimensions 400 200
 xrwm rule-add -app-id "satty" float
 
 # 5. 常用应用启动 (Applications)
