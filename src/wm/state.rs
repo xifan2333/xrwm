@@ -60,6 +60,41 @@ pub fn glob_match(pattern: &str, text: &str) -> bool {
     pattern == text
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum AttachMode {
+    #[default]
+    Top,
+    Bottom,
+    Above,
+    Below,
+    After(u32),
+}
+
+impl AttachMode {
+    pub fn parse(s: &str) -> Result<Self, String> {
+        let parts: Vec<&str> = s.split_whitespace().collect();
+        match parts.first().map(|s| s.to_ascii_lowercase()).as_deref() {
+            Some("top") => Ok(Self::Top),
+            Some("bottom") => Ok(Self::Bottom),
+            Some("above") => Ok(Self::Above),
+            Some("below") => Ok(Self::Below),
+            Some("after") => {
+                if let Some(n_str) = parts.get(1) {
+                    let n = n_str
+                        .parse::<u32>()
+                        .map_err(|_| format!("Invalid count for after: {n_str}"))?;
+                    Ok(Self::After(n))
+                } else {
+                    Err("Usage: after <N>".to_string())
+                }
+            }
+            _ => Err(format!(
+                "Invalid attach mode: '{s}', expected top|bottom|above|below|after <N>"
+            )),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct WindowRule {
     pub app_id: Option<String>,
@@ -132,6 +167,7 @@ pub struct AppState {
     pub modes: Vec<String>,
     pub mode_dirty: bool,
     pub next_view_id: u32,
+    pub attach_mode: AttachMode,
 
     pub anim: AnimationController,
     pub tag_slide_dir: Option<crate::animation::SlideDirection>,
@@ -173,6 +209,7 @@ impl AppState {
             modes: vec!["normal".to_string(), "locked".to_string()],
             mode_dirty: false,
             next_view_id: 1,
+            attach_mode: AttachMode::default(),
             anim: AnimationController::default(),
             tag_slide_dir: None,
             tag_anim_old_mask: TAG_NONE,
@@ -1104,5 +1141,23 @@ pub fn spawn_init_script() {
             .arg("-c")
             .arg(&init_script)
             .spawn();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_attach_mode_parse() {
+        assert_eq!(AttachMode::parse("top").unwrap(), AttachMode::Top);
+        assert_eq!(AttachMode::parse("bottom").unwrap(), AttachMode::Bottom);
+        assert_eq!(AttachMode::parse("above").unwrap(), AttachMode::Above);
+        assert_eq!(AttachMode::parse("below").unwrap(), AttachMode::Below);
+        assert_eq!(AttachMode::parse("after 2").unwrap(), AttachMode::After(2));
+        assert_eq!(AttachMode::parse("after 0").unwrap(), AttachMode::After(0));
+        assert!(AttachMode::parse("after").is_err());
+        assert!(AttachMode::parse("after foo").is_err());
+        assert!(AttachMode::parse("invalid").is_err());
     }
 }
