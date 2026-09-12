@@ -453,6 +453,21 @@ impl AppState {
                 .find(|w| w.proxy == win_proxy && w.floating)
                 .map(|w| (w.x, w.y, w.width, w.height));
             if let (Some((x, y, w, h)), Some(seat)) = (geo, self.seats.get_mut(&id)) {
+                // Compute 4-quadrant resize edges dynamically based on cursor position relative to window center
+                let cx = x + w as i32 / 2;
+                let cy = y + h as i32 / 2;
+                let mut edges = Edges::empty();
+                if self.pointer.0 < cx {
+                    edges |= Edges::Left;
+                } else {
+                    edges |= Edges::Right;
+                }
+                if self.pointer.1 < cy {
+                    edges |= Edges::Top;
+                } else {
+                    edges |= Edges::Bottom;
+                }
+
                 seat.proxy.op_start_pointer();
                 win_proxy.inform_resize_start();
                 seat.op = SeatOp::Resize {
@@ -461,7 +476,7 @@ impl AppState {
                     start_y: y,
                     start_width: w,
                     start_height: h,
-                    edges: Edges::Bottom.union(Edges::Right),
+                    edges,
                 };
                 seat.op_dx = 0;
                 seat.op_dy = 0;
@@ -504,13 +519,20 @@ impl AppState {
                 w.width = rect.width;
                 w.height = rect.height;
 
-                w.proxy
-                    .propose_dimensions(rect.width as i32, rect.height as i32);
-                w.last_proposed_w = rect.width;
-                w.last_proposed_h = rect.height;
+                if w.last_proposed_w != rect.width || w.last_proposed_h != rect.height {
+                    w.proxy
+                        .propose_dimensions(rect.width as i32, rect.height as i32);
+                    w.last_proposed_w = rect.width;
+                    w.last_proposed_h = rect.height;
+                }
                 w.proxy.set_tiled(Edges::all());
             }
         }
+
+        let is_any_pointer_op = self.seats.values().any(|s| match &s.op {
+            SeatOp::Move { .. } | SeatOp::Resize { .. } => true,
+            SeatOp::None => false,
+        });
 
         // Floating windows
         for w in self
@@ -519,14 +541,16 @@ impl AppState {
             .filter(|w| w.floating && !w.fullscreen)
         {
             let target = Rect::new(w.x, w.y, w.width, w.height);
-            if w.anim_target_geo != Some(target) {
+            if !is_any_pointer_op && w.anim_target_geo != Some(target) {
                 w.anim_start_geo = w.visual_geo.or(w.anim_target_geo).or(Some(target));
                 w.anim_target_geo = Some(target);
                 any_geo_changed = true;
             }
-            w.proxy.propose_dimensions(w.width as i32, w.height as i32);
-            w.last_proposed_w = w.width;
-            w.last_proposed_h = w.height;
+            if w.last_proposed_w != w.width || w.last_proposed_h != w.height {
+                w.proxy.propose_dimensions(w.width as i32, w.height as i32);
+                w.last_proposed_w = w.width;
+                w.last_proposed_h = w.height;
+            }
             w.proxy.set_tiled(Edges::empty());
         }
 
@@ -578,18 +602,40 @@ impl AppState {
                     start_y,
                     start_width,
                     start_height,
-                    ..
+                    edges,
                 } => {
                     if let Some(w) = self.windows.iter_mut().find(|w| &w.proxy == proxy) {
-                        let new_w = (*start_width as i32 + seat.op_dx).max(100) as u32;
-                        let new_h = (*start_height as i32 + seat.op_dy).max(100) as u32;
-                        w.x = *start_x;
-                        w.y = *start_y;
-                        w.width = new_w;
-                        w.height = new_h;
+                        let mut new_w = *start_width as i32;
+                        let mut new_h = *start_height as i32;
+                        let mut new_x = *start_x;
+                        let mut new_y = *start_y;
+
+                        if edges.contains(Edges::Right) {
+                            new_w = (*start_width as i32 + seat.op_dx).max(100);
+                        } else if edges.contains(Edges::Left) {
+                            new_w = (*start_width as i32 - seat.op_dx).max(100);
+                            new_x = *start_x + (*start_width as i32 - new_w);
+                        }
+
+                        if edges.contains(Edges::Bottom) {
+                            new_h = (*start_height as i32 + seat.op_dy).max(100);
+                        } else if edges.contains(Edges::Top) {
+                            new_h = (*start_height as i32 - seat.op_dy).max(100);
+                            new_y = *start_y + (*start_height as i32 - new_h);
+                        }
+
+                        w.x = new_x;
+                        w.y = new_y;
+                        w.width = new_w as u32;
+                        w.height = new_h as u32;
                         w.float_geo = Some(Rect::new(w.x, w.y, w.width, w.height));
                         w.visual_geo = Some(Rect::new(w.x, w.y, w.width, w.height));
-                        proxy.propose_dimensions(new_w as i32, new_h as i32);
+
+                        if w.last_proposed_w != w.width || w.last_proposed_h != w.height {
+                            proxy.propose_dimensions(w.width as i32, w.height as i32);
+                            w.last_proposed_w = w.width;
+                            w.last_proposed_h = w.height;
+                        }
                     }
                 }
                 SeatOp::None => {}
@@ -611,7 +657,7 @@ impl AppState {
         }
 
         // Trigger animation if geometries changed
-        if any_geo_changed && self.anim.enabled {
+        if !is_any_pointer_op && any_geo_changed && self.anim.enabled {
             self.anim.start();
         }
         if self.anim.is_animating() {
