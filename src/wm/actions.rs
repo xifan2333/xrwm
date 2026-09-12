@@ -10,6 +10,30 @@ use crate::wm::state::AppState;
 use crate::wm::state::WindowRule;
 use crate::wm::state::spawn_init_script;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Direction {
+    Next,
+    Previous,
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+impl Direction {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "next" => Some(Self::Next),
+            "previous" | "prev" => Some(Self::Previous),
+            "left" | "h" => Some(Self::Left),
+            "right" | "l" => Some(Self::Right),
+            "up" | "k" => Some(Self::Up),
+            "down" | "j" => Some(Self::Down),
+            _ => None,
+        }
+    }
+}
+
 impl AppState {
     /// Closes the currently focused window.
     pub fn close_focused(&mut self) -> Result<String, String> {
@@ -102,40 +126,159 @@ impl AppState {
         }
     }
 
-    /// Shifts focus to the next or previous visible window.
-    pub fn focus_view(&mut self, next: bool) -> Result<String, String> {
+    /// Finds the target window in the given direction.
+    pub fn find_target_window(&self, dir: Direction) -> Option<u32> {
         let tag_state = self.tag_state;
-        let visible: Vec<u32> = self
+        let visible: Vec<&crate::wm::state::WindowItem> = self
             .windows
             .iter()
             .filter(|w| !w.closed && tag_state.is_view_visible(w.tags))
-            .map(|w| w.id)
             .collect();
 
-        if visible.is_empty() {
+        if visible.len() <= 1 {
+            return None;
+        }
+
+        let focused_id = self.focused_window_id()?;
+        let current_win = visible.iter().find(|w| w.id == focused_id)?;
+
+        match dir {
+            Direction::Next => {
+                let idx = visible.iter().position(|w| w.id == focused_id)?;
+                let next_idx = (idx + 1) % visible.len();
+                Some(visible[next_idx].id)
+            }
+            Direction::Previous => {
+                let idx = visible.iter().position(|w| w.id == focused_id)?;
+                let prev_idx = (idx + visible.len() - 1) % visible.len();
+                Some(visible[prev_idx].id)
+            }
+            Direction::Left | Direction::Right | Direction::Up | Direction::Down => {
+                let fx = current_win.x + current_win.width as i32 / 2;
+                let fy = current_win.y + current_win.height as i32 / 2;
+
+                let mut best_id = None;
+                let mut best_dist = i64::MAX;
+
+                for w in &visible {
+                    if w.id == focused_id {
+                        continue;
+                    }
+                    let cx = w.x + w.width as i32 / 2;
+                    let cy = w.y + w.height as i32 / 2;
+                    let dx = cx - fx;
+                    let dy = cy - fy;
+
+                    let in_direction = match dir {
+                        Direction::Left => dx < 0 && dx.abs() >= dy.abs(),
+                        Direction::Right => dx > 0 && dx.abs() >= dy.abs(),
+                        Direction::Up => dy < 0 && dy.abs() >= dx.abs(),
+                        Direction::Down => dy > 0 && dy.abs() >= dx.abs(),
+                        _ => false,
+                    };
+
+                    if in_direction {
+                        let dist = (dx as i64).pow(2) + (dy as i64).pow(2);
+                        if dist < best_dist {
+                            best_dist = dist;
+                            best_id = Some(w.id);
+                        }
+                    }
+                }
+
+                if best_id.is_none() {
+                    for w in &visible {
+                        if w.id == focused_id {
+                            continue;
+                        }
+                        let cx = w.x + w.width as i32 / 2;
+                        let cy = w.y + w.height as i32 / 2;
+                        let dx = cx - fx;
+                        let dy = cy - fy;
+
+                        let in_half_plane = match dir {
+                            Direction::Left => dx < 0,
+                            Direction::Right => dx > 0,
+                            Direction::Up => dy < 0,
+                            Direction::Down => dy > 0,
+                            _ => false,
+                        };
+
+                        if in_half_plane {
+                            let dist = (dx as i64).pow(2) + (dy as i64).pow(2);
+                            if dist < best_dist {
+                                best_dist = dist;
+                                best_id = Some(w.id);
+                            }
+                        }
+                    }
+                }
+
+                best_id
+            }
+        }
+    }
+
+    /// Shifts focus in the specified direction (next, prev, left, right, up, down).
+    pub fn focus_view_direction(&mut self, dir_str: &str) -> Result<String, String> {
+        let visible_count = self
+            .windows
+            .iter()
+            .filter(|w| !w.closed && self.tag_state.is_view_visible(w.tags))
+            .count();
+        if visible_count == 0 {
             return Ok("no visible windows".to_string());
         }
 
-        let current = self.focused_window_id();
-        let idx = current
-            .and_then(|id| visible.iter().position(|&v| v == id))
-            .unwrap_or(0);
-
-        let new_idx = if next {
-            (idx + 1) % visible.len()
-        } else {
-            (idx + visible.len() - 1) % visible.len()
+        let dir = Direction::parse(dir_str).unwrap_or(Direction::Next);
+        let target_id = self.find_target_window(dir);
+        let Some(new_id) = target_id else {
+            return Ok("no target window in direction".to_string());
         };
 
-        let new_id = visible[new_idx];
         if let Some(win) = self.windows.iter().find(|w| w.id == new_id) {
+            let proxy = win.proxy.clone();
             for seat in self.seats.values_mut() {
-                seat.focused = Some(win.proxy.clone());
+                seat.focused = Some(proxy.clone());
             }
             self.manage_dirty();
             Ok(format!("focused window {new_id}"))
         } else {
             Err("failed to focus window".to_string())
+        }
+    }
+
+    /// Swaps the focused window with the window in the specified direction.
+    pub fn swap_direction(&mut self, dir_str: &str) -> Result<String, String> {
+        let dir = Direction::parse(dir_str).unwrap_or(Direction::Next);
+        let focused_id = self.focused_window_id();
+        let Some(f_id) = focused_id else {
+            return Err("no view focused".to_string());
+        };
+
+        let target_id = self.find_target_window(dir);
+        let Some(t_id) = target_id else {
+            return Ok("no target window to swap with".to_string());
+        };
+
+        let f_idx = self.windows.iter().position(|w| w.id == f_id);
+        let t_idx = self.windows.iter().position(|w| w.id == t_id);
+
+        if let (Some(i1), Some(i2)) = (f_idx, t_idx) {
+            self.windows.swap(i1, i2);
+            self.manage_dirty();
+            Ok(format!("swapped window {f_id} with {t_id}"))
+        } else {
+            Err("window not found to swap".to_string())
+        }
+    }
+
+    /// Shifts focus to the next or previous visible window.
+    pub fn focus_view(&mut self, next: bool) -> Result<String, String> {
+        if next {
+            self.focus_view_direction("next")
+        } else {
+            self.focus_view_direction("previous")
         }
     }
 
@@ -248,10 +391,8 @@ impl AppState {
             IpcCommand::ToggleFloat => self.toggle_float_focused(),
             IpcCommand::ToggleFullscreen => self.toggle_fullscreen_focused(),
             IpcCommand::Zoom => self.zoom_focused(),
-            IpcCommand::FocusView(dir) => {
-                let next = !matches!(dir.as_str(), "previous" | "prev" | "up" | "left");
-                self.focus_view(next)
-            }
+            IpcCommand::FocusView(dir) => self.focus_view_direction(dir),
+            IpcCommand::Swap(dir) => self.swap_direction(dir),
             IpcCommand::SetFocusedTags(mask) => self.set_focused_tags(*mask),
             IpcCommand::ToggleFocusedTags(mask) => self.toggle_focused_tags(*mask),
             IpcCommand::SetViewTags(mask) => self.set_view_tags(*mask),
@@ -431,12 +572,12 @@ impl AppState {
                 let _ = self.zoom_focused();
             }
             "focus-view" => {
-                let next = if action.len() > 1 {
-                    !matches!(action[1].as_str(), "previous" | "prev" | "up" | "left")
-                } else {
-                    true
-                };
-                let _ = self.focus_view(next);
+                let dir = action.get(1).map(|s| s.as_str()).unwrap_or("next");
+                let _ = self.focus_view_direction(dir);
+            }
+            "swap" => {
+                let dir = action.get(1).map(|s| s.as_str()).unwrap_or("next");
+                let _ = self.swap_direction(dir);
             }
             "focus-tag" => {
                 if action.len() > 1

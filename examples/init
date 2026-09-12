@@ -32,13 +32,19 @@ xrwm rule-add -app-id satty float
 xrwm map normal Super Return spawn foot
 xrwm map normal Super D spawn fuzzel
 
-# Window Actions
+# Window Actions & Vim Navigation (HJKL)
 xrwm map normal Super Q close
 xrwm map normal Super Space toggle-float
 xrwm map normal Super F toggle-fullscreen
 xrwm map normal Super M zoom
-xrwm map normal Super J focus-view next
-xrwm map normal Super K focus-view previous
+xrwm map normal Super H focus-view left
+xrwm map normal Super J focus-view down
+xrwm map normal Super K focus-view up
+xrwm map normal Super L focus-view right
+xrwm map normal "Super+Shift" H swap left
+xrwm map normal "Super+Shift" J swap down
+xrwm map normal "Super+Shift" K swap up
+xrwm map normal "Super+Shift" L swap right
 xrwm map normal Super Tab focus-previous-tags
 xrwm map normal "Super+Shift" Tab send-to-previous-tags
 

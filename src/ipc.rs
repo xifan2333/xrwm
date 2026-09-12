@@ -12,6 +12,7 @@ pub enum IpcCommand {
     ToggleFullscreen,
     Zoom,
     FocusView(String),
+    Swap(String),
     SetFocusedTags(u32),
     ToggleFocusedTags(u32),
     SetViewTags(u32),
@@ -137,6 +138,10 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
         "focus-view" => {
             let dir = args.get(1).cloned().unwrap_or_else(|| "next".to_string());
             Ok(IpcCommand::FocusView(dir))
+        }
+        "swap" => {
+            let dir = args.get(1).cloned().unwrap_or_else(|| "next".to_string());
+            Ok(IpcCommand::Swap(dir))
         }
         "set-focused-tags" => {
             let mask = args
@@ -452,6 +457,14 @@ mod tests {
         assert_eq!(
             parse_cli_args(&["main-location".into(), "top".into()]).unwrap(),
             IpcCommand::SetMainLocation(crate::layout::MainLocation::Top)
+        );
+        assert_eq!(
+            parse_cli_args(&["swap".into(), "next".into()]).unwrap(),
+            IpcCommand::Swap("next".into())
+        );
+        assert_eq!(
+            parse_cli_args(&["swap".into(), "left".into()]).unwrap(),
+            IpcCommand::Swap("left".into())
         );
         assert_eq!(parse_cli_args(&["ping".into()]).unwrap(), IpcCommand::Ping);
         assert_eq!(
