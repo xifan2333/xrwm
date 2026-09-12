@@ -30,6 +30,7 @@ pub enum IpcCommand {
     SetStackRatio(String),
     SetMainCount(String),
     SetMainLocation(crate::layout::MainLocation),
+    SetAttachMode(crate::wm::AttachMode),
     DeclareMode(String),
     EnterMode(String),
     ResizeWindow {
@@ -226,6 +227,14 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
                 }
             };
             Ok(IpcCommand::SetMainLocation(loc))
+        }
+        "default-attach-mode" | "attach-mode" => {
+            if args.len() < 2 {
+                return Err("Missing attach mode: top|bottom|above|below|after <N>".to_string());
+            }
+            let raw_arg = args[1..].join(" ");
+            let mode = crate::wm::AttachMode::parse(&raw_arg)?;
+            Ok(IpcCommand::SetAttachMode(mode))
         }
         "set-window-gaps" | "window-gaps" | "view-padding" => {
             let gaps = args
@@ -570,6 +579,14 @@ mod tests {
         assert_eq!(
             parse_cli_args(&["send-to-previous-tags".into()]).unwrap(),
             IpcCommand::SendToPreviousTags
+        );
+        assert_eq!(
+            parse_cli_args(&["default-attach-mode".into(), "bottom".into()]).unwrap(),
+            IpcCommand::SetAttachMode(crate::wm::AttachMode::Bottom)
+        );
+        assert_eq!(
+            parse_cli_args(&["attach-mode".into(), "after".into(), "2".into()]).unwrap(),
+            IpcCommand::SetAttachMode(crate::wm::AttachMode::After(2))
         );
         assert_eq!(
             parse_cli_args(&["main-location".into(), "top".into()]).unwrap(),
