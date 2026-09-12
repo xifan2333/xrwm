@@ -433,7 +433,7 @@ impl AppState {
     }
 
     /// Sends the focused window to output in the specified direction.
-    pub fn send_to_output(&mut self, dir_str: &str) -> Result<String, String> {
+    pub fn send_to_output(&mut self, dir_str: &str, current_tags: bool) -> Result<String, String> {
         let target_id = self.find_target_output(dir_str);
         let Some(out_id) = target_id else {
             return Ok("no destination output found".to_string());
@@ -444,8 +444,13 @@ impl AppState {
             return Err("no view focused".to_string());
         };
 
+        let dest_tags = self.tag_state.focused;
+
         if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
             w.output = Some(out_id.clone());
+            if current_tags {
+                w.tags = dest_tags;
+            }
             self.manage_dirty();
             Ok(format!("sent window {id} to output {:?}", out_id))
         } else {
@@ -923,7 +928,10 @@ impl AppState {
                 skip_floating,
             } => self.focus_view_direction(direction, *skip_floating),
             IpcCommand::FocusOutput(dir) => self.focus_output(dir),
-            IpcCommand::SendToOutput(dir) => self.send_to_output(dir),
+            IpcCommand::SendToOutput {
+                direction,
+                current_tags,
+            } => self.send_to_output(direction, *current_tags),
             IpcCommand::Swap(dir) => self.swap_direction(dir),
             IpcCommand::Snap(edge) => self.snap_focused(edge),
             IpcCommand::SetFocusedTags(mask) => self.set_focused_tags(*mask),
@@ -1299,8 +1307,16 @@ impl AppState {
                 let _ = self.focus_output(dir);
             }
             "send-to-output" => {
-                let dir = action.get(1).map(|s| s.as_str()).unwrap_or("next");
-                let _ = self.send_to_output(dir);
+                let mut current_tags = false;
+                let mut dir = "next";
+                for tok in &action[1..] {
+                    if tok == "-current-tags" {
+                        current_tags = true;
+                    } else {
+                        dir = tok.as_str();
+                    }
+                }
+                let _ = self.send_to_output(dir, current_tags);
             }
             "swap" => {
                 let dir = action.get(1).map(|s| s.as_str()).unwrap_or("next");
@@ -1674,7 +1690,10 @@ mod tests {
         );
         assert_eq!(
             state
-                .handle_ipc_command(&IpcCommand::SendToOutput("next".into()))
+                .handle_ipc_command(&IpcCommand::SendToOutput {
+                    direction: "next".into(),
+                    current_tags: false,
+                })
                 .unwrap(),
             "no destination output found"
         );

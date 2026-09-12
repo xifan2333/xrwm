@@ -16,7 +16,10 @@ pub enum IpcCommand {
         skip_floating: bool,
     },
     FocusOutput(String),
-    SendToOutput(String),
+    SendToOutput {
+        direction: String,
+        current_tags: bool,
+    },
     Swap(String),
     Snap(String),
     SetFocusedTags(u32),
@@ -179,8 +182,19 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
             Ok(IpcCommand::FocusOutput(dir))
         }
         "send-to-output" => {
-            let dir = args.get(1).cloned().unwrap_or_else(|| "next".to_string());
-            Ok(IpcCommand::SendToOutput(dir))
+            let mut current_tags = false;
+            let mut direction = "next".to_string();
+            for arg in &args[1..] {
+                if arg == "-current-tags" {
+                    current_tags = true;
+                } else {
+                    direction = arg.clone();
+                }
+            }
+            Ok(IpcCommand::SendToOutput {
+                direction,
+                current_tags,
+            })
         }
         "swap" => {
             let dir = args.get(1).cloned().unwrap_or_else(|| "next".to_string());
@@ -607,7 +621,22 @@ mod tests {
         );
         assert_eq!(
             parse_cli_args(&["send-to-output".into(), "left".into()]).unwrap(),
-            IpcCommand::SendToOutput("left".into())
+            IpcCommand::SendToOutput {
+                direction: "left".into(),
+                current_tags: false,
+            }
+        );
+        assert_eq!(
+            parse_cli_args(&[
+                "send-to-output".into(),
+                "-current-tags".into(),
+                "right".into()
+            ])
+            .unwrap(),
+            IpcCommand::SendToOutput {
+                direction: "right".into(),
+                current_tags: true,
+            }
         );
         assert_eq!(
             parse_cli_args(&["declare-mode".into(), "resize".into()]).unwrap(),
