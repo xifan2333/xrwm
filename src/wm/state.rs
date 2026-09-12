@@ -737,7 +737,15 @@ impl AppState {
                 if let Some(rect) = rects.get(slot) {
                     let w = &mut self.windows[idx];
                     let target = *rect;
-                    if w.anim_target_geo != Some(target) {
+                    if w.new {
+                        let start_w = (target.width * 7 / 10).max(10);
+                        let start_h = (target.height * 7 / 10).max(10);
+                        let start_x = target.x + (target.width as i32 - start_w as i32) / 2;
+                        let start_y = target.y + (target.height as i32 - start_h as i32) / 2;
+                        w.anim_start_geo = Some(Rect::new(start_x, start_y, start_w, start_h));
+                        w.anim_target_geo = Some(target);
+                        any_geo_changed = true;
+                    } else if w.anim_target_geo != Some(target) {
                         w.anim_start_geo = w.visual_geo.or(w.anim_target_geo).or(Some(target));
                         w.anim_target_geo = Some(target);
                         any_geo_changed = true;
@@ -767,10 +775,20 @@ impl AppState {
             .filter(|w| w.floating && !w.fullscreen)
         {
             let target = Rect::new(w.x, w.y, w.width, w.height);
-            if !is_any_pointer_op && w.anim_target_geo != Some(target) {
-                w.anim_start_geo = w.visual_geo.or(w.anim_target_geo).or(Some(target));
-                w.anim_target_geo = Some(target);
-                any_geo_changed = true;
+            if !is_any_pointer_op {
+                if w.new {
+                    let start_w = (target.width * 7 / 10).max(10);
+                    let start_h = (target.height * 7 / 10).max(10);
+                    let start_x = target.x + (target.width as i32 - start_w as i32) / 2;
+                    let start_y = target.y + (target.height as i32 - start_h as i32) / 2;
+                    w.anim_start_geo = Some(Rect::new(start_x, start_y, start_w, start_h));
+                    w.anim_target_geo = Some(target);
+                    any_geo_changed = true;
+                } else if w.anim_target_geo != Some(target) {
+                    w.anim_start_geo = w.visual_geo.or(w.anim_target_geo).or(Some(target));
+                    w.anim_target_geo = Some(target);
+                    any_geo_changed = true;
+                }
             }
             if w.last_proposed_w != w.width || w.last_proposed_h != w.height {
                 w.proxy.propose_dimensions(w.width as i32, w.height as i32);
@@ -1077,6 +1095,8 @@ impl AppState {
                     geo
                 } else {
                     w.proxy.set_clip_box(0, 0, 0, 0);
+                    w.anim_start_geo = Some(target);
+                    w.anim_target_geo = Some(target);
                     target
                 };
 
