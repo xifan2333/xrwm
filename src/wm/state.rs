@@ -116,6 +116,9 @@ pub struct WindowRule {
     pub ssd: Option<bool>,
     pub tags: Option<TagMask>,
     pub dimensions: Option<(u32, u32)>,
+    pub position: Option<(i32, i32)>,
+    pub fullscreen: Option<bool>,
+    pub output: Option<String>,
 }
 
 #[derive(Debug)]

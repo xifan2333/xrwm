@@ -790,6 +790,9 @@ impl AppState {
                 let mut ssd = None;
                 let mut tags = None;
                 let mut dimensions = None;
+                let mut position = None;
+                let mut fullscreen = None;
+                let mut output = None;
 
                 let act = action[0].to_ascii_lowercase();
                 match act.as_str() {
@@ -797,6 +800,8 @@ impl AppState {
                     "no-float" => float = Some(false),
                     "ssd" => ssd = Some(true),
                     "csd" | "no-ssd" | "no-border" => ssd = Some(false),
+                    "fullscreen" => fullscreen = Some(true),
+                    "no-fullscreen" => fullscreen = Some(false),
                     "tags" => {
                         if action.len() > 1 {
                             let tag_num =
@@ -822,6 +827,26 @@ impl AppState {
                             );
                         }
                     }
+                    "position" => {
+                        if action.len() > 2 {
+                            let x = action[1]
+                                .parse::<i32>()
+                                .map_err(|_| "Invalid x coordinate")?;
+                            let y = action[2]
+                                .parse::<i32>()
+                                .map_err(|_| "Invalid y coordinate")?;
+                            position = Some((x, y));
+                        } else {
+                            return Err("Usage: rule-add ... position <x> <y>".to_string());
+                        }
+                    }
+                    "output" => {
+                        if action.len() > 1 {
+                            output = Some(action[1].clone());
+                        } else {
+                            return Err("Usage: rule-add ... output <name|id>".to_string());
+                        }
+                    }
                     other => {
                         return Err(format!("Unknown rule action: {other}"));
                     }
@@ -834,6 +859,9 @@ impl AppState {
                     ssd,
                     tags,
                     dimensions,
+                    position,
+                    fullscreen,
+                    output,
                 });
                 Ok(format!(
                     "rule added for app_id={app_id:?} title={title:?} action={action:?}"
@@ -1170,6 +1198,30 @@ mod tests {
         };
         assert!(state.handle_ipc_command(&tag_cmd).is_ok());
         assert_eq!(state.rules[3].tags, Some(2));
+
+        let pos_cmd = IpcCommand::RuleAdd {
+            app_id: Some("calc".into()),
+            title: None,
+            action: vec!["position".into(), "100".into(), "200".into()],
+        };
+        assert!(state.handle_ipc_command(&pos_cmd).is_ok());
+        assert_eq!(state.rules[4].position, Some((100, 200)));
+
+        let fs_cmd = IpcCommand::RuleAdd {
+            app_id: Some("gamescope".into()),
+            title: None,
+            action: vec!["fullscreen".into()],
+        };
+        assert!(state.handle_ipc_command(&fs_cmd).is_ok());
+        assert_eq!(state.rules[5].fullscreen, Some(true));
+
+        let out_cmd = IpcCommand::RuleAdd {
+            app_id: Some("wechat".into()),
+            title: None,
+            action: vec!["output".into(), "DP-1".into()],
+        };
+        assert!(state.handle_ipc_command(&out_cmd).is_ok());
+        assert_eq!(state.rules[6].output, Some("DP-1".into()));
     }
 
     #[test]
