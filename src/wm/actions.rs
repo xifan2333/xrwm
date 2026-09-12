@@ -35,6 +35,85 @@ impl Direction {
     }
 }
 
+/// Helper function to pick an adjacent output based on logical (next/prev) or spatial (left/right/up/down) direction.
+pub fn pick_adjacent_output<T: Clone>(
+    outputs: &[(&T, i32, i32, u32, u32)],
+    current_idx: usize,
+    dir_str: &str,
+) -> Option<T> {
+    if outputs.len() <= 1 || current_idx >= outputs.len() {
+        return None;
+    }
+
+    let (_, cur_x, cur_y, cur_w, cur_h) = outputs[current_idx];
+    let cur_cx = cur_x + cur_w as i32 / 2;
+    let cur_cy = cur_y + cur_h as i32 / 2;
+
+    match dir_str.to_ascii_lowercase().as_str() {
+        "next" => {
+            let next_idx = (current_idx + 1) % outputs.len();
+            Some(outputs[next_idx].0.clone())
+        }
+        "previous" | "prev" => {
+            let prev_idx = if current_idx == 0 {
+                outputs.len() - 1
+            } else {
+                current_idx - 1
+            };
+            Some(outputs[prev_idx].0.clone())
+        }
+        "left" | "h" => outputs
+            .iter()
+            .filter(|(_, x, _, w, _)| {
+                let cx = *x + *w as i32 / 2;
+                cx < cur_cx
+            })
+            .min_by_key(|(_, x, y, w, h)| {
+                let cx = *x + *w as i32 / 2;
+                let cy = *y + *h as i32 / 2;
+                (cur_cx - cx).abs() * 2 + (cur_cy - cy).abs()
+            })
+            .map(|(t, ..)| (*t).clone()),
+        "right" | "l" => outputs
+            .iter()
+            .filter(|(_, x, _, w, _)| {
+                let cx = *x + *w as i32 / 2;
+                cx > cur_cx
+            })
+            .min_by_key(|(_, x, y, w, h)| {
+                let cx = *x + *w as i32 / 2;
+                let cy = *y + *h as i32 / 2;
+                (cx - cur_cx).abs() * 2 + (cur_cy - cy).abs()
+            })
+            .map(|(t, ..)| (*t).clone()),
+        "up" | "k" => outputs
+            .iter()
+            .filter(|(_, _, y, _, h)| {
+                let cy = *y + *h as i32 / 2;
+                cy < cur_cy
+            })
+            .min_by_key(|(_, x, y, w, h)| {
+                let cx = *x + *w as i32 / 2;
+                let cy = *y + *h as i32 / 2;
+                (cur_cy - cy).abs() * 2 + (cur_cx - cx).abs()
+            })
+            .map(|(t, ..)| (*t).clone()),
+        "down" | "j" => outputs
+            .iter()
+            .filter(|(_, _, y, _, h)| {
+                let cy = *y + *h as i32 / 2;
+                cy > cur_cy
+            })
+            .min_by_key(|(_, x, y, w, h)| {
+                let cx = *x + *w as i32 / 2;
+                let cy = *y + *h as i32 / 2;
+                (cy - cur_cy).abs() * 2 + (cur_cx - cx).abs()
+            })
+            .map(|(t, ..)| (*t).clone()),
+        _ => None,
+    }
+}
+
 impl AppState {
     /// Closes the currently focused window.
     pub fn close_focused(&mut self) -> Result<String, String> {
@@ -234,73 +313,13 @@ impl AppState {
 
         let current_id = self.get_focused_output_id()?;
         let current_idx = output_list.iter().position(|(id, _)| **id == current_id)?;
-        let current_out = output_list[current_idx].1;
-        let cur_cx = current_out.x + current_out.width as i32 / 2;
-        let cur_cy = current_out.y + current_out.height as i32 / 2;
 
-        match dir_str.to_ascii_lowercase().as_str() {
-            "next" => {
-                let next_idx = (current_idx + 1) % output_list.len();
-                Some(output_list[next_idx].0.clone())
-            }
-            "previous" | "prev" => {
-                let prev_idx = if current_idx == 0 {
-                    output_list.len() - 1
-                } else {
-                    current_idx - 1
-                };
-                Some(output_list[prev_idx].0.clone())
-            }
-            "left" | "h" => output_list
-                .iter()
-                .filter(|(_, o)| {
-                    let cx = o.x + o.width as i32 / 2;
-                    cx < cur_cx
-                })
-                .min_by_key(|(_, o)| {
-                    let cx = o.x + o.width as i32 / 2;
-                    let cy = o.y + o.height as i32 / 2;
-                    (cur_cx - cx).abs() * 2 + (cur_cy - cy).abs()
-                })
-                .map(|(id, _)| (*id).clone()),
-            "right" | "l" => output_list
-                .iter()
-                .filter(|(_, o)| {
-                    let cx = o.x + o.width as i32 / 2;
-                    cx > cur_cx
-                })
-                .min_by_key(|(_, o)| {
-                    let cx = o.x + o.width as i32 / 2;
-                    let cy = o.y + o.height as i32 / 2;
-                    (cx - cur_cx).abs() * 2 + (cur_cy - cy).abs()
-                })
-                .map(|(id, _)| (*id).clone()),
-            "up" | "k" => output_list
-                .iter()
-                .filter(|(_, o)| {
-                    let cy = o.y + o.height as i32 / 2;
-                    cy < cur_cy
-                })
-                .min_by_key(|(_, o)| {
-                    let cx = o.x + o.width as i32 / 2;
-                    let cy = o.y + o.height as i32 / 2;
-                    (cur_cy - cy).abs() * 2 + (cur_cx - cx).abs()
-                })
-                .map(|(id, _)| (*id).clone()),
-            "down" | "j" => output_list
-                .iter()
-                .filter(|(_, o)| {
-                    let cy = o.y + o.height as i32 / 2;
-                    cy > cur_cy
-                })
-                .min_by_key(|(_, o)| {
-                    let cx = o.x + o.width as i32 / 2;
-                    let cy = o.y + o.height as i32 / 2;
-                    (cy - cur_cy).abs() * 2 + (cur_cx - cx).abs()
-                })
-                .map(|(id, _)| (*id).clone()),
-            _ => None,
-        }
+        let tuples: Vec<(&wayland_backend::client::ObjectId, i32, i32, u32, u32)> = output_list
+            .iter()
+            .map(|(id, o)| (*id, o.x, o.y, o.width, o.height))
+            .collect();
+
+        pick_adjacent_output(&tuples, current_idx, dir_str)
     }
 
     /// Focuses output in the specified direction.
@@ -1279,5 +1298,53 @@ mod tests {
         assert!(state.toggle_float_focused().is_err());
         assert!(state.zoom_focused().is_err());
         assert_eq!(state.focus_view(true).unwrap(), "no visible windows");
+
+        // Multi-output on empty state
+        assert_eq!(
+            state
+                .handle_ipc_command(&IpcCommand::FocusOutput("next".into()))
+                .unwrap(),
+            "no destination output found"
+        );
+        assert_eq!(
+            state
+                .handle_ipc_command(&IpcCommand::SendToOutput("next".into()))
+                .unwrap(),
+            "no destination output found"
+        );
+    }
+
+    #[test]
+    fn test_pick_adjacent_output() {
+        // Two side-by-side monitors:
+        // Output A: 0, 0, 1920, 1080
+        // Output B: 1920, 0, 1920, 1080
+        let a = "A";
+        let b = "B";
+        let outputs = vec![(&a, 0, 0, 1920, 1080), (&b, 1920, 0, 1920, 1080)];
+
+        // From Output A (idx 0):
+        assert_eq!(pick_adjacent_output(&outputs, 0, "next"), Some("B"));
+        assert_eq!(pick_adjacent_output(&outputs, 0, "right"), Some("B"));
+        assert_eq!(pick_adjacent_output(&outputs, 0, "left"), None);
+        assert_eq!(pick_adjacent_output(&outputs, 0, "up"), None);
+        assert_eq!(pick_adjacent_output(&outputs, 0, "down"), None);
+
+        // From Output B (idx 1):
+        assert_eq!(pick_adjacent_output(&outputs, 1, "next"), Some("A"));
+        assert_eq!(pick_adjacent_output(&outputs, 1, "previous"), Some("A"));
+        assert_eq!(pick_adjacent_output(&outputs, 1, "left"), Some("A"));
+        assert_eq!(pick_adjacent_output(&outputs, 1, "right"), None);
+
+        // Two stacked monitors:
+        // Top: 0, 0, 1920, 1080
+        // Bottom: 0, 1080, 1920, 1080
+        let top = "Top";
+        let bottom = "Bottom";
+        let stacked = vec![(&top, 0, 0, 1920, 1080), (&bottom, 0, 1080, 1920, 1080)];
+        assert_eq!(pick_adjacent_output(&stacked, 0, "down"), Some("Bottom"));
+        assert_eq!(pick_adjacent_output(&stacked, 0, "up"), None);
+        assert_eq!(pick_adjacent_output(&stacked, 1, "up"), Some("Top"));
+        assert_eq!(pick_adjacent_output(&stacked, 1, "down"), None);
     }
 }
