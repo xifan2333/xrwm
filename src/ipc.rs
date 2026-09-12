@@ -50,7 +50,7 @@ pub enum IpcCommand {
     RuleAdd {
         app_id: Option<String>,
         title: Option<String>,
-        action: String,
+        action: Vec<String>,
     },
     Status {
         stream: bool,
@@ -322,7 +322,7 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
         "rule-add" => {
             let mut app_id = None;
             let mut title = None;
-            let mut action = None;
+            let mut action_tokens = Vec::new();
             let mut i = 1;
 
             while i < args.len() {
@@ -340,19 +340,22 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
                         }
                     }
                     val => {
-                        action = Some(val.to_string());
+                        action_tokens.push(val.to_string());
                     }
                 }
                 i += 1;
             }
 
-            let action = action.ok_or_else(|| {
-                "Usage: xrwm rule-add [-app-id <id>] [-title <title>] <action>".to_string()
-            })?;
+            if action_tokens.is_empty() {
+                return Err(
+                    "Usage: xrwm rule-add [-app-id <id>] [-title <title>] <action> [args...]"
+                        .to_string(),
+                );
+            }
             Ok(IpcCommand::RuleAdd {
                 app_id,
                 title,
-                action,
+                action: action_tokens,
             })
         }
         "status" => {
@@ -414,7 +417,24 @@ mod tests {
             IpcCommand::RuleAdd {
                 app_id: Some("mpv".into()),
                 title: None,
-                action: "float".into(),
+                action: vec!["float".into()],
+            }
+        );
+
+        let dim_rule_args = vec![
+            "rule-add".into(),
+            "-app-id".into(),
+            "mpv".into(),
+            "dimensions".into(),
+            "960".into(),
+            "540".into(),
+        ];
+        assert_eq!(
+            parse_cli_args(&dim_rule_args).unwrap(),
+            IpcCommand::RuleAdd {
+                app_id: Some("mpv".into()),
+                title: None,
+                action: vec!["dimensions".into(), "960".into(), "540".into()],
             }
         );
 

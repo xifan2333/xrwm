@@ -543,31 +543,61 @@ impl AppState {
                 title,
                 action,
             } => {
-                let float = if action.contains("float") && !action.contains("no-float") {
-                    Some(true)
-                } else if action.contains("no-float") {
-                    Some(false)
-                } else {
-                    None
-                };
-                let ssd = if action.contains("csd")
-                    || action.contains("no-ssd")
-                    || action.contains("no-border")
-                {
-                    Some(false)
-                } else if action.contains("ssd") {
-                    Some(true)
-                } else {
-                    None
-                };
+                if action.is_empty() {
+                    return Err("Rule action cannot be empty".to_string());
+                }
+                let mut float = None;
+                let mut ssd = None;
+                let mut tags = None;
+                let mut dimensions = None;
+
+                let act = action[0].to_ascii_lowercase();
+                match act.as_str() {
+                    "float" => float = Some(true),
+                    "no-float" => float = Some(false),
+                    "ssd" => ssd = Some(true),
+                    "csd" | "no-ssd" | "no-border" => ssd = Some(false),
+                    "tags" => {
+                        if action.len() > 1 {
+                            let tag_num =
+                                action[1].parse::<u32>().map_err(|_| "Invalid tag number")?;
+                            let mask = if (1..=32).contains(&tag_num) {
+                                1 << (tag_num - 1)
+                            } else {
+                                tag_num
+                            };
+                            tags = Some(mask);
+                        } else {
+                            return Err("Usage: rule-add ... tags <tag>".to_string());
+                        }
+                    }
+                    "dimensions" => {
+                        if action.len() > 2 {
+                            let w = action[1].parse::<u32>().map_err(|_| "Invalid width")?;
+                            let h = action[2].parse::<u32>().map_err(|_| "Invalid height")?;
+                            dimensions = Some((w, h));
+                        } else {
+                            return Err(
+                                "Usage: rule-add ... dimensions <width> <height>".to_string()
+                            );
+                        }
+                    }
+                    other => {
+                        return Err(format!("Unknown rule action: {other}"));
+                    }
+                }
+
                 self.rules.push(WindowRule {
                     app_id: app_id.clone(),
                     title: title.clone(),
                     float,
                     ssd,
-                    tags: None,
+                    tags,
+                    dimensions,
                 });
-                Ok(format!("rule added for app_id={app_id:?} title={title:?}"))
+                Ok(format!(
+                    "rule added for app_id={app_id:?} title={title:?} action={action:?}"
+                ))
             }
             IpcCommand::Map {
                 mode,
@@ -796,7 +826,7 @@ mod tests {
         let cmd = IpcCommand::RuleAdd {
             app_id: Some("mpv".into()),
             title: None,
-            action: "float".into(),
+            action: vec!["float".into()],
         };
         let res = state.handle_ipc_command(&cmd);
         assert!(res.is_ok());
@@ -807,11 +837,27 @@ mod tests {
         let csd_cmd = IpcCommand::RuleAdd {
             app_id: Some("foot".into()),
             title: None,
-            action: "csd".into(),
+            action: vec!["csd".into()],
         };
         let res_csd = state.handle_ipc_command(&csd_cmd);
         assert!(res_csd.is_ok());
         assert_eq!(state.rules[1].ssd, Some(false));
+
+        let dim_cmd = IpcCommand::RuleAdd {
+            app_id: Some("imv".into()),
+            title: None,
+            action: vec!["dimensions".into(), "960".into(), "540".into()],
+        };
+        assert!(state.handle_ipc_command(&dim_cmd).is_ok());
+        assert_eq!(state.rules[2].dimensions, Some((960, 540)));
+
+        let tag_cmd = IpcCommand::RuleAdd {
+            app_id: Some("firefox".into()),
+            title: None,
+            action: vec!["tags".into(), "2".into()],
+        };
+        assert!(state.handle_ipc_command(&tag_cmd).is_ok());
+        assert_eq!(state.rules[3].tags, Some(2));
     }
 
     #[test]

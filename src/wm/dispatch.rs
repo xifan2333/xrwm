@@ -201,15 +201,17 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
                 state.manage_dirty();
             }
             Event::AppId { app_id } => {
+                let usable = state.outputs.values().next().map(|o| o.usable_area);
                 if let Some(w) = state.windows.iter_mut().find(|w| &w.proxy == proxy) {
                     w.app_id = app_id;
-                    AppState::apply_rules_to_window(&state.rules, w);
+                    AppState::apply_rules_to_window(&state.rules, w, usable);
                 }
             }
             Event::Title { title } => {
+                let usable = state.outputs.values().next().map(|o| o.usable_area);
                 if let Some(w) = state.windows.iter_mut().find(|w| &w.proxy == proxy) {
                     w.title = title;
-                    AppState::apply_rules_to_window(&state.rules, w);
+                    AppState::apply_rules_to_window(&state.rules, w, usable);
                 }
             }
             Event::Dimensions { .. } => {}

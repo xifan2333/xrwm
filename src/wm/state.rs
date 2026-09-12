@@ -65,6 +65,7 @@ pub struct WindowRule {
     pub float: Option<bool>,
     pub ssd: Option<bool>,
     pub tags: Option<TagMask>,
+    pub dimensions: Option<(u32, u32)>,
 }
 
 #[derive(Debug)]
@@ -175,7 +176,11 @@ impl AppState {
         }
     }
 
-    pub fn apply_rules_to_window(rules: &[WindowRule], w: &mut WindowItem) {
+    pub fn apply_rules_to_window(
+        rules: &[WindowRule],
+        w: &mut WindowItem,
+        usable_area: Option<Rect>,
+    ) {
         for r in rules {
             let app_matches = match &r.app_id {
                 Some(pat) => glob_match(pat, w.app_id.as_deref().unwrap_or("")),
@@ -194,6 +199,17 @@ impl AppState {
                 }
                 if let Some(tags) = r.tags {
                     w.tags = tags;
+                }
+                if let Some((width, height)) = r.dimensions {
+                    w.width = width;
+                    w.height = height;
+                    if let Some(usable) = usable_area {
+                        let cx = usable.x + ((usable.width as i32 - width as i32) / 2).max(0);
+                        let cy = usable.y + ((usable.height as i32 - height as i32) / 2).max(0);
+                        w.x = cx;
+                        w.y = cy;
+                        w.float_geo = Some(Rect::new(cx, cy, width, height));
+                    }
                 }
             }
         }
