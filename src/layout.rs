@@ -401,4 +401,43 @@ mod tests {
         // Stack right: width 400
         assert_eq!(rects[2], Rect::new(600, 500, 400, 500));
     }
+
+    #[test]
+    fn test_secondary_stack_with_gaps() {
+        let layout = MasterStackLayout;
+        let area = Rect::new(0, 0, 1000, 1000);
+        let config = LayoutConfig {
+            gaps: 10,
+            split_ratio: 0.5,
+            stack_split_ratio: 0.5,
+            ..Default::default()
+        };
+        let rects = layout.arrange(area, 3, &config);
+        assert_eq!(rects.len(), 3);
+        // Master window on left
+        assert_eq!(rects[0].x, 10);
+        // Stack windows on right: total height 1000 - 10 * 3 = 970 -> 485 each
+        assert_eq!(rects[1].height, 485);
+        assert_eq!(rects[2].height, 485);
+        assert_eq!(rects[1].y, 10);
+        assert_eq!(rects[2].y, 10 + 485 + 10);
+    }
+
+    #[test]
+    fn test_secondary_stack_many_windows() {
+        let layout = MasterStackLayout;
+        let area = Rect::new(0, 0, 1000, 1000);
+        // 4 windows: 1 master, 3 stack windows. First stack window gets 0.4 of total stack height (1000px -> 400px), remaining 2 share 600px -> 300px each
+        let config = LayoutConfig {
+            gaps: 0,
+            split_ratio: 0.5,
+            stack_split_ratio: 0.4,
+            ..Default::default()
+        };
+        let rects = layout.arrange(area, 4, &config);
+        assert_eq!(rects.len(), 4);
+        assert_eq!(rects[1].height, 400);
+        assert_eq!(rects[2].height, 300);
+        assert_eq!(rects[3].height, 300);
+    }
 }

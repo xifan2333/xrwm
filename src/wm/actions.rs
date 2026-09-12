@@ -1068,6 +1068,21 @@ mod tests {
             (state.layout_config.stack_split_ratio - (initial_stack_ratio - 0.05)).abs() < 1e-4
         );
 
+        state.set_stack_ratio(0.85).unwrap();
+        assert!((state.layout_config.stack_split_ratio - 0.85).abs() < f32::EPSILON);
+
+        // Clamping test
+        state.set_stack_ratio(1.5).unwrap();
+        assert!((state.layout_config.stack_split_ratio - 0.9).abs() < f32::EPSILON);
+        state.set_stack_ratio(-0.5).unwrap();
+        assert!((state.layout_config.stack_split_ratio - 0.1).abs() < f32::EPSILON);
+
+        // Action tokens test
+        state.execute_action_tokens(&["set-stack-ratio".into(), "0.60".into()]);
+        assert!((state.layout_config.stack_split_ratio - 0.60).abs() < 1e-4);
+        state.execute_action_tokens(&["stack-ratio".into(), "+0.10".into()]);
+        assert!((state.layout_config.stack_split_ratio - 0.70).abs() < 1e-4);
+
         // Relative count adjustment
         assert_eq!(state.layout_config.main_count, 1);
         state.set_main_count_arg("+1").unwrap();
