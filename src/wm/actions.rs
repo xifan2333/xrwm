@@ -496,6 +496,13 @@ impl AppState {
         Ok(format!("main location set to {:?}", loc).to_lowercase())
     }
 
+    /// Sets the padding around views in pixels (gaps).
+    pub fn set_view_padding(&mut self, padding: u32) -> Result<String, String> {
+        self.layout_config.gaps = padding;
+        self.manage_dirty();
+        Ok(format!("view padding set to {padding}px"))
+    }
+
     /// Sets the attach mode for newly spawned windows.
     pub fn set_attach_mode(&mut self, mode: AttachMode) -> Result<String, String> {
         self.attach_mode = mode;
@@ -731,7 +738,7 @@ impl AppState {
             IpcCommand::ToggleViewTags(mask) => self.toggle_view_tags(*mask),
             IpcCommand::FocusPreviousTags => self.focus_previous_tags(),
             IpcCommand::SendToPreviousTags => self.send_to_previous_tags(),
-            IpcCommand::SetMainLocation(loc) => self.set_main_location(*loc),
+            IpcCommand::MainLocation(loc) => self.set_main_location(*loc),
             IpcCommand::SetAttachMode(mode) => self.set_attach_mode(*mode),
             IpcCommand::SetCursorWarp(mode) => self.set_cursor_warp(*mode),
             IpcCommand::SetFocusFollowsCursor(mode) => self.set_focus_follows_cursor(*mode),
@@ -743,11 +750,7 @@ impl AppState {
                 let mask = TagState::tag_index_to_mask(*idx);
                 self.set_view_tags(mask)
             }
-            IpcCommand::SetWindowGaps(g) => {
-                self.layout_config.gaps = *g;
-                self.manage_dirty();
-                Ok(format!("window gaps set to {g}px"))
-            }
+            IpcCommand::ViewPadding(g) => self.set_view_padding(*g),
             IpcCommand::SetBorderWidth(w) => {
                 self.border_width = *w;
                 self.manage_dirty();
@@ -768,9 +771,9 @@ impl AppState {
                 self.manage_dirty();
                 Ok(format!("urgent border color set to {c}"))
             }
-            IpcCommand::SetMainRatio(r) => self.set_main_ratio_arg(r),
-            IpcCommand::SetStackRatio(r) => self.set_stack_ratio_arg(r),
-            IpcCommand::SetMainCount(c) => self.set_main_count_arg(c),
+            IpcCommand::MainRatio(r) => self.set_main_ratio_arg(r),
+            IpcCommand::StackRatio(r) => self.set_stack_ratio_arg(r),
+            IpcCommand::MainCount(c) => self.set_main_count_arg(c),
             IpcCommand::DeclareMode(mode) => self.declare_mode(mode),
             IpcCommand::EnterMode(mode) => self.enter_mode(mode),
             IpcCommand::ResizeWindow { horizontal, delta } => {
@@ -980,22 +983,22 @@ impl AppState {
                 };
                 let _ = self.resize_window(horizontal, delta);
             }
-            "set-main-ratio" | "main-ratio" => {
+            "main-ratio" => {
                 if action.len() > 1 {
                     let _ = self.set_main_ratio_arg(&action[1]);
                 }
             }
-            "set-stack-ratio" | "stack-ratio" => {
+            "stack-ratio" => {
                 if action.len() > 1 {
                     let _ = self.set_stack_ratio_arg(&action[1]);
                 }
             }
-            "set-main-count" | "main-count" => {
+            "main-count" => {
                 if action.len() > 1 {
                     let _ = self.set_main_count_arg(&action[1]);
                 }
             }
-            "set-main-location" | "main-location" => {
+            "main-location" => {
                 if action.len() > 1 {
                     let loc_str = &action[1];
                     let loc = match loc_str.to_ascii_lowercase().as_str() {
@@ -1006,6 +1009,13 @@ impl AppState {
                         _ => crate::layout::MainLocation::Left,
                     };
                     let _ = self.set_main_location(loc);
+                }
+            }
+            "view-padding" => {
+                if action.len() > 1
+                    && let Ok(p) = action[1].parse::<u32>()
+                {
+                    let _ = self.set_view_padding(p);
                 }
             }
             "default-attach-mode" | "attach-mode" => {
@@ -1122,7 +1132,7 @@ mod tests {
     #[test]
     fn test_app_state_ipc_gaps() {
         let mut state = AppState::new();
-        let cmd = IpcCommand::SetWindowGaps(8);
+        let cmd = IpcCommand::ViewPadding(8);
         let res = state.handle_ipc_command(&cmd);
         assert!(res.is_ok());
         assert_eq!(state.layout_config.gaps, 8);
@@ -1188,17 +1198,17 @@ mod tests {
     fn test_app_state_ipc_layout_and_animation() {
         let mut state = AppState::new();
         state
-            .handle_ipc_command(&IpcCommand::SetMainRatio("0.65".into()))
+            .handle_ipc_command(&IpcCommand::MainRatio("0.65".into()))
             .unwrap();
         assert!((state.layout_config.split_ratio - 0.65).abs() < f32::EPSILON);
 
         state
-            .handle_ipc_command(&IpcCommand::SetStackRatio("0.70".into()))
+            .handle_ipc_command(&IpcCommand::StackRatio("0.70".into()))
             .unwrap();
         assert!((state.layout_config.stack_split_ratio - 0.70).abs() < f32::EPSILON);
 
         state
-            .handle_ipc_command(&IpcCommand::SetMainCount("2".into()))
+            .handle_ipc_command(&IpcCommand::MainCount("2".into()))
             .unwrap();
         assert_eq!(state.layout_config.main_count, 2);
 
@@ -1304,10 +1314,14 @@ mod tests {
         assert!((state.layout_config.stack_split_ratio - 0.1).abs() < f32::EPSILON);
 
         // Action tokens test
-        state.execute_action_tokens(&["set-stack-ratio".into(), "0.60".into()]);
+        state.execute_action_tokens(&["main-ratio".into(), "0.60".into()]);
+        assert!((state.layout_config.split_ratio - 0.60).abs() < 1e-4);
+        state.execute_action_tokens(&["stack-ratio".into(), "0.60".into()]);
         assert!((state.layout_config.stack_split_ratio - 0.60).abs() < 1e-4);
         state.execute_action_tokens(&["stack-ratio".into(), "+0.10".into()]);
         assert!((state.layout_config.stack_split_ratio - 0.70).abs() < 1e-4);
+        state.execute_action_tokens(&["view-padding".into(), "12".into()]);
+        assert_eq!(state.layout_config.gaps, 12);
 
         // Attach mode test
         state.execute_action_tokens(&["default-attach-mode".into(), "bottom".into()]);

@@ -23,15 +23,15 @@ pub enum IpcCommand {
     MoveToTag(u8),
     FocusPreviousTags,
     SendToPreviousTags,
-    SetWindowGaps(u32),
+    ViewPadding(u32),
     SetBorderWidth(u32),
     SetBorderColorFocused(String),
     SetBorderColorUnfocused(String),
     SetBorderColorUrgent(String),
-    SetMainRatio(String),
-    SetStackRatio(String),
-    SetMainCount(String),
-    SetMainLocation(crate::layout::MainLocation),
+    MainRatio(String),
+    StackRatio(String),
+    MainCount(String),
+    MainLocation(crate::layout::MainLocation),
     SetAttachMode(crate::wm::AttachMode),
     SetCursorWarp(crate::wm::CursorWarp),
     SetFocusFollowsCursor(crate::wm::FocusFollowsCursor),
@@ -225,7 +225,7 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
         }
         "focus-previous-tags" => Ok(IpcCommand::FocusPreviousTags),
         "send-to-previous-tags" => Ok(IpcCommand::SendToPreviousTags),
-        "set-main-location" | "main-location" => {
+        "main-location" => {
             let loc_str = args
                 .get(1)
                 .ok_or("Missing location: top|bottom|left|right")?;
@@ -238,7 +238,7 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
                     return Err("Invalid main location, use top|bottom|left|right".to_string());
                 }
             };
-            Ok(IpcCommand::SetMainLocation(loc))
+            Ok(IpcCommand::MainLocation(loc))
         }
         "default-attach-mode" | "attach-mode" => {
             if args.len() < 2 {
@@ -262,13 +262,13 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
             let mode = crate::wm::FocusFollowsCursor::parse(raw)?;
             Ok(IpcCommand::SetFocusFollowsCursor(mode))
         }
-        "set-window-gaps" | "window-gaps" | "view-padding" => {
+        "view-padding" => {
             let gaps = args
                 .get(1)
-                .ok_or("Missing gaps value")?
+                .ok_or("Missing view-padding value")?
                 .parse::<u32>()
-                .map_err(|_| "Gaps must be a positive integer")?;
-            Ok(IpcCommand::SetWindowGaps(gaps))
+                .map_err(|_| "view-padding must be a positive integer")?;
+            Ok(IpcCommand::ViewPadding(gaps))
         }
         "set-border-width" | "border-width" => {
             let width = args
@@ -314,17 +314,17 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
                 .map_err(|_| "Delta must be an integer (e.g. 20, -20)")?;
             Ok(IpcCommand::ResizeWindow { horizontal, delta })
         }
-        "set-main-ratio" | "main-ratio" => {
+        "main-ratio" => {
             let ratio = args.get(1).ok_or("Missing ratio value")?.clone();
-            Ok(IpcCommand::SetMainRatio(ratio))
+            Ok(IpcCommand::MainRatio(ratio))
         }
-        "set-stack-ratio" | "stack-ratio" => {
+        "stack-ratio" => {
             let ratio = args.get(1).ok_or("Missing ratio value")?.clone();
-            Ok(IpcCommand::SetStackRatio(ratio))
+            Ok(IpcCommand::StackRatio(ratio))
         }
-        "set-main-count" | "main-count" => {
+        "main-count" => {
             let count = args.get(1).ok_or("Missing count value")?.clone();
-            Ok(IpcCommand::SetMainCount(count))
+            Ok(IpcCommand::MainCount(count))
         }
         "set-animation" | "animation" => {
             let val = args.get(1).ok_or("Missing boolean value")?;
@@ -497,10 +497,10 @@ mod tests {
             }
         );
 
-        let gaps_args = vec!["set-window-gaps".into(), "8".into()];
+        let gaps_args = vec!["view-padding".into(), "8".into()];
         assert_eq!(
             parse_cli_args(&gaps_args).unwrap(),
-            IpcCommand::SetWindowGaps(8)
+            IpcCommand::ViewPadding(8)
         );
 
         assert_eq!(
@@ -561,31 +561,31 @@ mod tests {
         );
         assert_eq!(
             parse_cli_args(&["main-ratio".into(), "+0.05".into()]).unwrap(),
-            IpcCommand::SetMainRatio("+0.05".into())
+            IpcCommand::MainRatio("+0.05".into())
         );
         assert_eq!(
-            parse_cli_args(&["set-stack-ratio".into(), "0.60".into()]).unwrap(),
-            IpcCommand::SetStackRatio("0.60".into())
+            parse_cli_args(&["stack-ratio".into(), "0.60".into()]).unwrap(),
+            IpcCommand::StackRatio("0.60".into())
         );
         assert_eq!(
             parse_cli_args(&["stack-ratio".into(), "+0.05".into()]).unwrap(),
-            IpcCommand::SetStackRatio("+0.05".into())
+            IpcCommand::StackRatio("+0.05".into())
         );
         assert_eq!(
             parse_cli_args(&["stack-ratio".into(), "-0.05".into()]).unwrap(),
-            IpcCommand::SetStackRatio("-0.05".into())
+            IpcCommand::StackRatio("-0.05".into())
         );
         assert_eq!(
             parse_cli_args(&["main-count".into(), "+1".into()]).unwrap(),
-            IpcCommand::SetMainCount("+1".into())
+            IpcCommand::MainCount("+1".into())
         );
         assert_eq!(
             parse_cli_args(&["main-ratio".into(), "0.60".into()]).unwrap(),
-            IpcCommand::SetMainRatio("0.60".into())
+            IpcCommand::MainRatio("0.60".into())
         );
         assert_eq!(
             parse_cli_args(&["main-count".into(), "2".into()]).unwrap(),
-            IpcCommand::SetMainCount("2".into())
+            IpcCommand::MainCount("2".into())
         );
         assert_eq!(
             parse_cli_args(&["set-animation".into(), "true".into()]).unwrap(),
@@ -636,7 +636,7 @@ mod tests {
         );
         assert_eq!(
             parse_cli_args(&["main-location".into(), "top".into()]).unwrap(),
-            IpcCommand::SetMainLocation(crate::layout::MainLocation::Top)
+            IpcCommand::MainLocation(crate::layout::MainLocation::Top)
         );
         assert_eq!(
             parse_cli_args(&["swap".into(), "next".into()]).unwrap(),
