@@ -739,9 +739,9 @@ impl AppState {
             IpcCommand::FocusPreviousTags => self.focus_previous_tags(),
             IpcCommand::SendToPreviousTags => self.send_to_previous_tags(),
             IpcCommand::MainLocation(loc) => self.set_main_location(*loc),
-            IpcCommand::SetAttachMode(mode) => self.set_attach_mode(*mode),
+            IpcCommand::DefaultAttachMode(mode) => self.set_attach_mode(*mode),
             IpcCommand::SetCursorWarp(mode) => self.set_cursor_warp(*mode),
-            IpcCommand::SetFocusFollowsCursor(mode) => self.set_focus_follows_cursor(*mode),
+            IpcCommand::FocusFollowsCursor(mode) => self.set_focus_follows_cursor(*mode),
             IpcCommand::FocusTag(idx) => {
                 let mask = TagState::tag_index_to_mask(*idx);
                 self.set_focused_tags(mask)
@@ -751,22 +751,22 @@ impl AppState {
                 self.set_view_tags(mask)
             }
             IpcCommand::ViewPadding(g) => self.set_view_padding(*g),
-            IpcCommand::SetBorderWidth(w) => {
+            IpcCommand::BorderWidth(w) => {
                 self.border_width = *w;
                 self.manage_dirty();
                 Ok(format!("border width set to {w}px"))
             }
-            IpcCommand::SetBorderColorFocused(c) => {
+            IpcCommand::BorderColorFocused(c) => {
                 self.border_color_focused = c.clone();
                 self.manage_dirty();
                 Ok(format!("focused border color set to {c}"))
             }
-            IpcCommand::SetBorderColorUnfocused(c) => {
+            IpcCommand::BorderColorUnfocused(c) => {
                 self.border_color_unfocused = c.clone();
                 self.manage_dirty();
                 Ok(format!("unfocused border color set to {c}"))
             }
-            IpcCommand::SetBorderColorUrgent(c) => {
+            IpcCommand::BorderColorUrgent(c) => {
                 self.border_color_urgent = c.clone();
                 self.manage_dirty();
                 Ok(format!("urgent border color set to {c}"))
@@ -779,11 +779,11 @@ impl AppState {
             IpcCommand::ResizeWindow { horizontal, delta } => {
                 self.resize_window(*horizontal, *delta)
             }
-            IpcCommand::SetAnimation(enabled) => {
+            IpcCommand::Animation(enabled) => {
                 self.anim.enabled = *enabled;
                 Ok(format!("animations set to {enabled}"))
             }
-            IpcCommand::SetAnimationDuration(ms) => {
+            IpcCommand::AnimationDuration(ms) => {
                 self.anim.duration = Duration::from_millis(*ms);
                 Ok(format!("animation duration set to {ms}ms"))
             }
@@ -890,25 +890,6 @@ impl AppState {
                 Ok(format!(
                     "mapped-pointer [{mode}] {modifiers}+{button} -> {action:?}"
                 ))
-            }
-            IpcCommand::Bind { combo, action } => {
-                let (mods_str, key_str) = match combo.rfind('+') {
-                    Some(idx) => (&combo[..idx], &combo[idx + 1..]),
-                    None => ("None", combo.as_str()),
-                };
-                let mods = crate::wm::binds::parse_modifiers(mods_str);
-                let Some(keysym) = crate::wm::binds::resolve_keysym(key_str, mods) else {
-                    return Err(format!("Unknown keysym: {key_str}"));
-                };
-                self.pending_key_bindings
-                    .push(crate::wm::binds::PendingKeyBinding {
-                        mode: "normal".to_string(),
-                        modifiers: mods,
-                        keysym,
-                        action: action.clone(),
-                    });
-                self.manage_dirty();
-                Ok(format!("bound {combo} -> {action:?}"))
             }
             IpcCommand::Status { stream: _, format } => {
                 if format.as_deref() == Some("waybar") {
@@ -1018,7 +999,7 @@ impl AppState {
                     let _ = self.set_view_padding(p);
                 }
             }
-            "default-attach-mode" | "attach-mode" => {
+            "default-attach-mode" => {
                 if action.len() > 1 {
                     let raw = action[1..].join(" ");
                     if let Ok(mode) = AttachMode::parse(&raw) {
@@ -1026,7 +1007,7 @@ impl AppState {
                     }
                 }
             }
-            "set-cursor-warp" | "cursor-warp" => {
+            "set-cursor-warp" => {
                 if action.len() > 1
                     && let Ok(mode) = crate::wm::CursorWarp::parse(&action[1])
                 {
@@ -1038,6 +1019,44 @@ impl AppState {
                     && let Ok(mode) = crate::wm::FocusFollowsCursor::parse(&action[1])
                 {
                     let _ = self.set_focus_follows_cursor(mode);
+                }
+            }
+            "border-width" => {
+                if action.len() > 1
+                    && let Ok(w) = action[1].parse::<u32>()
+                {
+                    self.border_width = w;
+                    self.manage_dirty();
+                }
+            }
+            "border-color-focused" => {
+                if action.len() > 1 {
+                    self.border_color_focused = action[1].clone();
+                    self.manage_dirty();
+                }
+            }
+            "border-color-unfocused" => {
+                if action.len() > 1 {
+                    self.border_color_unfocused = action[1].clone();
+                    self.manage_dirty();
+                }
+            }
+            "border-color-urgent" => {
+                if action.len() > 1 {
+                    self.border_color_urgent = action[1].clone();
+                    self.manage_dirty();
+                }
+            }
+            "animation" => {
+                if action.len() > 1 {
+                    self.anim.enabled = matches!(action[1].as_str(), "true" | "1" | "on");
+                }
+            }
+            "animation-duration" => {
+                if action.len() > 1
+                    && let Ok(ms) = action[1].parse::<u64>()
+                {
+                    self.anim.duration = Duration::from_millis(ms);
                 }
             }
             "zoom" => {
@@ -1213,18 +1232,18 @@ mod tests {
         assert_eq!(state.layout_config.main_count, 2);
 
         state
-            .handle_ipc_command(&IpcCommand::SetAnimation(false))
+            .handle_ipc_command(&IpcCommand::Animation(false))
             .unwrap();
         assert!(!state.anim.enabled);
 
         state
-            .handle_ipc_command(&IpcCommand::SetAnimationDuration(200))
+            .handle_ipc_command(&IpcCommand::AnimationDuration(200))
             .unwrap();
         assert_eq!(state.anim.duration, Duration::from_millis(200));
     }
 
     #[test]
-    fn test_app_state_ipc_map_and_bind() {
+    fn test_app_state_ipc_map() {
         let mut state = AppState::new();
         let map_cmd = IpcCommand::Map {
             mode: "normal".into(),
@@ -1235,14 +1254,6 @@ mod tests {
         let res = state.handle_ipc_command(&map_cmd);
         assert!(res.is_ok());
         assert_eq!(state.pending_key_bindings.len(), 1);
-
-        let bind_cmd = IpcCommand::Bind {
-            combo: "Super+Shift+Q".into(),
-            action: vec!["exit".into()],
-        };
-        let res2 = state.handle_ipc_command(&bind_cmd);
-        assert!(res2.is_ok());
-        assert_eq!(state.pending_key_bindings.len(), 2);
     }
 
     #[test]
@@ -1326,13 +1337,13 @@ mod tests {
         // Attach mode test
         state.execute_action_tokens(&["default-attach-mode".into(), "bottom".into()]);
         assert_eq!(state.attach_mode, AttachMode::Bottom);
-        state.execute_action_tokens(&["attach-mode".into(), "after".into(), "3".into()]);
+        state.execute_action_tokens(&["default-attach-mode".into(), "after".into(), "3".into()]);
         assert_eq!(state.attach_mode, AttachMode::After(3));
 
         // Cursor warp and focus-follows-cursor tests
         state.execute_action_tokens(&["set-cursor-warp".into(), "on-output-change".into()]);
         assert_eq!(state.cursor_warp, crate::wm::CursorWarp::OnOutputChange);
-        state.execute_action_tokens(&["cursor-warp".into(), "disabled".into()]);
+        state.execute_action_tokens(&["set-cursor-warp".into(), "disabled".into()]);
         assert_eq!(state.cursor_warp, crate::wm::CursorWarp::Disabled);
 
         state.execute_action_tokens(&["focus-follows-cursor".into(), "disabled".into()]);

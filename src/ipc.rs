@@ -24,25 +24,25 @@ pub enum IpcCommand {
     FocusPreviousTags,
     SendToPreviousTags,
     ViewPadding(u32),
-    SetBorderWidth(u32),
-    SetBorderColorFocused(String),
-    SetBorderColorUnfocused(String),
-    SetBorderColorUrgent(String),
+    BorderWidth(u32),
+    BorderColorFocused(String),
+    BorderColorUnfocused(String),
+    BorderColorUrgent(String),
     MainRatio(String),
     StackRatio(String),
     MainCount(String),
     MainLocation(crate::layout::MainLocation),
-    SetAttachMode(crate::wm::AttachMode),
+    DefaultAttachMode(crate::wm::AttachMode),
     SetCursorWarp(crate::wm::CursorWarp),
-    SetFocusFollowsCursor(crate::wm::FocusFollowsCursor),
+    FocusFollowsCursor(crate::wm::FocusFollowsCursor),
     DeclareMode(String),
     EnterMode(String),
     ResizeWindow {
         horizontal: bool,
         delta: i32,
     },
-    SetAnimation(bool),
-    SetAnimationDuration(u64),
+    Animation(bool),
+    AnimationDuration(u64),
     Map {
         mode: String,
         modifiers: String,
@@ -53,10 +53,6 @@ pub enum IpcCommand {
         mode: String,
         modifiers: String,
         button: String,
-        action: Vec<String>,
-    },
-    Bind {
-        combo: String,
         action: Vec<String>,
     },
     RuleAdd {
@@ -150,8 +146,8 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
     match args[0].as_str() {
         "ping" => Ok(IpcCommand::Ping),
         "close" => Ok(IpcCommand::Close),
-        "toggle-float" | "toggle-floating" => Ok(IpcCommand::ToggleFloat),
-        "toggle-fullscreen" | "fullscreen" => Ok(IpcCommand::ToggleFullscreen),
+        "toggle-float" => Ok(IpcCommand::ToggleFloat),
+        "toggle-fullscreen" => Ok(IpcCommand::ToggleFullscreen),
         "zoom" => Ok(IpcCommand::Zoom),
         "focus-view" => {
             let dir = args.get(1).cloned().unwrap_or_else(|| "next".to_string());
@@ -240,15 +236,15 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
             };
             Ok(IpcCommand::MainLocation(loc))
         }
-        "default-attach-mode" | "attach-mode" => {
+        "default-attach-mode" => {
             if args.len() < 2 {
                 return Err("Missing attach mode: top|bottom|above|below|after <N>".to_string());
             }
             let raw_arg = args[1..].join(" ");
             let mode = crate::wm::AttachMode::parse(&raw_arg)?;
-            Ok(IpcCommand::SetAttachMode(mode))
+            Ok(IpcCommand::DefaultAttachMode(mode))
         }
-        "set-cursor-warp" | "cursor-warp" => {
+        "set-cursor-warp" => {
             let raw = args
                 .get(1)
                 .ok_or("Missing cursor warp mode: disabled|on-output-change|on-focus-change")?;
@@ -260,7 +256,7 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
                 .get(1)
                 .ok_or("Missing focus-follows-cursor mode: disabled|normal|always")?;
             let mode = crate::wm::FocusFollowsCursor::parse(raw)?;
-            Ok(IpcCommand::SetFocusFollowsCursor(mode))
+            Ok(IpcCommand::FocusFollowsCursor(mode))
         }
         "view-padding" => {
             let gaps = args
@@ -270,25 +266,25 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
                 .map_err(|_| "view-padding must be a positive integer")?;
             Ok(IpcCommand::ViewPadding(gaps))
         }
-        "set-border-width" | "border-width" => {
+        "border-width" => {
             let width = args
                 .get(1)
                 .ok_or("Missing width value")?
                 .parse::<u32>()
                 .map_err(|_| "Width must be a positive integer")?;
-            Ok(IpcCommand::SetBorderWidth(width))
+            Ok(IpcCommand::BorderWidth(width))
         }
-        "set-border-color-focused" | "border-color-focused" => {
+        "border-color-focused" => {
             let color = args.get(1).ok_or("Missing color value")?.clone();
-            Ok(IpcCommand::SetBorderColorFocused(color))
+            Ok(IpcCommand::BorderColorFocused(color))
         }
-        "set-border-color-unfocused" | "border-color-unfocused" => {
+        "border-color-unfocused" => {
             let color = args.get(1).ok_or("Missing color value")?.clone();
-            Ok(IpcCommand::SetBorderColorUnfocused(color))
+            Ok(IpcCommand::BorderColorUnfocused(color))
         }
-        "set-border-color-urgent" | "border-color-urgent" => {
+        "border-color-urgent" => {
             let color = args.get(1).ok_or("Missing color value")?.clone();
-            Ok(IpcCommand::SetBorderColorUrgent(color))
+            Ok(IpcCommand::BorderColorUrgent(color))
         }
         "declare-mode" => {
             let mode = args.get(1).ok_or("Missing mode name")?.clone();
@@ -326,22 +322,22 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
             let count = args.get(1).ok_or("Missing count value")?.clone();
             Ok(IpcCommand::MainCount(count))
         }
-        "set-animation" | "animation" => {
+        "animation" => {
             let val = args.get(1).ok_or("Missing boolean value")?;
             let enabled = match val.as_str() {
                 "true" | "1" | "on" => true,
                 "false" | "0" | "off" => false,
                 _ => return Err("Invalid boolean, use true|false".to_string()),
             };
-            Ok(IpcCommand::SetAnimation(enabled))
+            Ok(IpcCommand::Animation(enabled))
         }
-        "set-animation-duration" | "animation-duration" => {
+        "animation-duration" => {
             let duration = args
                 .get(1)
                 .ok_or("Missing duration in ms")?
                 .parse::<u64>()
                 .map_err(|_| "Duration must be an integer in milliseconds")?;
-            Ok(IpcCommand::SetAnimationDuration(duration))
+            Ok(IpcCommand::AnimationDuration(duration))
         }
         "exit" => Ok(IpcCommand::Exit),
         "reload" => Ok(IpcCommand::Reload),
@@ -354,15 +350,6 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
                 modifiers: args[2].clone(),
                 key: args[3].clone(),
                 action: args[4..].to_vec(),
-            })
-        }
-        "bind" => {
-            if args.len() < 3 {
-                return Err("Usage: xrwm bind <mod+key> <action...>".to_string());
-            }
-            Ok(IpcCommand::Bind {
-                combo: args[1].clone(),
-                action: args[2..].to_vec(),
             })
         }
         "rule-add" => {
@@ -451,16 +438,6 @@ mod tests {
                 modifiers: "Super".into(),
                 key: "Return".into(),
                 action: vec!["spawn".into(), "foot".into()],
-            }
-        );
-
-        let bind_args = vec!["bind".into(), "Super+Q".into(), "close".into()];
-        let bind_cmd = parse_cli_args(&bind_args).unwrap();
-        assert_eq!(
-            bind_cmd,
-            IpcCommand::Bind {
-                combo: "Super+Q".into(),
-                action: vec!["close".into()],
             }
         );
 
@@ -588,12 +565,12 @@ mod tests {
             IpcCommand::MainCount("2".into())
         );
         assert_eq!(
-            parse_cli_args(&["set-animation".into(), "true".into()]).unwrap(),
-            IpcCommand::SetAnimation(true)
+            parse_cli_args(&["animation".into(), "true".into()]).unwrap(),
+            IpcCommand::Animation(true)
         );
         assert_eq!(
             parse_cli_args(&["animation-duration".into(), "180".into()]).unwrap(),
-            IpcCommand::SetAnimationDuration(180)
+            IpcCommand::AnimationDuration(180)
         );
         assert_eq!(
             parse_cli_args(&["status".into(), "--format".into(), "waybar".into()]).unwrap(),
@@ -616,23 +593,23 @@ mod tests {
         );
         assert_eq!(
             parse_cli_args(&["default-attach-mode".into(), "bottom".into()]).unwrap(),
-            IpcCommand::SetAttachMode(crate::wm::AttachMode::Bottom)
+            IpcCommand::DefaultAttachMode(crate::wm::AttachMode::Bottom)
         );
         assert_eq!(
-            parse_cli_args(&["attach-mode".into(), "after".into(), "2".into()]).unwrap(),
-            IpcCommand::SetAttachMode(crate::wm::AttachMode::After(2))
+            parse_cli_args(&["default-attach-mode".into(), "after".into(), "2".into()]).unwrap(),
+            IpcCommand::DefaultAttachMode(crate::wm::AttachMode::After(2))
         );
         assert_eq!(
             parse_cli_args(&["set-cursor-warp".into(), "on-output-change".into()]).unwrap(),
             IpcCommand::SetCursorWarp(crate::wm::CursorWarp::OnOutputChange)
         );
         assert_eq!(
-            parse_cli_args(&["cursor-warp".into(), "disabled".into()]).unwrap(),
+            parse_cli_args(&["set-cursor-warp".into(), "disabled".into()]).unwrap(),
             IpcCommand::SetCursorWarp(crate::wm::CursorWarp::Disabled)
         );
         assert_eq!(
             parse_cli_args(&["focus-follows-cursor".into(), "always".into()]).unwrap(),
-            IpcCommand::SetFocusFollowsCursor(crate::wm::FocusFollowsCursor::Always)
+            IpcCommand::FocusFollowsCursor(crate::wm::FocusFollowsCursor::Always)
         );
         assert_eq!(
             parse_cli_args(&["main-location".into(), "top".into()]).unwrap(),
