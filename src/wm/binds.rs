@@ -40,18 +40,16 @@ pub fn parse_modifiers(s: &str) -> Modifiers {
 ///
 /// If the key is a single alphabetic character, automatically normalizes case
 /// based on whether Shift is held (e.g. `Super+Q` -> lowercase `q`, `Super+Shift+Q` -> uppercase `Q`).
-pub fn resolve_keysym(key_name: &str, modifiers: Modifiers) -> Option<u32> {
+pub fn resolve_keysym(key_name: &str, _modifiers: Modifiers) -> Option<u32> {
     let name = key_name.trim();
     if name.is_empty() {
         return None;
     }
 
+    // River matches keybindings against the base keysym (lowercase for letters),
+    // with modifiers like Shift tracked separately in the modifiers bitmask.
     let effective_name = if name.len() == 1 && name.chars().next().unwrap().is_ascii_alphabetic() {
-        if modifiers.contains(Modifiers::Shift) {
-            name.to_ascii_uppercase()
-        } else {
-            name.to_ascii_lowercase()
-        }
+        name.to_ascii_lowercase()
     } else {
         name.to_string()
     };
@@ -68,8 +66,8 @@ pub fn parse_keysym(key_name: &str) -> Option<u32> {
         return None;
     }
 
-    // 1. Direct lookup
-    let sym = xkb::keysym_from_name(name, xkb::KEYSYM_NO_FLAGS);
+    // 1. Case-insensitive lookup (matches river-classic)
+    let sym = xkb::keysym_from_name(name, xkb::KEYSYM_CASE_INSENSITIVE);
     if sym.raw() != xkb::keysyms::KEY_NoSymbol {
         return Some(sym.raw());
     }
@@ -154,7 +152,7 @@ mod tests {
         assert_eq!(parse_keysym("Enter"), Some(xkb::keysyms::KEY_Return));
         assert_eq!(parse_keysym("space"), Some(xkb::keysyms::KEY_space));
         assert_eq!(parse_keysym("q"), Some(xkb::keysyms::KEY_q));
-        assert_eq!(parse_keysym("Q"), Some(xkb::keysyms::KEY_Q));
+        assert_eq!(parse_keysym("Q"), Some(xkb::keysyms::KEY_q));
         assert_eq!(parse_keysym("1"), Some(xkb::keysyms::KEY_1));
         assert_eq!(parse_keysym("9"), Some(xkb::keysyms::KEY_9));
         assert_eq!(parse_keysym("UnknownNonExistentKey123"), None);
