@@ -43,6 +43,12 @@ pub enum IpcCommand {
         key: String,
         action: Vec<String>,
     },
+    MapPointer {
+        mode: String,
+        modifiers: String,
+        button: String,
+        action: Vec<String>,
+    },
     Bind {
         combo: String,
         action: Vec<String>,
@@ -358,6 +364,19 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
                 action: action_tokens,
             })
         }
+        "map-pointer" => {
+            if args.len() < 5 {
+                return Err(
+                    "Usage: xrwm map-pointer <mode> <modifiers> <button> <action...>".to_string(),
+                );
+            }
+            Ok(IpcCommand::MapPointer {
+                mode: args[1].clone(),
+                modifiers: args[2].clone(),
+                button: args[3].clone(),
+                action: args[4..].to_vec(),
+            })
+        }
         "status" => {
             let stream = args.iter().any(|a| a == "--stream");
             let format = args
@@ -447,6 +466,22 @@ mod tests {
         assert_eq!(
             parse_cli_args(&["toggle-float".into()]).unwrap(),
             IpcCommand::ToggleFloat
+        );
+        assert_eq!(
+            parse_cli_args(&[
+                "map-pointer".into(),
+                "normal".into(),
+                "Super".into(),
+                "BTN_LEFT".into(),
+                "move-view".into(),
+            ])
+            .unwrap(),
+            IpcCommand::MapPointer {
+                mode: "normal".into(),
+                modifiers: "Super".into(),
+                button: "BTN_LEFT".into(),
+                action: vec!["move-view".into()],
+            }
         );
         assert_eq!(parse_cli_args(&["zoom".into()]).unwrap(), IpcCommand::Zoom);
         assert_eq!(

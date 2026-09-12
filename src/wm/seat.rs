@@ -10,17 +10,32 @@ use crate::protocol::{
     river_window_v1::{Edges, RiverWindowV1},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PointerAction {
     None,
     Move,
     Resize,
-    ToggleFloating,
+    Command(Vec<String>),
+}
+
+impl PointerAction {
+    pub fn from_tokens(tokens: &[String]) -> Self {
+        if tokens.is_empty() {
+            return Self::None;
+        }
+        match tokens[0].as_str() {
+            "move-view" | "move" => Self::Move,
+            "resize-view" | "resize" => Self::Resize,
+            "toggle-float" | "toggle-floating" => Self::Command(vec!["toggle-float".to_string()]),
+            _ => Self::Command(tokens.to_vec()),
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct PointerBinding {
     pub proxy: RiverPointerBindingV1,
+    pub mode: String,
     pub action: PointerAction,
 }
 

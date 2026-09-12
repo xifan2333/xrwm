@@ -6,17 +6,13 @@ use wayland_client::{Connection, Dispatch, Proxy, QueueHandle};
 
 use crate::layout::Rect;
 use crate::protocol::{
-    river_layer_shell_output_v1::RiverLayerShellOutputV1,
-    river_layer_shell_v1::RiverLayerShellV1,
-    river_node_v1::RiverNodeV1,
-    river_output_v1::RiverOutputV1,
-    river_pointer_binding_v1::RiverPointerBindingV1,
-    river_seat_v1::{Modifiers, RiverSeatV1},
-    river_window_manager_v1::RiverWindowManagerV1,
-    river_window_v1::RiverWindowV1,
+    river_layer_shell_output_v1::RiverLayerShellOutputV1, river_layer_shell_v1::RiverLayerShellV1,
+    river_node_v1::RiverNodeV1, river_output_v1::RiverOutputV1,
+    river_pointer_binding_v1::RiverPointerBindingV1, river_seat_v1::RiverSeatV1,
+    river_window_manager_v1::RiverWindowManagerV1, river_window_v1::RiverWindowV1,
     river_xkb_bindings_v1::RiverXkbBindingsV1,
 };
-use crate::wm::seat::{PointerAction, PointerBinding, SeatItem};
+use crate::wm::seat::SeatItem;
 use crate::wm::state::{AppState, OutputItem, WindowItem};
 
 impl Dispatch<wl_registry::WlRegistry, ()> for AppState {
@@ -134,44 +130,9 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                 );
             }
             Event::Seat { id } => {
-                let mut seat = SeatItem::new(id.clone());
-
-                // Preset pointer bindings (Mod4 = Super):
-                //   Super+LMB    drag a floating window
-                //   Super+RMB    resize a floating window
-                //   Super+MMB    toggle floating <-> tiled
-                const BTN_LEFT: u32 = 0x110;
-                const BTN_RIGHT: u32 = 0x111;
-                const BTN_MIDDLE: u32 = 0x112;
-
-                let pb_move = id.get_pointer_binding(BTN_LEFT, Modifiers::Mod4, qh, id.id());
-                seat.pointer_bindings.insert(
-                    pb_move.id(),
-                    PointerBinding {
-                        proxy: pb_move,
-                        action: PointerAction::Move,
-                    },
-                );
-
-                let pb_resize = id.get_pointer_binding(BTN_RIGHT, Modifiers::Mod4, qh, id.id());
-                seat.pointer_bindings.insert(
-                    pb_resize.id(),
-                    PointerBinding {
-                        proxy: pb_resize,
-                        action: PointerAction::Resize,
-                    },
-                );
-
-                let pb_toggle = id.get_pointer_binding(BTN_MIDDLE, Modifiers::Mod4, qh, id.id());
-                seat.pointer_bindings.insert(
-                    pb_toggle.id(),
-                    PointerBinding {
-                        proxy: pb_toggle,
-                        action: PointerAction::ToggleFloating,
-                    },
-                );
-
+                let seat = SeatItem::new(id.clone());
                 state.seats.insert(id.id(), seat);
+                state.manage_dirty();
             }
         }
     }
@@ -326,7 +287,7 @@ impl Dispatch<RiverPointerBindingV1, ObjectId> for AppState {
             if let Some(seat) = state.seats.get_mut(data)
                 && let Some(binding) = seat.pointer_bindings.get(&proxy.id())
             {
-                seat.pending_action = binding.action;
+                seat.pending_action = binding.action.clone();
             }
             state.manage_dirty();
         }

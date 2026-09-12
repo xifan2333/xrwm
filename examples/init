@@ -107,3 +107,8 @@ xrwm map normal Super 0 toggle-focused-tags 2147483648
 xrwm map normal "Alt" Space toggle-focused-tags 2147483648
 # Super + Shift + 0 发送当前窗口到便签抽屉
 xrwm map normal "Super+Shift" 0 set-view-tags 2147483648
+
+# 18. 鼠标按键绑定 (Mouse Pointer Bindings - 自由配置)
+xrwm map-pointer normal Super BTN_LEFT move-view
+xrwm map-pointer normal Super BTN_RIGHT resize-view
+xrwm map-pointer normal Super BTN_MIDDLE toggle-float

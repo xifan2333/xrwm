@@ -112,6 +112,40 @@ pub struct PendingKeyBinding {
     pub action: Vec<String>,
 }
 
+/// Parses a Linux input event code name into its numerical button code.
+///
+/// Supports names like `BTN_LEFT`, `BTN_RIGHT`, `BTN_MIDDLE`, `BTN_SIDE`,
+/// `BTN_EXTRA`, `BTN_FORWARD`, `BTN_BACK`, or hex/integer codes.
+pub fn parse_button(s: &str) -> Option<u32> {
+    let trimmed = s.trim();
+    match trimmed.to_ascii_uppercase().as_str() {
+        "BTN_LEFT" | "LEFT" => Some(0x110),
+        "BTN_RIGHT" | "RIGHT" => Some(0x111),
+        "BTN_MIDDLE" | "MIDDLE" => Some(0x112),
+        "BTN_SIDE" | "SIDE" => Some(0x113),
+        "BTN_EXTRA" | "EXTRA" => Some(0x114),
+        "BTN_FORWARD" | "FORWARD" => Some(0x115),
+        "BTN_BACK" | "BACK" => Some(0x116),
+        "BTN_TASK" | "TASK" => Some(0x117),
+        other => {
+            if let Some(hex) = other.strip_prefix("0X") {
+                u32::from_str_radix(hex, 16).ok()
+            } else {
+                other.parse::<u32>().ok()
+            }
+        }
+    }
+}
+
+/// A pending pointer binding requested via IPC, queued to be registered with seats.
+#[derive(Debug, Clone)]
+pub struct PendingPointerBinding {
+    pub mode: String,
+    pub modifiers: Modifiers,
+    pub button: u32,
+    pub action: crate::wm::seat::PointerAction,
+}
+
 /// An active keybinding registered with the compositor.
 #[derive(Debug)]
 pub struct ActiveKeyBinding {
@@ -156,5 +190,18 @@ mod tests {
         assert_eq!(parse_keysym("1"), Some(xkb::keysyms::KEY_1));
         assert_eq!(parse_keysym("9"), Some(xkb::keysyms::KEY_9));
         assert_eq!(parse_keysym("UnknownNonExistentKey123"), None);
+    }
+
+    #[test]
+    fn test_parse_button() {
+        assert_eq!(parse_button("BTN_LEFT"), Some(0x110));
+        assert_eq!(parse_button("btn_left"), Some(0x110));
+        assert_eq!(parse_button("left"), Some(0x110));
+        assert_eq!(parse_button("BTN_RIGHT"), Some(0x111));
+        assert_eq!(parse_button("BTN_MIDDLE"), Some(0x112));
+        assert_eq!(parse_button("BTN_SIDE"), Some(0x113));
+        assert_eq!(parse_button("BTN_EXTRA"), Some(0x114));
+        assert_eq!(parse_button("0x110"), Some(0x110));
+        assert_eq!(parse_button("272"), Some(272));
     }
 }
