@@ -596,6 +596,20 @@ impl AppState {
             }
         }
 
+        // 4b. End any released pointer operations in this manage sequence
+        for seat in self.seats.values_mut() {
+            if seat.op_release {
+                if let SeatOp::Resize { proxy, .. } = &seat.op {
+                    proxy.inform_resize_end();
+                }
+                seat.proxy.op_end();
+                seat.op = SeatOp::None;
+                seat.op_release = false;
+                seat.op_dx = 0;
+                seat.op_dy = 0;
+            }
+        }
+
         // Trigger animation if geometries changed
         if any_geo_changed && self.anim.enabled {
             self.anim.start();
@@ -746,18 +760,6 @@ impl AppState {
             w.node.place_top();
         }
 
-        for seat in self.seats.values_mut() {
-            if seat.op_release {
-                if let SeatOp::Resize { proxy, .. } = &seat.op {
-                    proxy.inform_resize_end();
-                }
-                seat.proxy.op_end();
-                seat.op = SeatOp::None;
-                seat.op_release = false;
-                seat.op_dx = 0;
-                seat.op_dy = 0;
-            }
-        }
         _proxy.render_finish();
     }
 
