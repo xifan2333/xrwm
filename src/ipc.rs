@@ -12,6 +12,8 @@ pub enum IpcCommand {
     ToggleFullscreen,
     Zoom,
     FocusView(String),
+    FocusOutput(String),
+    SendToOutput(String),
     Swap(String),
     SetFocusedTags(u32),
     ToggleFocusedTags(u32),
@@ -152,6 +154,14 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
         "focus-view" => {
             let dir = args.get(1).cloned().unwrap_or_else(|| "next".to_string());
             Ok(IpcCommand::FocusView(dir))
+        }
+        "focus-output" => {
+            let dir = args.get(1).cloned().unwrap_or_else(|| "next".to_string());
+            Ok(IpcCommand::FocusOutput(dir))
+        }
+        "send-to-output" => {
+            let dir = args.get(1).cloned().unwrap_or_else(|| "next".to_string());
+            Ok(IpcCommand::SendToOutput(dir))
         }
         "swap" => {
             let dir = args.get(1).cloned().unwrap_or_else(|| "next".to_string());
@@ -509,6 +519,14 @@ mod tests {
         assert_eq!(
             parse_cli_args(&["focus-view".into(), "next".into()]).unwrap(),
             IpcCommand::FocusView("next".into())
+        );
+        assert_eq!(
+            parse_cli_args(&["focus-output".into(), "right".into()]).unwrap(),
+            IpcCommand::FocusOutput("right".into())
+        );
+        assert_eq!(
+            parse_cli_args(&["send-to-output".into(), "left".into()]).unwrap(),
+            IpcCommand::SendToOutput("left".into())
         );
         assert_eq!(
             parse_cli_args(&["declare-mode".into(), "resize".into()]).unwrap(),

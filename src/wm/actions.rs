@@ -220,6 +220,132 @@ impl AppState {
         }
     }
 
+    /// Finds the target output given a direction string (next, prev, left, right, up, down).
+    pub fn find_target_output(&self, dir_str: &str) -> Option<wayland_backend::client::ObjectId> {
+        if self.outputs.len() <= 1 {
+            return None;
+        }
+
+        let mut output_list: Vec<(
+            &wayland_backend::client::ObjectId,
+            &crate::wm::state::OutputItem,
+        )> = self.outputs.iter().collect();
+        output_list.sort_by_key(|(_, o)| (o.x, o.y));
+
+        let current_id = self.get_focused_output_id()?;
+        let current_idx = output_list.iter().position(|(id, _)| **id == current_id)?;
+        let current_out = output_list[current_idx].1;
+        let cur_cx = current_out.x + current_out.width as i32 / 2;
+        let cur_cy = current_out.y + current_out.height as i32 / 2;
+
+        match dir_str.to_ascii_lowercase().as_str() {
+            "next" => {
+                let next_idx = (current_idx + 1) % output_list.len();
+                Some(output_list[next_idx].0.clone())
+            }
+            "previous" | "prev" => {
+                let prev_idx = if current_idx == 0 {
+                    output_list.len() - 1
+                } else {
+                    current_idx - 1
+                };
+                Some(output_list[prev_idx].0.clone())
+            }
+            "left" | "h" => output_list
+                .iter()
+                .filter(|(_, o)| {
+                    let cx = o.x + o.width as i32 / 2;
+                    cx < cur_cx
+                })
+                .min_by_key(|(_, o)| {
+                    let cx = o.x + o.width as i32 / 2;
+                    let cy = o.y + o.height as i32 / 2;
+                    (cur_cx - cx).abs() * 2 + (cur_cy - cy).abs()
+                })
+                .map(|(id, _)| (*id).clone()),
+            "right" | "l" => output_list
+                .iter()
+                .filter(|(_, o)| {
+                    let cx = o.x + o.width as i32 / 2;
+                    cx > cur_cx
+                })
+                .min_by_key(|(_, o)| {
+                    let cx = o.x + o.width as i32 / 2;
+                    let cy = o.y + o.height as i32 / 2;
+                    (cx - cur_cx).abs() * 2 + (cur_cy - cy).abs()
+                })
+                .map(|(id, _)| (*id).clone()),
+            "up" | "k" => output_list
+                .iter()
+                .filter(|(_, o)| {
+                    let cy = o.y + o.height as i32 / 2;
+                    cy < cur_cy
+                })
+                .min_by_key(|(_, o)| {
+                    let cx = o.x + o.width as i32 / 2;
+                    let cy = o.y + o.height as i32 / 2;
+                    (cur_cy - cy).abs() * 2 + (cur_cx - cx).abs()
+                })
+                .map(|(id, _)| (*id).clone()),
+            "down" | "j" => output_list
+                .iter()
+                .filter(|(_, o)| {
+                    let cy = o.y + o.height as i32 / 2;
+                    cy > cur_cy
+                })
+                .min_by_key(|(_, o)| {
+                    let cx = o.x + o.width as i32 / 2;
+                    let cy = o.y + o.height as i32 / 2;
+                    (cy - cur_cy).abs() * 2 + (cur_cx - cx).abs()
+                })
+                .map(|(id, _)| (*id).clone()),
+            _ => None,
+        }
+    }
+
+    /// Focuses output in the specified direction.
+    pub fn focus_output(&mut self, dir_str: &str) -> Result<String, String> {
+        let target_id = self.find_target_output(dir_str);
+        let Some(out_id) = target_id else {
+            return Ok("no destination output found".to_string());
+        };
+        self.focused_output = Some(out_id.clone());
+
+        let tag_state = self.tag_state;
+        let dest_win = self.windows.iter().find(|w| {
+            !w.closed && w.output == Some(out_id.clone()) && tag_state.is_view_visible(w.tags)
+        });
+        if let Some(w) = dest_win {
+            let proxy = w.proxy.clone();
+            for seat in self.seats.values_mut() {
+                seat.focused = Some(proxy.clone());
+            }
+        }
+        self.manage_dirty();
+        Ok(format!("focused output {:?}", out_id))
+    }
+
+    /// Sends the focused window to output in the specified direction.
+    pub fn send_to_output(&mut self, dir_str: &str) -> Result<String, String> {
+        let target_id = self.find_target_output(dir_str);
+        let Some(out_id) = target_id else {
+            return Ok("no destination output found".to_string());
+        };
+
+        let focused_id = self.focused_window_id();
+        let Some(id) = focused_id else {
+            return Err("no view focused".to_string());
+        };
+
+        if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
+            w.output = Some(out_id.clone());
+            self.manage_dirty();
+            Ok(format!("sent window {id} to output {:?}", out_id))
+        } else {
+            Err("window not found".to_string())
+        }
+    }
+
     /// Shifts focus in the specified direction (next, prev, left, right, up, down).
     pub fn focus_view_direction(&mut self, dir_str: &str) -> Result<String, String> {
         let visible_count = self
@@ -538,6 +664,8 @@ impl AppState {
             IpcCommand::ToggleFullscreen => self.toggle_fullscreen_focused(),
             IpcCommand::Zoom => self.zoom_focused(),
             IpcCommand::FocusView(dir) => self.focus_view_direction(dir),
+            IpcCommand::FocusOutput(dir) => self.focus_output(dir),
+            IpcCommand::SendToOutput(dir) => self.send_to_output(dir),
             IpcCommand::Swap(dir) => self.swap_direction(dir),
             IpcCommand::SetFocusedTags(mask) => self.set_focused_tags(*mask),
             IpcCommand::ToggleFocusedTags(mask) => self.toggle_focused_tags(*mask),
@@ -834,6 +962,14 @@ impl AppState {
             "focus-view" => {
                 let dir = action.get(1).map(|s| s.as_str()).unwrap_or("next");
                 let _ = self.focus_view_direction(dir);
+            }
+            "focus-output" => {
+                let dir = action.get(1).map(|s| s.as_str()).unwrap_or("next");
+                let _ = self.focus_output(dir);
+            }
+            "send-to-output" => {
+                let dir = action.get(1).map(|s| s.as_str()).unwrap_or("next");
+                let _ = self.send_to_output(dir);
             }
             "swap" => {
                 let dir = action.get(1).map(|s| s.as_str()).unwrap_or("next");
