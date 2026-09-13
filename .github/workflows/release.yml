@@ -86,7 +86,7 @@ jobs:
           cp target/release/xrwm "dist/${archive_dir}/"
           cp doc/xrwm.1 doc/xrwm.1.md "dist/${archive_dir}/doc/"
           cp examples/xrwm.desktop examples/init "dist/${archive_dir}/examples/"
-          cp Makefile README.md LICENSE "dist/${archive_dir}/"
+          cp Makefile README.md README_CN.md LICENSE "dist/${archive_dir}/"
 
           cd dist
           tar -czvf "${archive_name}" "${archive_dir}"
