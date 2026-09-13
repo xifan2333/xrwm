@@ -29,7 +29,6 @@ use crate::tag::TagState;
 use crate::wm::binds::{ActiveKeyBinding, PendingKeyBinding};
 use crate::wm::seat::{PointerAction, SeatItem, SeatOp};
 
-pub const DEFAULT_FALLBACK_AREA: Rect = Rect::new(0, 30, 1280, 770);
 pub const MIN_WINDOW_DIMENSION: u32 = 100;
 
 pub fn hex_to_river_rgba(hex_str: &str) -> (u32, u32, u32, u32) {
@@ -709,19 +708,22 @@ impl AppState {
         }
 
         // 3. Arrange windows for each output
-        let default_area = DEFAULT_FALLBACK_AREA;
+        if self.outputs.is_empty() {
+            self.sync_occupied_tags();
+            self.broadcast_status();
+            _proxy.manage_finish();
+            return;
+        }
+
         let layout_engine = MasterStackLayout;
         let tag_state = self.tag_state;
         let mut any_geo_changed = false;
 
-        let active_outputs: Vec<(ObjectId, Rect)> = if self.outputs.is_empty() {
-            vec![(ObjectId::null(), default_area)]
-        } else {
-            self.outputs
-                .iter()
-                .map(|(id, o)| (id.clone(), o.usable_area))
-                .collect()
-        };
+        let active_outputs: Vec<(ObjectId, Rect)> = self
+            .outputs
+            .iter()
+            .map(|(id, o)| (id.clone(), o.usable_area))
+            .collect();
 
         for (out_id, usable_area) in active_outputs {
             let mut tiled_indices: Vec<usize> = Vec::new();
@@ -839,7 +841,7 @@ impl AppState {
             .get_focused_output_id()
             .and_then(|id| self.outputs.get(&id))
             .map(|o| o.usable_area)
-            .unwrap_or(default_area);
+            .unwrap_or_else(|| self.outputs.values().next().unwrap().usable_area);
 
         // 4. Interactive pointer operations (Move / Resize)
         for seat in self.seats.values_mut() {
@@ -1043,8 +1045,11 @@ impl AppState {
     }
 
     pub fn handle_render_start(&mut self, _proxy: &RiverWindowManagerV1) {
+        if self.outputs.is_empty() {
+            _proxy.render_finish();
+            return;
+        }
         let border_width = self.border_width as i32;
-        let default_usable_area = DEFAULT_FALLBACK_AREA;
 
         let is_animating = self.anim.is_animating();
         let progress = self.anim.progress();
@@ -1061,8 +1066,10 @@ impl AppState {
                 .as_ref()
                 .and_then(|id| self.outputs.get(id))
                 .map(|o| o.usable_area)
-                .or_else(|| self.outputs.values().next().map(|o| o.usable_area))
-                .unwrap_or(default_usable_area);
+                .or_else(|| self.outputs.values().next().map(|o| o.usable_area));
+            let Some(usable_area) = usable_area else {
+                continue;
+            };
 
             let slide_offset = if let Some(dir) = self.tag_slide_dir {
                 match dir {

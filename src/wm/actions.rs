@@ -185,15 +185,16 @@ impl AppState {
             }
         };
 
-        let default_usable_area = crate::wm::DEFAULT_FALLBACK_AREA;
-
         if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
             let usable = w
                 .output
                 .as_ref()
                 .and_then(|out_id| self.outputs.get(out_id))
                 .map(|o| o.usable_area)
-                .unwrap_or(default_usable_area);
+                .or_else(|| self.outputs.values().next().map(|o| o.usable_area));
+            let Some(usable) = usable else {
+                return Err("window has no active output".to_string());
+            };
 
             w.floating = true;
 

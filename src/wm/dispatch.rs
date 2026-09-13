@@ -141,11 +141,11 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                         proxy: id,
                         ls_output: ls_out,
                         removed: false,
-                        usable_area: crate::wm::DEFAULT_FALLBACK_AREA,
+                        usable_area: Rect::default(),
                         x: 0,
                         y: 0,
-                        width: 1280,
-                        height: 800,
+                        width: 0,
+                        height: 0,
                     },
                 );
                 if state.focused_output.is_none() {
@@ -227,12 +227,20 @@ impl Dispatch<RiverOutputV1, ()> for AppState {
                 if let Some(out) = state.outputs.get_mut(&proxy.id()) {
                     out.x = x;
                     out.y = y;
+                    if out.usable_area.width == 0 {
+                        out.usable_area.x = x;
+                        out.usable_area.y = y;
+                    }
                 }
             }
             Event::Dimensions { width, height } => {
                 if let Some(out) = state.outputs.get_mut(&proxy.id()) {
                     out.width = width as u32;
                     out.height = height as u32;
+                    if out.usable_area.width == 0 {
+                        out.usable_area.width = width as u32;
+                        out.usable_area.height = height as u32;
+                    }
                 }
             }
             Event::Removed => {
