@@ -95,6 +95,9 @@ match the active tags of the destination output.
 : Converts the focused window to floating and snaps it to cover the corresponding
 half of the screen (50% width on left/right, or 50% height on up/down).
 
+**spawn** _command_
+: Spawns an external application process with arguments (typically used in keybindings: `map normal Super Return spawn foot`).
+
 **exit**
 : Terminates the **xrwm** window manager daemon.
 
