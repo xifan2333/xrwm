@@ -173,13 +173,14 @@ Once marked ready, CI gates and review bots automatically analyze the changes. A
 1. **Poll Check Status & Feedback**:
    - Verify CI status: `gh pr checks`
    - Inspect PR top-level comments: `gh pr view <pr_id> --comments`
-   - Inspect line-level review threads and resolution status via GraphQL (or Web UI) to capture inline remarks and confirm all unresolved threads:
+   - Inspect line-level review threads and resolution status via GraphQL (or Web UI) to capture inline remarks and confirm all unresolved threads (check `pageInfo.hasNextPage` to ensure complete pagination):
      ```bash
      gh api graphql -F owner=':owner' -F repo=':repo' -F pr=<pr_id> -f query='
-       query($owner: String!, $repo: String!, $pr: Int!) {
+       query($owner: String!, $repo: String!, $pr: Int!, $cursor: String) {
          repository(owner: $owner, name: $repo) {
            pullRequest(number: $pr) {
-             reviewThreads(first: 50) {
+             reviewThreads(first: 50, after: $cursor) {
+               pageInfo { hasNextPage endCursor }
                nodes {
                  isResolved
                  comments(first: 10) { nodes { body path line } }
