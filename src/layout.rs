@@ -75,8 +75,10 @@ impl Layout for MasterStackLayout {
             return vec![usable_area];
         }
 
-        let vp = config.view_padding as i32;
-        let op = config.outer_padding as i32;
+        let max_op = ((usable_area.width.min(usable_area.height) / 2).saturating_sub(1)) as i32;
+        let op = (config.outer_padding as i32).clamp(0, max_op.max(0));
+        let max_vp = ((usable_area.width.min(usable_area.height) / 4).saturating_sub(1)) as i32;
+        let vp = (config.view_padding as i32).clamp(0, max_vp.max(0));
 
         // Single window with outer padding
         if count == 1 {
@@ -473,5 +475,22 @@ mod tests {
         assert_eq!(rects[1].height, 400);
         assert_eq!(rects[2].height, 300);
         assert_eq!(rects[3].height, 300);
+    }
+
+    #[test]
+    fn test_excessive_padding_clamping() {
+        let layout = MasterStackLayout;
+        let config = LayoutConfig {
+            outer_padding: 60000,
+            view_padding: 60000,
+            ..Default::default()
+        };
+        let area = Rect::new(0, 0, 100, 100);
+        let rects = layout.arrange(area, 1, &config);
+        assert_eq!(rects.len(), 1);
+        assert!(rects[0].x >= area.x);
+        assert!(rects[0].y >= area.y);
+        assert!(rects[0].x + rects[0].width as i32 <= area.x + area.width as i32);
+        assert!(rects[0].y + rects[0].height as i32 <= area.y + area.height as i32);
     }
 }
