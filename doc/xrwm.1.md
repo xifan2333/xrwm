@@ -2,8 +2,6 @@
 title: XRWM
 section: 1
 header: xrwm Manual
-footer: xrwm 0.1.0
-date: September 2026
 ---
 
 # NAME
