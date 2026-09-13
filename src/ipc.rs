@@ -55,11 +55,21 @@ pub enum IpcCommand {
         key: String,
         action: Vec<String>,
     },
+    Unmap {
+        mode: String,
+        modifiers: String,
+        key: String,
+    },
     MapPointer {
         mode: String,
         modifiers: String,
         button: String,
         action: Vec<String>,
+    },
+    UnmapPointer {
+        mode: String,
+        modifiers: String,
+        button: String,
     },
     RuleAdd {
         app_id: Option<String>,
@@ -381,6 +391,39 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
                 action: args[4..].to_vec(),
             })
         }
+        "unmap" => {
+            if args.len() < 4 {
+                return Err("Usage: xrwm unmap <mode> <modifiers> <key>".to_string());
+            }
+            Ok(IpcCommand::Unmap {
+                mode: args[1].clone(),
+                modifiers: args[2].clone(),
+                key: args[3].clone(),
+            })
+        }
+        "map-pointer" => {
+            if args.len() < 5 {
+                return Err(
+                    "Usage: xrwm map-pointer <mode> <modifiers> <button> <action...>".to_string(),
+                );
+            }
+            Ok(IpcCommand::MapPointer {
+                mode: args[1].clone(),
+                modifiers: args[2].clone(),
+                button: args[3].clone(),
+                action: args[4..].to_vec(),
+            })
+        }
+        "unmap-pointer" => {
+            if args.len() < 4 {
+                return Err("Usage: xrwm unmap-pointer <mode> <modifiers> <button>".to_string());
+            }
+            Ok(IpcCommand::UnmapPointer {
+                mode: args[1].clone(),
+                modifiers: args[2].clone(),
+                button: args[3].clone(),
+            })
+        }
         "rule-add" => {
             let mut app_id = None;
             let mut title = None;
@@ -461,19 +504,6 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
         "list-rules" => {
             let action = args.get(1).cloned();
             Ok(IpcCommand::ListRules { action })
-        }
-        "map-pointer" => {
-            if args.len() < 5 {
-                return Err(
-                    "Usage: xrwm map-pointer <mode> <modifiers> <button> <action...>".to_string(),
-                );
-            }
-            Ok(IpcCommand::MapPointer {
-                mode: args[1].clone(),
-                modifiers: args[2].clone(),
-                button: args[3].clone(),
-                action: args[4..].to_vec(),
-            })
         }
         "status" => {
             let stream = args.iter().any(|a| a == "--stream");
@@ -585,6 +615,29 @@ mod tests {
         assert_eq!(
             parse_cli_args(&["toggle-float".into()]).unwrap(),
             IpcCommand::ToggleFloat
+        );
+        assert_eq!(
+            parse_cli_args(&["unmap".into(), "normal".into(), "Super".into(), "Q".into(),])
+                .unwrap(),
+            IpcCommand::Unmap {
+                mode: "normal".into(),
+                modifiers: "Super".into(),
+                key: "Q".into(),
+            }
+        );
+        assert_eq!(
+            parse_cli_args(&[
+                "unmap-pointer".into(),
+                "normal".into(),
+                "Super".into(),
+                "BTN_LEFT".into(),
+            ])
+            .unwrap(),
+            IpcCommand::UnmapPointer {
+                mode: "normal".into(),
+                modifiers: "Super".into(),
+                button: "BTN_LEFT".into(),
+            }
         );
         assert_eq!(
             parse_cli_args(&[

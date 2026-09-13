@@ -399,6 +399,8 @@ impl AppState {
                         ActiveKeyBinding {
                             proxy: binding,
                             mode: pending.mode.clone(),
+                            modifiers: pending.modifiers,
+                            keysym: pending.keysym,
                             action: pending.action.clone(),
                         },
                     );
@@ -447,6 +449,8 @@ impl AppState {
                         crate::wm::seat::PointerBinding {
                             proxy: pb,
                             mode: pending.mode.clone(),
+                            modifiers: pending.modifiers,
+                            button: pending.button,
                             action: pending.action.clone(),
                         },
                     );
