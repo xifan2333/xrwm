@@ -463,11 +463,37 @@ impl AppState {
         };
 
         let dest_tags = self.tag_state.focused;
+        let source_out = self
+            .windows
+            .iter()
+            .find(|w| w.id == id)
+            .and_then(|w| w.output.clone());
+        let src_area = source_out
+            .and_then(|so| self.outputs.get(&so))
+            .map(|o| o.usable_area);
+        let dest_area = self.outputs.get(&out_id).map(|o| o.usable_area);
 
         if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
             w.output = Some(out_id.clone());
             if current_tags {
                 w.tags = dest_tags;
+            }
+            if w.floating {
+                if let (Some(src), Some(dst)) = (src_area, dest_area) {
+                    let rel_x = w.x - src.x;
+                    let rel_y = w.y - src.y;
+                    let new_x = dst.x + rel_x;
+                    let new_y = dst.y + rel_y;
+                    let max_x = (dst.x + dst.width as i32 - 50).max(dst.x);
+                    let max_y = (dst.y + dst.height as i32 - 50).max(dst.y);
+                    w.x = new_x.clamp(dst.x, max_x);
+                    w.y = new_y.clamp(dst.y, max_y);
+                } else if let Some(dst) = dest_area {
+                    w.x = dst.x + (dst.width.saturating_sub(w.width) / 2) as i32;
+                    w.y = dst.y + (dst.height.saturating_sub(w.height) / 2) as i32;
+                }
+                w.float_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
+                w.visual_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
             }
             self.manage_dirty();
             Ok(format!("sent window {id} to output {:?}", out_id))
