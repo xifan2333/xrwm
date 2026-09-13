@@ -41,7 +41,19 @@ xrwm/
 
 ---
 
-## 3. Developer Workflow
+## 3. Installation
+
+```bash
+# System-wide installation (installs binary, man xrwm, and wayland session)
+sudo make install
+
+# User-local installation (no root needed)
+make install PREFIX=$HOME/.local
+```
+
+---
+
+## 4. Developer Workflow
 
 This repository strictly adheres to the **Issue + Draft PR** development lifecycle:
 
@@ -56,6 +68,6 @@ mise run test           # cargo test
 
 ---
 
-## 4. License
+## 5. License
 
 GPL-3.0-only
