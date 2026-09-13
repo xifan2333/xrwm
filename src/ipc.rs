@@ -30,6 +30,7 @@ pub enum IpcCommand {
     SendToPreviousTags,
     SpawnTagmask(u32),
     ViewPadding(u32),
+    OuterPadding(u32),
     BorderWidth(u32),
     BorderColorFocused(String),
     BorderColorUnfocused(String),
@@ -308,6 +309,14 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
                 .parse::<u32>()
                 .map_err(|_| "view-padding must be a positive integer")?;
             Ok(IpcCommand::ViewPadding(gaps))
+        }
+        "outer-padding" => {
+            let padding = args
+                .get(1)
+                .ok_or("Missing outer-padding value")?
+                .parse::<u32>()
+                .map_err(|_| "outer-padding must be a positive integer")?;
+            Ok(IpcCommand::OuterPadding(padding))
         }
         "border-width" => {
             let width = args
@@ -626,6 +635,11 @@ mod tests {
         assert_eq!(
             parse_cli_args(&gaps_args).unwrap(),
             IpcCommand::ViewPadding(8)
+        );
+        let op_args = vec!["outer-padding".into(), "12".into()];
+        assert_eq!(
+            parse_cli_args(&op_args).unwrap(),
+            IpcCommand::OuterPadding(12)
         );
 
         assert_eq!(

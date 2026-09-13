@@ -600,9 +600,16 @@ impl AppState {
 
     /// Sets the padding around views in pixels (gaps).
     pub fn set_view_padding(&mut self, padding: u32) -> Result<String, String> {
-        self.layout_config.gaps = padding;
+        self.layout_config.view_padding = padding;
         self.manage_dirty();
         Ok(format!("view padding set to {padding}px"))
+    }
+
+    /// Sets the padding around the outer perimeter of the layout area.
+    pub fn set_outer_padding(&mut self, padding: u32) -> Result<String, String> {
+        self.layout_config.outer_padding = padding;
+        self.manage_dirty();
+        Ok(format!("outer padding set to {padding}px"))
     }
 
     /// Sets the attach mode for newly spawned windows.
@@ -1073,6 +1080,7 @@ impl AppState {
             IpcCommand::SetCursorWarp(mode) => self.set_cursor_warp(*mode),
             IpcCommand::FocusFollowsCursor(mode) => self.set_focus_follows_cursor(*mode),
             IpcCommand::ViewPadding(g) => self.set_view_padding(*g),
+            IpcCommand::OuterPadding(p) => self.set_outer_padding(*p),
             IpcCommand::BorderWidth(w) => {
                 self.border_width = *w;
                 self.manage_dirty();
@@ -1324,7 +1332,12 @@ mod tests {
         let cmd = IpcCommand::ViewPadding(8);
         let res = state.handle_ipc_command(&cmd);
         assert!(res.is_ok());
-        assert_eq!(state.layout_config.gaps, 8);
+        assert_eq!(state.layout_config.view_padding, 8);
+
+        let op_cmd = IpcCommand::OuterPadding(12);
+        let res_op = state.handle_ipc_command(&op_cmd);
+        assert!(res_op.is_ok());
+        assert_eq!(state.layout_config.outer_padding, 12);
     }
 
     #[test]
@@ -1578,7 +1591,9 @@ mod tests {
         state.execute_action_tokens(&["stack-ratio".into(), "+0.10".into()]);
         assert!((state.layout_config.stack_split_ratio - 0.70).abs() < 1e-4);
         state.execute_action_tokens(&["view-padding".into(), "12".into()]);
-        assert_eq!(state.layout_config.gaps, 12);
+        assert_eq!(state.layout_config.view_padding, 12);
+        state.execute_action_tokens(&["outer-padding".into(), "16".into()]);
+        assert_eq!(state.layout_config.outer_padding, 16);
 
         // Attach mode test
         state.execute_action_tokens(&["default-attach-mode".into(), "bottom".into()]);
