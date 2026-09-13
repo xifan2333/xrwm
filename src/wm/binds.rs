@@ -151,6 +151,8 @@ pub struct PendingPointerBinding {
 pub struct ActiveKeyBinding {
     pub proxy: RiverXkbBindingV1,
     pub mode: String,
+    pub modifiers: Modifiers,
+    pub keysym: u32,
     pub action: Vec<String>,
 }
 

@@ -192,6 +192,7 @@ pub struct AppState {
     pub attach_mode: AttachMode,
     pub cursor_warp: crate::wm::seat::CursorWarp,
     pub focus_follows_cursor: crate::wm::seat::FocusFollowsCursor,
+    pub spawn_tagmask: TagMask,
 
     pub anim: AnimationController,
     pub tag_slide_dir: Option<crate::animation::SlideDirection>,
@@ -237,6 +238,7 @@ impl AppState {
             attach_mode: AttachMode::default(),
             cursor_warp: crate::wm::seat::CursorWarp::default(),
             focus_follows_cursor: crate::wm::seat::FocusFollowsCursor::default(),
+            spawn_tagmask: u32::MAX,
             anim: AnimationController::default(),
             tag_slide_dir: None,
             tag_anim_old_mask: TAG_NONE,
@@ -397,6 +399,8 @@ impl AppState {
                         ActiveKeyBinding {
                             proxy: binding,
                             mode: pending.mode.clone(),
+                            modifiers: pending.modifiers,
+                            keysym: pending.keysym,
                             action: pending.action.clone(),
                         },
                     );
@@ -445,6 +449,8 @@ impl AppState {
                         crate::wm::seat::PointerBinding {
                             proxy: pb,
                             mode: pending.mode.clone(),
+                            modifiers: pending.modifiers,
+                            button: pending.button,
                             action: pending.action.clone(),
                         },
                     );

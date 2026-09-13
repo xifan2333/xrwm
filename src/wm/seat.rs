@@ -80,6 +80,8 @@ impl PointerAction {
 pub struct PointerBinding {
     pub proxy: RiverPointerBindingV1,
     pub mode: String,
+    pub modifiers: crate::protocol::river_seat_v1::Modifiers,
+    pub button: u32,
     pub action: PointerAction,
 }
 

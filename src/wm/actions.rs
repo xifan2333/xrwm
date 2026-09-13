@@ -660,6 +660,12 @@ impl AppState {
         }
     }
 
+    /// Sets the spawn tagmask restricting tags of new views.
+    pub fn set_spawn_tagmask(&mut self, mask: TagMask) -> Result<String, String> {
+        self.spawn_tagmask = mask;
+        Ok(format!("spawn tagmask set to {mask}"))
+    }
+
     /// Declares a new modal keybinding mode.
     pub fn declare_mode(&mut self, mode: &str) -> Result<String, String> {
         let name = mode.trim();
@@ -794,6 +800,65 @@ impl AppState {
         self.layout_config.main_count = c;
         self.manage_dirty();
         Ok(format!("main count set to {c}"))
+    }
+
+    /// Unmaps a key binding in the specified mode.
+    pub fn unmap_key(&mut self, mode: &str, modifiers: &str, key: &str) -> Result<String, String> {
+        let mods = crate::wm::binds::parse_modifiers(modifiers);
+        let Some(keysym) = crate::wm::binds::resolve_keysym(key, mods) else {
+            return Err(format!("Unknown keysym: {key}"));
+        };
+
+        self.pending_key_bindings
+            .retain(|b| !(b.mode == mode && b.modifiers == mods && b.keysym == keysym));
+
+        let to_remove: Vec<wayland_backend::client::ObjectId> = self
+            .key_bindings
+            .iter()
+            .filter(|(_, b)| b.mode == mode && b.modifiers == mods && b.keysym == keysym)
+            .map(|(id, _)| id.clone())
+            .collect();
+
+        for id in to_remove {
+            if let Some(b) = self.key_bindings.remove(&id) {
+                b.proxy.destroy();
+            }
+        }
+        self.manage_dirty();
+        Ok(format!("unmapped [{mode}] {modifiers}+{key}"))
+    }
+
+    /// Unmaps a pointer binding in the specified mode.
+    pub fn unmap_pointer(
+        &mut self,
+        mode: &str,
+        modifiers: &str,
+        button: &str,
+    ) -> Result<String, String> {
+        let mods = crate::wm::binds::parse_modifiers(modifiers);
+        let Some(btn_code) = crate::wm::binds::parse_button(button) else {
+            return Err(format!("Unknown pointer button: {button}"));
+        };
+
+        self.pending_pointer_bindings
+            .retain(|b| !(b.mode == mode && b.modifiers == mods && b.button == btn_code));
+
+        for seat in self.seats.values_mut() {
+            let to_remove: Vec<wayland_backend::client::ObjectId> = seat
+                .pointer_bindings
+                .iter()
+                .filter(|(_, b)| b.mode == mode && b.modifiers == mods && b.button == btn_code)
+                .map(|(id, _)| id.clone())
+                .collect();
+
+            for id in to_remove {
+                if let Some(b) = seat.pointer_bindings.remove(&id) {
+                    b.proxy.destroy();
+                }
+            }
+        }
+        self.manage_dirty();
+        Ok(format!("unmapped pointer [{mode}] {modifiers}+{button}"))
     }
 
     /// Lists active window rules, optionally filtered by action.
@@ -932,6 +997,7 @@ impl AppState {
             IpcCommand::ToggleViewTags(mask) => self.toggle_view_tags(*mask),
             IpcCommand::FocusPreviousTags => self.focus_previous_tags(),
             IpcCommand::SendToPreviousTags => self.send_to_previous_tags(),
+            IpcCommand::SpawnTagmask(mask) => self.set_spawn_tagmask(*mask),
             IpcCommand::MainLocation(loc) => self.set_main_location(*loc),
             IpcCommand::DefaultAttachMode(mode) => self.set_attach_mode(*mode),
             IpcCommand::SetCursorWarp(mode) => self.set_cursor_warp(*mode),
@@ -1088,6 +1154,11 @@ impl AppState {
                 self.manage_dirty();
                 Ok(format!("mapped [{mode}] {modifiers}+{key} -> {action:?}"))
             }
+            IpcCommand::Unmap {
+                mode,
+                modifiers,
+                key,
+            } => self.unmap_key(mode, modifiers, key),
             IpcCommand::MapPointer {
                 mode,
                 modifiers,
@@ -1111,6 +1182,11 @@ impl AppState {
                     "mapped-pointer [{mode}] {modifiers}+{button} -> {action:?}"
                 ))
             }
+            IpcCommand::UnmapPointer {
+                mode,
+                modifiers,
+                button,
+            } => self.unmap_pointer(mode, modifiers, button),
             IpcCommand::Status { stream: _, format } => {
                 if format.as_deref() == Some("waybar") {
                     Ok(self.format_waybar_status())
@@ -1225,6 +1301,16 @@ impl AppState {
                     if let Ok(mode) = AttachMode::parse(&raw) {
                         let _ = self.set_attach_mode(mode);
                     }
+                }
+            }
+            "unmap" => {
+                if action.len() >= 4 {
+                    let _ = self.unmap_key(&action[1], &action[2], &action[3]);
+                }
+            }
+            "unmap-pointer" => {
+                if action.len() >= 4 {
+                    let _ = self.unmap_pointer(&action[1], &action[2], &action[3]);
                 }
             }
             "set-cursor-warp" => {
@@ -1344,6 +1430,13 @@ impl AppState {
                     && let Ok(mask) = action[1].parse::<u32>()
                 {
                     let _ = self.toggle_view_tags(mask);
+                }
+            }
+            "spawn-tagmask" => {
+                if action.len() > 1
+                    && let Ok(mask) = action[1].parse::<u32>()
+                {
+                    let _ = self.set_spawn_tagmask(mask);
                 }
             }
             "exit" => {
@@ -1488,6 +1581,11 @@ mod tests {
             .handle_ipc_command(&IpcCommand::ToggleFocusedTags(2))
             .unwrap();
         assert_eq!(state.tag_state.focused, 7);
+
+        state
+            .handle_ipc_command(&IpcCommand::SpawnTagmask(511))
+            .unwrap();
+        assert_eq!(state.spawn_tagmask, 511);
     }
 
     #[test]
@@ -1531,6 +1629,15 @@ mod tests {
         let res = state.handle_ipc_command(&map_cmd);
         assert!(res.is_ok());
         assert_eq!(state.pending_key_bindings.len(), 1);
+
+        let unmap_cmd = IpcCommand::Unmap {
+            mode: "normal".into(),
+            modifiers: "Super".into(),
+            key: "Return".into(),
+        };
+        let res_unmap = state.handle_ipc_command(&unmap_cmd);
+        assert!(res_unmap.is_ok());
+        assert_eq!(state.pending_key_bindings.len(), 0);
     }
 
     #[test]
@@ -1545,6 +1652,15 @@ mod tests {
         assert!(state.handle_ipc_command(&cmd).is_ok());
         assert_eq!(state.pending_pointer_bindings.len(), 1);
         assert_eq!(state.pending_pointer_bindings[0].button, 0x110);
+
+        let unmap_ptr_cmd = IpcCommand::UnmapPointer {
+            mode: "normal".into(),
+            modifiers: "Super".into(),
+            button: "BTN_LEFT".into(),
+        };
+        let res_unmap_ptr = state.handle_ipc_command(&unmap_ptr_cmd);
+        assert!(res_unmap_ptr.is_ok());
+        assert_eq!(state.pending_pointer_bindings.len(), 0);
     }
 
     #[test]
