@@ -717,6 +717,48 @@ impl AppState {
         Ok(format!("entered mode {name}"))
     }
 
+    /// Moves a floating window by delta pixels in the given direction.
+    pub fn move_window(&mut self, dir_str: &str, delta: i32) -> Result<String, String> {
+        let focused_id = self.focused_window_id();
+        let Some(id) = focused_id else {
+            return Err("no view focused".to_string());
+        };
+
+        let dir = match dir_str.to_ascii_lowercase().as_str() {
+            "left" | "h" => Direction::Left,
+            "right" | "l" => Direction::Right,
+            "up" | "k" => Direction::Up,
+            "down" | "j" => Direction::Down,
+            _ => {
+                return Err(format!(
+                    "Invalid direction: '{dir_str}', expected left|right|up|down"
+                ));
+            }
+        };
+
+        if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
+            if !w.floating {
+                return Ok(format!("window {id} is not floating, move ignored"));
+            }
+
+            match dir {
+                Direction::Left => w.x -= delta,
+                Direction::Right => w.x += delta,
+                Direction::Up => w.y -= delta,
+                Direction::Down => w.y += delta,
+                _ => unreachable!(),
+            }
+
+            w.float_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
+            w.visual_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
+            let (new_x, new_y) = (w.x, w.y);
+            self.manage_dirty();
+            Ok(format!("moved window {id} to ({new_x}, {new_y})"))
+        } else {
+            Err("window not found".to_string())
+        }
+    }
+
     /// Resizes floating window dimensions or adjusts tiled split ratio.
     pub fn resize_window(&mut self, horizontal: bool, delta: i32) -> Result<String, String> {
         let focused_id = self.focused_window_id();
@@ -1053,6 +1095,7 @@ impl AppState {
             IpcCommand::MainCount(c) => self.set_main_count_arg(c),
             IpcCommand::DeclareMode(mode) => self.declare_mode(mode),
             IpcCommand::EnterMode(mode) => self.enter_mode(mode),
+            IpcCommand::MoveWindow { direction, delta } => self.move_window(direction, *delta),
             IpcCommand::ResizeWindow { horizontal, delta } => {
                 self.resize_window(*horizontal, *delta)
             }
@@ -1284,6 +1327,14 @@ impl AppState {
                     20
                 };
                 let _ = self.resize_window(horizontal, delta);
+            }
+            "move" => {
+                let dir = action.get(1).map(|s| s.as_str()).unwrap_or("left");
+                let delta = action
+                    .get(2)
+                    .and_then(|s| s.parse::<i32>().ok())
+                    .unwrap_or(50);
+                let _ = self.move_window(dir, delta);
             }
             "main-ratio" => {
                 if action.len() > 1 {
@@ -1814,12 +1865,14 @@ mod tests {
         assert!(state.zoom_focused().is_err());
         assert_eq!(state.focus_view(true).unwrap(), "no visible windows");
         assert!(state.snap_focused("left").is_err());
+        assert!(state.move_window("left", 50).is_err());
         assert_eq!(
             state.focus_view_direction("next", true).unwrap(),
             "no visible windows"
         );
 
         state.execute_action_tokens(&["snap".into(), "left".into()]);
+        state.execute_action_tokens(&["move".into(), "left".into(), "50".into()]);
         state.execute_action_tokens(&["focus-view".into(), "-skip-floating".into(), "next".into()]);
         state.execute_action_tokens(&[
             "send-to-output".into(),
