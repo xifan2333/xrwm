@@ -100,6 +100,9 @@ xrwm focus-previous-tags
 # 将当前窗口发送到上一次查看的标签组合
 xrwm send-to-previous-tags
 
+# 设置新窗口初始标签掩码过滤（按位与计算，防止新开窗口污染特化标签，默认 0xFFFFFFFF）
+xrwm spawn-tagmask 511
+
 
 # ==============================================================================
 # 3. 排版与间隙引擎 (Layout Engine & Gaps - 100% 对齐 rivertile)
@@ -208,6 +211,12 @@ xrwm map normal "Super+Shift" Return zoom
 xrwm map normal Super H focus-view left
 xrwm map normal Super L focus-view right
 
+# 动态注销指定模式下的按键映射
+xrwm unmap normal Super Q
+
+# 动态注销指定模式下的鼠标按键映射
+xrwm unmap-pointer normal Super BTN_LEFT
+
 
 # ==============================================================================
 # 7. 窗口规则系统 (Window Rules - 100% 对齐 riverctl)
@@ -266,20 +275,4 @@ xrwm status --format waybar
 # 建立长连接管道，持续监听并流式推送每次窗口、标签或焦点变动的 JSON 状态流
 xrwm status --stream
 xrwm status --format waybar --stream
-```
-
----
-
-## 3. 规划待补全候选命令清单 (Upcoming Pipeline)
-
-```bash
-# ==============================================================================
-# 候选 A：运行时解绑 (Unmapping)
-# ==============================================================================
-
-# 动态卸载指定模式下的按键映射
-xrwm unmap normal Super Q
-
-# 动态卸载指定模式下的鼠标按键映射
-xrwm unmap-pointer normal Super BTN_LEFT
 ```
