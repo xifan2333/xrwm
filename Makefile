@@ -8,6 +8,11 @@ TARGET ?= $(shell [ -f target/release/xrwm ] && echo target/release/xrwm || echo
 all:
 	cargo build --release
 
+doc:
+	@date=$$(git log -1 --format=%cd --date=format:'%B %Y' doc/xrwm.1.md 2>/dev/null || date +"%B %Y"); \
+	version=$$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1); \
+	pandoc -s -t man doc/xrwm.1.md -M date="$$date" -M footer="xrwm $$version" -o doc/xrwm.1
+
 install:
 	install -Dm755 $(TARGET) $(DESTDIR)$(BINDIR)/xrwm
 	install -Dm644 doc/xrwm.1 $(DESTDIR)$(MANDIR)/xrwm.1
@@ -20,4 +25,4 @@ uninstall:
 	rm -f $(DESTDIR)$(DATADIR)/xrwm.desktop
 	rm -rf $(DESTDIR)$(DOCDIR)
 
-.PHONY: all install uninstall
+.PHONY: all doc install uninstall

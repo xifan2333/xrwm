@@ -57,5 +57,11 @@ description = "Run test suite"
 run = "cargo test"
 
 [tasks.doc]
-description = "Compile manual page from Markdown source via pandoc"
-run = "pandoc -s -t man doc/xrwm.1.md -o doc/xrwm.1"
+description = "Compile manual page from Markdown source via pandoc with dynamic date and version"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+date=$(git log -1 --format=%cd --date=format:'%B %Y' doc/xrwm.1.md 2>/dev/null || date +"%B %Y")
+pandoc -s -t man doc/xrwm.1.md -M date="${date}" -M footer="xrwm ${version}" -o doc/xrwm.1
+'''
