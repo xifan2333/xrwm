@@ -249,23 +249,48 @@ impl AppState {
     }
 
     /// Bumps the focused window to the master position in the layout stack.
+    /// If the view on the top of the stack is already focused, bumps the second view to top (matching river-classic).
     pub fn zoom_focused(&mut self) -> Result<String, String> {
         let focused_id = self.focused_window_id();
         let Some(id) = focused_id else {
             return Err("no view focused".to_string());
         };
 
-        let pos = self.windows.iter().position(|w| w.id == id);
-        if let Some(idx) = pos {
-            if idx > 0 {
-                let win = self.windows.remove(idx);
-                self.windows.insert(0, win);
-                self.manage_dirty();
-            }
-            Ok(format!("zoomed window {id}"))
-        } else {
-            Err("window not found".to_string())
+        let tag_state = self.tag_state;
+        let visible_tiled: Vec<usize> = self
+            .windows
+            .iter()
+            .enumerate()
+            .filter(|(_, w)| {
+                !w.closed && !w.floating && !w.fullscreen && tag_state.is_view_visible(w.tags)
+            })
+            .map(|(i, _)| i)
+            .collect();
+
+        if visible_tiled.len() <= 1 {
+            return Ok(format!("zoomed window {id}"));
         }
+
+        let focused_pos = visible_tiled
+            .iter()
+            .position(|&idx| self.windows[idx].id == id);
+        let Some(pos) = focused_pos else {
+            return Ok(format!("window {id} not in tiled layout"));
+        };
+
+        let target_idx = if pos == 0 {
+            // Already at top: bump second view to top
+            visible_tiled[1]
+        } else {
+            // Bump focused view to top
+            visible_tiled[pos]
+        };
+
+        let win = self.windows.remove(target_idx);
+        let win_id = win.id;
+        self.windows.insert(0, win);
+        self.manage_dirty();
+        Ok(format!("zoomed window {win_id}"))
     }
 
     /// Finds the target window in the given direction.
