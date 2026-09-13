@@ -1023,6 +1023,13 @@ impl AppState {
             self.tag_anim_old_mask = TAG_NONE;
         }
 
+        // Apply any pending pointer warps during the manage sequence
+        for seat in self.seats.values_mut() {
+            if let Some((wx, wy)) = seat.pending_warp.take() {
+                seat.proxy.pointer_warp(wx, wy);
+            }
+        }
+
         self.sync_occupied_tags();
         self.broadcast_status();
         _proxy.manage_finish();

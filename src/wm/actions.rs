@@ -440,8 +440,8 @@ impl AppState {
                 }
                 _ => (out.x + out.width as i32 / 2, out.y + out.height as i32 / 2),
             };
-            for seat in self.seats.values() {
-                seat.proxy.pointer_warp(cx, cy);
+            for seat in self.seats.values_mut() {
+                seat.pending_warp = Some((cx, cy));
             }
         }
 
@@ -506,7 +506,7 @@ impl AppState {
             for seat in self.seats.values_mut() {
                 seat.focused = Some(proxy.clone());
                 if self.cursor_warp == crate::wm::CursorWarp::OnFocusChange {
-                    seat.proxy.pointer_warp(cx, cy);
+                    seat.pending_warp = Some((cx, cy));
                 }
             }
             if let Some(out) = out_id {

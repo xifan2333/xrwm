@@ -127,6 +127,7 @@ pub struct SeatItem {
     pub op_release: bool,
     pub cursor_shape_device: Option<WpCursorShapeDeviceV1>,
     pub wl_pointer: Option<WlPointer>,
+    pub pending_warp: Option<(i32, i32)>,
     pub pointer_bindings: HashMap<ObjectId, PointerBinding>,
 }
 
@@ -145,6 +146,7 @@ impl SeatItem {
             op_release: false,
             cursor_shape_device: None,
             wl_pointer: None,
+            pending_warp: None,
             pointer_bindings: HashMap::new(),
         }
     }
