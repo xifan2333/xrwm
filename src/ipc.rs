@@ -42,6 +42,8 @@ pub enum IpcCommand {
     DefaultAttachMode(crate::wm::AttachMode),
     SetCursorWarp(crate::wm::CursorWarp),
     FocusFollowsCursor(crate::wm::FocusFollowsCursor),
+    HideCursorTimeout(u64),
+    HideCursorWhenTyping(bool),
     DeclareMode(String),
     EnterMode(String),
     MoveWindow {
@@ -301,6 +303,33 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
                 .ok_or("Missing focus-follows-cursor mode: disabled|normal|always")?;
             let mode = crate::wm::FocusFollowsCursor::parse(raw)?;
             Ok(IpcCommand::FocusFollowsCursor(mode))
+        }
+        "hide-cursor" => {
+            let sub = args
+                .get(1)
+                .ok_or("Missing subcommand: timeout|when-typing")?;
+            match sub.as_str() {
+                "timeout" => {
+                    let ms = args
+                        .get(2)
+                        .ok_or("Missing timeout in ms")?
+                        .parse::<u64>()
+                        .map_err(|_| "Timeout must be an integer in milliseconds")?;
+                    Ok(IpcCommand::HideCursorTimeout(ms))
+                }
+                "when-typing" => {
+                    let val = args.get(2).ok_or("Missing value: enabled|disabled")?;
+                    let enabled = match val.to_ascii_lowercase().as_str() {
+                        "enabled" | "true" | "on" | "1" => true,
+                        "disabled" | "false" | "off" | "0" => false,
+                        _ => return Err("Invalid value, use enabled|disabled".to_string()),
+                    };
+                    Ok(IpcCommand::HideCursorWhenTyping(enabled))
+                }
+                other => Err(format!(
+                    "Unknown hide-cursor subcommand: {other}, expected timeout|when-typing"
+                )),
+            }
         }
         "view-padding" => {
             let gaps = args
@@ -626,6 +655,24 @@ mod tests {
             }
         );
 
+        assert_eq!(
+            parse_cli_args(&["hide-cursor".into(), "timeout".into(), "3000".into()]).unwrap(),
+            IpcCommand::HideCursorTimeout(3000)
+        );
+        assert_eq!(
+            parse_cli_args(&["hide-cursor".into(), "when-typing".into(), "enabled".into()])
+                .unwrap(),
+            IpcCommand::HideCursorWhenTyping(true)
+        );
+        assert_eq!(
+            parse_cli_args(&[
+                "hide-cursor".into(),
+                "when-typing".into(),
+                "disabled".into()
+            ])
+            .unwrap(),
+            IpcCommand::HideCursorWhenTyping(false)
+        );
         assert_eq!(
             parse_cli_args(&["spawn-tagmask".into(), "511".into()]).unwrap(),
             IpcCommand::SpawnTagmask(511)

@@ -633,6 +633,18 @@ impl AppState {
         Ok(format!("focus-follows-cursor set to {:?}", mode).to_lowercase())
     }
 
+    /// Sets cursor hide timeout in milliseconds.
+    pub fn set_hide_cursor_timeout(&mut self, timeout: u64) -> Result<String, String> {
+        self.cursor_hide_timeout = timeout;
+        Ok(format!("hide cursor timeout set to {timeout}ms"))
+    }
+
+    /// Sets whether cursor is hidden when typing.
+    pub fn set_hide_cursor_when_typing(&mut self, enabled: bool) -> Result<String, String> {
+        self.cursor_hide_when_typing = enabled;
+        Ok(format!("hide cursor when typing set to {enabled}"))
+    }
+
     /// Toggles the focused tags mask on the WM.
     pub fn toggle_focused_tags(&mut self, mask: TagMask) -> Result<String, String> {
         let old_mask = self.tag_state.focused;
@@ -1079,6 +1091,8 @@ impl AppState {
             IpcCommand::DefaultAttachMode(mode) => self.set_attach_mode(*mode),
             IpcCommand::SetCursorWarp(mode) => self.set_cursor_warp(*mode),
             IpcCommand::FocusFollowsCursor(mode) => self.set_focus_follows_cursor(*mode),
+            IpcCommand::HideCursorTimeout(ms) => self.set_hide_cursor_timeout(*ms),
+            IpcCommand::HideCursorWhenTyping(en) => self.set_hide_cursor_when_typing(*en),
             IpcCommand::ViewPadding(g) => self.set_view_padding(*g),
             IpcCommand::OuterPadding(p) => self.set_outer_padding(*p),
             IpcCommand::BorderWidth(w) => {
@@ -1314,6 +1328,9 @@ impl AppState {
 
     /// Handles a keybinding press event triggered by river-xkb-bindings.
     pub fn handle_key_binding_pressed(&mut self, binding_id: &wayland_backend::client::ObjectId) {
+        if self.cursor_hide_when_typing {
+            self.hide_cursor();
+        }
         let action_opt = self.key_bindings.get(binding_id).map(|b| b.action.clone());
         let Some(action) = action_opt else {
             return;
@@ -1617,6 +1634,22 @@ mod tests {
             state.focus_follows_cursor,
             crate::wm::FocusFollowsCursor::Always
         );
+
+        // Hide cursor tests
+        state.execute_action_tokens(&["hide-cursor".into(), "timeout".into(), "3000".into()]);
+        assert_eq!(state.cursor_hide_timeout, 3000);
+        state.execute_action_tokens(&[
+            "hide-cursor".into(),
+            "when-typing".into(),
+            "enabled".into(),
+        ]);
+        assert!(state.cursor_hide_when_typing);
+        state.execute_action_tokens(&[
+            "hide-cursor".into(),
+            "when-typing".into(),
+            "disabled".into(),
+        ]);
+        assert!(!state.cursor_hide_when_typing);
 
         // Relative count adjustment
         assert_eq!(state.layout_config.main_count, 1);

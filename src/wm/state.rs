@@ -195,6 +195,10 @@ pub struct AppState {
     pub cursor_warp: crate::wm::seat::CursorWarp,
     pub focus_follows_cursor: crate::wm::seat::FocusFollowsCursor,
     pub spawn_tagmask: TagMask,
+    pub cursor_hide_timeout: u64,
+    pub cursor_hide_when_typing: bool,
+    pub cursor_hidden: bool,
+    pub last_pointer_activity: std::time::Instant,
 
     pub anim: AnimationController,
     pub tag_slide_dir: Option<crate::animation::SlideDirection>,
@@ -241,6 +245,10 @@ impl AppState {
             cursor_warp: crate::wm::seat::CursorWarp::default(),
             focus_follows_cursor: crate::wm::seat::FocusFollowsCursor::default(),
             spawn_tagmask: u32::MAX,
+            cursor_hide_timeout: 0,
+            cursor_hide_when_typing: false,
+            cursor_hidden: false,
+            last_pointer_activity: std::time::Instant::now(),
             anim: AnimationController::default(),
             tag_slide_dir: None,
             tag_anim_old_mask: TAG_NONE,
@@ -253,6 +261,36 @@ impl AppState {
     pub fn manage_dirty(&self) {
         if let Some(wm) = &self.river_wm {
             wm.manage_dirty();
+        }
+    }
+
+    /// Hides the cursor across all seats if not already hidden.
+    pub fn hide_cursor(&mut self) {
+        if self.cursor_hidden {
+            return;
+        }
+        self.cursor_hidden = true;
+        for seat in self.seats.values_mut() {
+            if let Some(ref pointer) = seat.wl_pointer {
+                pointer.set_cursor(0, None, 0, 0);
+            }
+        }
+    }
+
+    /// Unhides and restores the default cursor across all seats if hidden.
+    pub fn unhide_cursor(&mut self) {
+        self.last_pointer_activity = std::time::Instant::now();
+        if !self.cursor_hidden {
+            return;
+        }
+        self.cursor_hidden = false;
+        for seat in self.seats.values_mut() {
+            if let Some(ref dev) = seat.cursor_shape_device {
+                dev.set_shape(
+                    0,
+                    crate::protocol::wp_cursor_shape_device_v1::Shape::Default,
+                );
+            }
         }
     }
 

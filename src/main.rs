@@ -114,15 +114,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
         ];
 
-        // Frame rate animation clock: 16ms when animating (~60Hz tick), -1 when idle
-        let timeout = if state.anim.is_animating() { 16 } else { -1 };
+        // Animation and cursor hide timeout clock
+        let timeout = if state.anim.is_animating() {
+            16
+        } else if state.cursor_hide_timeout > 0 && !state.cursor_hidden {
+            let elapsed = state.last_pointer_activity.elapsed().as_millis() as u64;
+            if elapsed >= state.cursor_hide_timeout {
+                0
+            } else {
+                (state.cursor_hide_timeout - elapsed).min(100) as i32
+            }
+        } else {
+            -1
+        };
 
         let ret = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, timeout) };
 
         if ret == 0 {
-            // Animation frame tick
             drop(guard);
-            state.manage_dirty();
+            if state.anim.is_animating() {
+                state.manage_dirty();
+            }
+            if state.cursor_hide_timeout > 0
+                && !state.cursor_hidden
+                && state.last_pointer_activity.elapsed().as_millis() as u64
+                    >= state.cursor_hide_timeout
+            {
+                state.hide_cursor();
+            }
             continue;
         } else if ret > 0 {
             if fds[0].revents & libc::POLLIN != 0 {

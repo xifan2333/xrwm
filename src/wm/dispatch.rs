@@ -295,6 +295,7 @@ impl Dispatch<RiverSeatV1, ()> for AppState {
         use crate::protocol::river_seat_v1::Event;
         match event {
             Event::PointerEnter { window } => {
+                state.unhide_cursor();
                 if let Some(seat) = state.seats.get_mut(&proxy.id()) {
                     seat.hovered = Some(window.clone());
                     if state.focus_follows_cursor != crate::wm::FocusFollowsCursor::Disabled {
@@ -327,6 +328,7 @@ impl Dispatch<RiverSeatV1, ()> for AppState {
                 state.manage_dirty();
             }
             Event::OpDelta { dx, dy } => {
+                state.unhide_cursor();
                 if let Some(seat) = state.seats.get_mut(&proxy.id()) {
                     seat.op_dx = dx;
                     seat.op_dy = dy;
@@ -338,6 +340,7 @@ impl Dispatch<RiverSeatV1, ()> for AppState {
                 }
             }
             Event::PointerPosition { x, y } => {
+                state.unhide_cursor();
                 state.pointer = (x, y);
             }
             Event::WlSeat { name } => {
