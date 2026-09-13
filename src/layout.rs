@@ -75,8 +75,8 @@ impl Layout for MasterStackLayout {
             return vec![usable_area];
         }
 
-        let vp = config.view_padding as i32;
-        let op = config.outer_padding as i32;
+        let max_op = ((usable_area.width.min(usable_area.height) / 2).saturating_sub(1)) as i32;
+        let op = (config.outer_padding as i32).clamp(0, max_op.max(0));
 
         // Single window with outer padding
         if count == 1 {
@@ -93,6 +93,13 @@ impl Layout for MasterStackLayout {
         let inner_y = usable_area.y + op;
         let inner_w = (usable_area.width as i32 - 2 * op).max(1);
         let inner_h = (usable_area.height as i32 - 2 * op).max(1);
+
+        // Clamp view padding based on usable inner dimensions and window count gaps
+        let max_gaps = (count as i32 - 1).max(1);
+        let max_vp_w = (inner_w - count as i32).max(0) / max_gaps;
+        let max_vp_h = (inner_h - count as i32).max(0) / max_gaps;
+        let max_vp = max_vp_w.min(max_vp_h);
+        let vp = (config.view_padding as i32).clamp(0, max_vp);
 
         match config.main_location {
             MainLocation::Left | MainLocation::Right => {
@@ -117,13 +124,14 @@ impl Layout for MasterStackLayout {
                 let main_h_step = main_total_h / (main_count as i32);
                 let mut curr_y = inner_y;
                 for i in 0..main_count {
+                    let rem_h = (inner_y + inner_h - curr_y).max(1);
                     let h = if i == main_count - 1 {
-                        (inner_y + inner_h - curr_y).max(1) as u32
+                        rem_h as u32
                     } else {
-                        main_h_step.max(1) as u32
+                        main_h_step.clamp(1, rem_h) as u32
                     };
                     rects.push(Rect::new(master_start_x, curr_y, main_w as u32, h));
-                    curr_y += h as i32 + vp;
+                    curr_y = (curr_y + h as i32 + vp).min(inner_y + inner_h);
                 }
 
                 // Arrange Stack column
@@ -151,16 +159,17 @@ impl Layout for MasterStackLayout {
 
                         let rem_total_h = total_stack_h - first_h;
                         let rem_step = rem_total_h / rem_count;
-                        let mut curr_y = inner_y + first_h + vp;
+                        let mut curr_y = (inner_y + first_h + vp).min(inner_y + inner_h);
 
                         for i in 1..stack_count {
+                            let rem_h = (inner_y + inner_h - curr_y).max(1);
                             let h = if i == stack_count - 1 {
-                                (inner_y + inner_h - curr_y).max(1) as u32
+                                rem_h as u32
                             } else {
-                                rem_step.max(1) as u32
+                                rem_step.clamp(1, rem_h) as u32
                             };
                             rects.push(Rect::new(stack_start_x, curr_y, stack_w as u32, h));
-                            curr_y += h as i32 + vp;
+                            curr_y = (curr_y + h as i32 + vp).min(inner_y + inner_h);
                         }
                     }
                 }
@@ -186,13 +195,14 @@ impl Layout for MasterStackLayout {
                 let main_w_step = main_total_w / (main_count as i32);
                 let mut curr_x = inner_x;
                 for i in 0..main_count {
+                    let rem_w = (inner_x + inner_w - curr_x).max(1);
                     let w = if i == main_count - 1 {
-                        (inner_x + inner_w - curr_x).max(1) as u32
+                        rem_w as u32
                     } else {
-                        main_w_step.max(1) as u32
+                        main_w_step.clamp(1, rem_w) as u32
                     };
                     rects.push(Rect::new(curr_x, master_start_y, w, main_h as u32));
-                    curr_x += w as i32 + vp;
+                    curr_x = (curr_x + w as i32 + vp).min(inner_x + inner_w);
                 }
 
                 // Arrange Stack row
@@ -220,16 +230,17 @@ impl Layout for MasterStackLayout {
 
                         let rem_total_w = total_stack_w - first_w;
                         let rem_step = rem_total_w / rem_count;
-                        let mut curr_x = inner_x + first_w + vp;
+                        let mut curr_x = (inner_x + first_w + vp).min(inner_x + inner_w);
 
                         for i in 1..stack_count {
+                            let rem_w = (inner_x + inner_w - curr_x).max(1);
                             let w = if i == stack_count - 1 {
-                                (inner_x + inner_w - curr_x).max(1) as u32
+                                rem_w as u32
                             } else {
-                                rem_step.max(1) as u32
+                                rem_step.clamp(1, rem_w) as u32
                             };
                             rects.push(Rect::new(curr_x, stack_start_y, w, stack_h as u32));
-                            curr_x += w as i32 + vp;
+                            curr_x = (curr_x + w as i32 + vp).min(inner_x + inner_w);
                         }
                     }
                 }
@@ -473,5 +484,37 @@ mod tests {
         assert_eq!(rects[1].height, 400);
         assert_eq!(rects[2].height, 300);
         assert_eq!(rects[3].height, 300);
+    }
+
+    #[test]
+    fn test_excessive_padding_clamping() {
+        let layout = MasterStackLayout;
+        let config = LayoutConfig {
+            outer_padding: 60000,
+            view_padding: 60000,
+            ..Default::default()
+        };
+        let area = Rect::new(0, 0, 100, 100);
+        let rects = layout.arrange(area, 1, &config);
+        assert_eq!(rects.len(), 1);
+        assert!(rects[0].x >= area.x);
+        assert!(rects[0].y >= area.y);
+        assert!(rects[0].x + rects[0].width as i32 <= area.x + area.width as i32);
+        assert!(rects[0].y + rects[0].height as i32 <= area.y + area.height as i32);
+
+        // Greptile case: 10 windows on 100x100 with op=49, vp=24
+        let config_multi = LayoutConfig {
+            outer_padding: 49,
+            view_padding: 24,
+            ..Default::default()
+        };
+        let multi_rects = layout.arrange(area, 10, &config_multi);
+        assert_eq!(multi_rects.len(), 10);
+        for r in multi_rects {
+            assert!(r.x >= area.x);
+            assert!(r.y >= area.y);
+            assert!(r.x + r.width as i32 <= area.x + area.width as i32);
+            assert!(r.y + r.height as i32 <= area.y + area.height as i32);
+        }
     }
 }
