@@ -141,11 +141,11 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                         proxy: id,
                         ls_output: ls_out,
                         removed: false,
-                        usable_area: crate::wm::DEFAULT_FALLBACK_AREA,
+                        usable_area: Rect::default(),
                         x: 0,
                         y: 0,
-                        width: 1280,
-                        height: 800,
+                        width: 0,
+                        height: 0,
                     },
                 );
                 if state.focused_output.is_none() {
@@ -227,12 +227,20 @@ impl Dispatch<RiverOutputV1, ()> for AppState {
                 if let Some(out) = state.outputs.get_mut(&proxy.id()) {
                     out.x = x;
                     out.y = y;
+                    if out.usable_area.width == 0 {
+                        out.usable_area.x = x;
+                        out.usable_area.y = y;
+                    }
                 }
             }
             Event::Dimensions { width, height } => {
                 if let Some(out) = state.outputs.get_mut(&proxy.id()) {
                     out.width = width as u32;
                     out.height = height as u32;
+                    if out.usable_area.width == 0 {
+                        out.usable_area.width = width as u32;
+                        out.usable_area.height = height as u32;
+                    }
                 }
             }
             Event::Removed => {
@@ -287,6 +295,7 @@ impl Dispatch<RiverSeatV1, ()> for AppState {
         use crate::protocol::river_seat_v1::Event;
         match event {
             Event::PointerEnter { window } => {
+                state.unhide_cursor();
                 if let Some(seat) = state.seats.get_mut(&proxy.id()) {
                     seat.hovered = Some(window.clone());
                     if state.focus_follows_cursor != crate::wm::FocusFollowsCursor::Disabled {
@@ -319,6 +328,7 @@ impl Dispatch<RiverSeatV1, ()> for AppState {
                 state.manage_dirty();
             }
             Event::OpDelta { dx, dy } => {
+                state.unhide_cursor();
                 if let Some(seat) = state.seats.get_mut(&proxy.id()) {
                     seat.op_dx = dx;
                     seat.op_dy = dy;
@@ -330,6 +340,7 @@ impl Dispatch<RiverSeatV1, ()> for AppState {
                 }
             }
             Event::PointerPosition { x, y } => {
+                state.unhide_cursor();
                 state.pointer = (x, y);
             }
             Event::WlSeat { name } => {

@@ -29,7 +29,6 @@ use crate::tag::TagState;
 use crate::wm::binds::{ActiveKeyBinding, PendingKeyBinding};
 use crate::wm::seat::{PointerAction, SeatItem, SeatOp};
 
-pub const DEFAULT_FALLBACK_AREA: Rect = Rect::new(0, 30, 1280, 770);
 pub const MIN_WINDOW_DIMENSION: u32 = 100;
 
 pub fn hex_to_river_rgba(hex_str: &str) -> (u32, u32, u32, u32) {
@@ -196,6 +195,10 @@ pub struct AppState {
     pub cursor_warp: crate::wm::seat::CursorWarp,
     pub focus_follows_cursor: crate::wm::seat::FocusFollowsCursor,
     pub spawn_tagmask: TagMask,
+    pub cursor_hide_timeout: u64,
+    pub cursor_hide_when_typing: bool,
+    pub cursor_hidden: bool,
+    pub last_pointer_activity: std::time::Instant,
 
     pub anim: AnimationController,
     pub tag_slide_dir: Option<crate::animation::SlideDirection>,
@@ -242,6 +245,10 @@ impl AppState {
             cursor_warp: crate::wm::seat::CursorWarp::default(),
             focus_follows_cursor: crate::wm::seat::FocusFollowsCursor::default(),
             spawn_tagmask: u32::MAX,
+            cursor_hide_timeout: 0,
+            cursor_hide_when_typing: false,
+            cursor_hidden: false,
+            last_pointer_activity: std::time::Instant::now(),
             anim: AnimationController::default(),
             tag_slide_dir: None,
             tag_anim_old_mask: TAG_NONE,
@@ -254,6 +261,36 @@ impl AppState {
     pub fn manage_dirty(&self) {
         if let Some(wm) = &self.river_wm {
             wm.manage_dirty();
+        }
+    }
+
+    /// Hides the cursor across all seats if not already hidden.
+    pub fn hide_cursor(&mut self) {
+        if self.cursor_hidden {
+            return;
+        }
+        self.cursor_hidden = true;
+        for seat in self.seats.values_mut() {
+            if let Some(ref pointer) = seat.wl_pointer {
+                pointer.set_cursor(0, None, 0, 0);
+            }
+        }
+    }
+
+    /// Unhides and restores the default cursor across all seats if hidden.
+    pub fn unhide_cursor(&mut self) {
+        self.last_pointer_activity = std::time::Instant::now();
+        if !self.cursor_hidden {
+            return;
+        }
+        self.cursor_hidden = false;
+        for seat in self.seats.values_mut() {
+            if let Some(ref dev) = seat.cursor_shape_device {
+                dev.set_shape(
+                    0,
+                    crate::protocol::wp_cursor_shape_device_v1::Shape::Default,
+                );
+            }
         }
     }
 
@@ -709,19 +746,22 @@ impl AppState {
         }
 
         // 3. Arrange windows for each output
-        let default_area = DEFAULT_FALLBACK_AREA;
+        if self.outputs.is_empty() {
+            self.sync_occupied_tags();
+            self.broadcast_status();
+            _proxy.manage_finish();
+            return;
+        }
+
         let layout_engine = MasterStackLayout;
         let tag_state = self.tag_state;
         let mut any_geo_changed = false;
 
-        let active_outputs: Vec<(ObjectId, Rect)> = if self.outputs.is_empty() {
-            vec![(ObjectId::null(), default_area)]
-        } else {
-            self.outputs
-                .iter()
-                .map(|(id, o)| (id.clone(), o.usable_area))
-                .collect()
-        };
+        let active_outputs: Vec<(ObjectId, Rect)> = self
+            .outputs
+            .iter()
+            .map(|(id, o)| (id.clone(), o.usable_area))
+            .collect();
 
         for (out_id, usable_area) in active_outputs {
             let mut tiled_indices: Vec<usize> = Vec::new();
@@ -839,7 +879,7 @@ impl AppState {
             .get_focused_output_id()
             .and_then(|id| self.outputs.get(&id))
             .map(|o| o.usable_area)
-            .unwrap_or(default_area);
+            .unwrap_or_else(|| self.outputs.values().next().unwrap().usable_area);
 
         // 4. Interactive pointer operations (Move / Resize)
         for seat in self.seats.values_mut() {
@@ -1043,8 +1083,11 @@ impl AppState {
     }
 
     pub fn handle_render_start(&mut self, _proxy: &RiverWindowManagerV1) {
+        if self.outputs.is_empty() {
+            _proxy.render_finish();
+            return;
+        }
         let border_width = self.border_width as i32;
-        let default_usable_area = DEFAULT_FALLBACK_AREA;
 
         let is_animating = self.anim.is_animating();
         let progress = self.anim.progress();
@@ -1061,8 +1104,10 @@ impl AppState {
                 .as_ref()
                 .and_then(|id| self.outputs.get(id))
                 .map(|o| o.usable_area)
-                .or_else(|| self.outputs.values().next().map(|o| o.usable_area))
-                .unwrap_or(default_usable_area);
+                .or_else(|| self.outputs.values().next().map(|o| o.usable_area));
+            let Some(usable_area) = usable_area else {
+                continue;
+            };
 
             let slide_offset = if let Some(dir) = self.tag_slide_dir {
                 match dir {

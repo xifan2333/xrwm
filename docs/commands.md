@@ -138,8 +138,11 @@ xrwm main-count -1
 xrwm main-location left
 xrwm main-location top
 
-# 设置窗口间隙内外边距（像素，默认 4px，100% 对齐 rivertile 原名）
+# 设置窗口内部间隙（像素，默认 4px，100% 对齐 rivertile 原名）
 xrwm view-padding 8
+
+# 设置窗口群与屏幕外边缘之间的留白外边距（像素，默认 4px，100% 对齐 rivertile 原名）
+xrwm outer-padding 4
 
 # 设置新创建窗口的排版插入策略（默认 top，100% 对齐 riverctl 原名）
 # - top: 插入为主窗口（Master 顶端）
@@ -193,6 +196,13 @@ xrwm set-cursor-warp disabled
 # - always: 无论指针是否移动跨界，指针下的窗口始终聚焦
 xrwm focus-follows-cursor normal
 xrwm focus-follows-cursor disabled
+
+# 设置鼠标光标自动隐藏策略（100% 对齐 riverctl 原名）
+# - timeout <ms>: 鼠标静止超时隐藏（0 表示禁用）
+# - when-typing <enabled|disabled>: 键盘打字时是否自动隐去光标
+xrwm hide-cursor timeout 3000
+xrwm hide-cursor when-typing enabled
+xrwm hide-cursor when-typing disabled
 
 # 绑定鼠标按键操作（按键名为标准 libinput 事件名，如 BTN_LEFT / BTN_RIGHT / BTN_MIDDLE）
 xrwm map-pointer normal Super BTN_LEFT move-view

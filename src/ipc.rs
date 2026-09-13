@@ -30,6 +30,7 @@ pub enum IpcCommand {
     SendToPreviousTags,
     SpawnTagmask(u32),
     ViewPadding(u32),
+    OuterPadding(u32),
     BorderWidth(u32),
     BorderColorFocused(String),
     BorderColorUnfocused(String),
@@ -41,6 +42,8 @@ pub enum IpcCommand {
     DefaultAttachMode(crate::wm::AttachMode),
     SetCursorWarp(crate::wm::CursorWarp),
     FocusFollowsCursor(crate::wm::FocusFollowsCursor),
+    HideCursorTimeout(u64),
+    HideCursorWhenTyping(bool),
     DeclareMode(String),
     EnterMode(String),
     MoveWindow {
@@ -301,6 +304,33 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
             let mode = crate::wm::FocusFollowsCursor::parse(raw)?;
             Ok(IpcCommand::FocusFollowsCursor(mode))
         }
+        "hide-cursor" => {
+            let sub = args
+                .get(1)
+                .ok_or("Missing subcommand: timeout|when-typing")?;
+            match sub.as_str() {
+                "timeout" => {
+                    let ms = args
+                        .get(2)
+                        .ok_or("Missing timeout in ms")?
+                        .parse::<u64>()
+                        .map_err(|_| "Timeout must be an integer in milliseconds")?;
+                    Ok(IpcCommand::HideCursorTimeout(ms))
+                }
+                "when-typing" => {
+                    let val = args.get(2).ok_or("Missing value: enabled|disabled")?;
+                    let enabled = match val.to_ascii_lowercase().as_str() {
+                        "enabled" | "true" | "on" | "1" => true,
+                        "disabled" | "false" | "off" | "0" => false,
+                        _ => return Err("Invalid value, use enabled|disabled".to_string()),
+                    };
+                    Ok(IpcCommand::HideCursorWhenTyping(enabled))
+                }
+                other => Err(format!(
+                    "Unknown hide-cursor subcommand: {other}, expected timeout|when-typing"
+                )),
+            }
+        }
         "view-padding" => {
             let gaps = args
                 .get(1)
@@ -308,6 +338,14 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
                 .parse::<u32>()
                 .map_err(|_| "view-padding must be a positive integer")?;
             Ok(IpcCommand::ViewPadding(gaps))
+        }
+        "outer-padding" => {
+            let padding = args
+                .get(1)
+                .ok_or("Missing outer-padding value")?
+                .parse::<u32>()
+                .map_err(|_| "outer-padding must be a positive integer")?;
+            Ok(IpcCommand::OuterPadding(padding))
         }
         "border-width" => {
             let width = args
@@ -618,6 +656,24 @@ mod tests {
         );
 
         assert_eq!(
+            parse_cli_args(&["hide-cursor".into(), "timeout".into(), "3000".into()]).unwrap(),
+            IpcCommand::HideCursorTimeout(3000)
+        );
+        assert_eq!(
+            parse_cli_args(&["hide-cursor".into(), "when-typing".into(), "enabled".into()])
+                .unwrap(),
+            IpcCommand::HideCursorWhenTyping(true)
+        );
+        assert_eq!(
+            parse_cli_args(&[
+                "hide-cursor".into(),
+                "when-typing".into(),
+                "disabled".into()
+            ])
+            .unwrap(),
+            IpcCommand::HideCursorWhenTyping(false)
+        );
+        assert_eq!(
             parse_cli_args(&["spawn-tagmask".into(), "511".into()]).unwrap(),
             IpcCommand::SpawnTagmask(511)
         );
@@ -626,6 +682,11 @@ mod tests {
         assert_eq!(
             parse_cli_args(&gaps_args).unwrap(),
             IpcCommand::ViewPadding(8)
+        );
+        let op_args = vec!["outer-padding".into(), "12".into()];
+        assert_eq!(
+            parse_cli_args(&op_args).unwrap(),
+            IpcCommand::OuterPadding(12)
         );
 
         assert_eq!(

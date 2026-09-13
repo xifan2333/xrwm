@@ -33,7 +33,8 @@ pub struct LayoutConfig {
     pub stack_split_ratio: f32,
     pub main_count: u32,
     pub main_location: MainLocation,
-    pub gaps: u32,
+    pub view_padding: u32,
+    pub outer_padding: u32,
     pub monocle: bool,
 }
 
@@ -44,7 +45,8 @@ impl Default for LayoutConfig {
             stack_split_ratio: 0.5,
             main_count: 1,
             main_location: MainLocation::Left,
-            gaps: 4,
+            view_padding: 4,
+            outer_padding: 4,
             monocle: false,
         }
     }
@@ -73,64 +75,65 @@ impl Layout for MasterStackLayout {
             return vec![usable_area];
         }
 
-        let gaps = config.gaps as i32;
+        let vp = config.view_padding as i32;
+        let op = config.outer_padding as i32;
 
-        // Single window with gaps enabled
+        // Single window with outer padding
         if count == 1 {
-            let w = (usable_area.width as i32 - 2 * gaps).max(1) as u32;
-            let h = (usable_area.height as i32 - 2 * gaps).max(1) as u32;
-            return vec![Rect::new(usable_area.x + gaps, usable_area.y + gaps, w, h)];
+            let w = (usable_area.width as i32 - 2 * op).max(1) as u32;
+            let h = (usable_area.height as i32 - 2 * op).max(1) as u32;
+            return vec![Rect::new(usable_area.x + op, usable_area.y + op, w, h)];
         }
 
         let mut rects = Vec::with_capacity(count);
         let main_count = (config.main_count as usize).clamp(1, count);
         let has_stack = count > main_count;
 
-        let total_w = usable_area.width as i32;
-        let total_h = usable_area.height as i32;
+        let inner_x = usable_area.x + op;
+        let inner_y = usable_area.y + op;
+        let inner_w = (usable_area.width as i32 - 2 * op).max(1);
+        let inner_h = (usable_area.height as i32 - 2 * op).max(1);
 
         match config.main_location {
             MainLocation::Left | MainLocation::Right => {
                 let (main_w, stack_w) = if has_stack {
-                    let mw = ((total_w as f32) * config.split_ratio) as i32;
-                    let sw = total_w - mw;
-                    (mw, sw)
+                    let total_available = inner_w - vp;
+                    let mw = ((total_available as f32) * config.split_ratio).round() as i32;
+                    let sw = total_available - mw;
+                    (mw.max(1), sw.max(1))
                 } else {
-                    (total_w, 0)
+                    (inner_w, 0)
                 };
 
                 let (master_start_x, stack_start_x) = if config.main_location == MainLocation::Left
                 {
-                    (usable_area.x + gaps, usable_area.x + main_w + gaps / 2)
+                    (inner_x, inner_x + main_w + vp)
                 } else {
-                    (usable_area.x + stack_w + gaps / 2, usable_area.x + gaps)
+                    (inner_x + stack_w + vp, inner_x)
                 };
 
                 // Arrange Master column
-                let main_h_step = (total_h - gaps * (main_count as i32 + 1)) / (main_count as i32);
+                let main_total_h = inner_h - vp * (main_count as i32 - 1);
+                let main_h_step = main_total_h / (main_count as i32);
+                let mut curr_y = inner_y;
                 for i in 0..main_count {
-                    let x = master_start_x;
-                    let y = usable_area.y + gaps + i as i32 * (main_h_step + gaps);
-                    let w =
-                        (main_w - if has_stack { gaps / 2 + gaps } else { 2 * gaps }).max(1) as u32;
-                    let h = main_h_step.max(1) as u32;
-                    rects.push(Rect::new(x, y, w, h));
+                    let h = if i == main_count - 1 {
+                        (inner_y + inner_h - curr_y).max(1) as u32
+                    } else {
+                        main_h_step.max(1) as u32
+                    };
+                    rects.push(Rect::new(master_start_x, curr_y, main_w as u32, h));
+                    curr_y += h as i32 + vp;
                 }
 
                 // Arrange Stack column
                 if has_stack {
                     let stack_count = count - main_count;
-                    let stack_w_win = (stack_w - gaps - gaps / 2).max(1) as u32;
-                    let total_stack_h = total_h - gaps * (stack_count as i32 + 1);
+                    let total_stack_h = inner_h - vp * (stack_count as i32 - 1);
 
                     if stack_count == 1 {
                         let h = total_stack_h.max(1) as u32;
-                        rects.push(Rect::new(
-                            stack_start_x,
-                            usable_area.y + gaps,
-                            stack_w_win,
-                            h,
-                        ));
+                        rects.push(Rect::new(stack_start_x, inner_y, stack_w as u32, h));
                     } else {
                         let rem_count = (stack_count - 1) as i32;
                         let first_h = ((total_stack_h as f32)
@@ -141,67 +144,65 @@ impl Layout for MasterStackLayout {
 
                         rects.push(Rect::new(
                             stack_start_x,
-                            usable_area.y + gaps,
-                            stack_w_win,
+                            inner_y,
+                            stack_w as u32,
                             first_h as u32,
                         ));
 
                         let rem_total_h = total_stack_h - first_h;
                         let rem_step = rem_total_h / rem_count;
-                        let mut curr_y = usable_area.y + gaps + first_h + gaps;
+                        let mut curr_y = inner_y + first_h + vp;
 
                         for i in 1..stack_count {
                             let h = if i == stack_count - 1 {
-                                (usable_area.y + total_h - gaps - curr_y).max(1) as u32
+                                (inner_y + inner_h - curr_y).max(1) as u32
                             } else {
                                 rem_step.max(1) as u32
                             };
-                            rects.push(Rect::new(stack_start_x, curr_y, stack_w_win, h));
-                            curr_y += h as i32 + gaps;
+                            rects.push(Rect::new(stack_start_x, curr_y, stack_w as u32, h));
+                            curr_y += h as i32 + vp;
                         }
                     }
                 }
             }
             MainLocation::Top | MainLocation::Bottom => {
                 let (main_h, stack_h) = if has_stack {
-                    let mh = ((total_h as f32) * config.split_ratio) as i32;
-                    let sh = total_h - mh;
-                    (mh, sh)
+                    let total_available = inner_h - vp;
+                    let mh = ((total_available as f32) * config.split_ratio).round() as i32;
+                    let sh = total_available - mh;
+                    (mh.max(1), sh.max(1))
                 } else {
-                    (total_h, 0)
+                    (inner_h, 0)
                 };
 
                 let (master_start_y, stack_start_y) = if config.main_location == MainLocation::Top {
-                    (usable_area.y + gaps, usable_area.y + main_h + gaps / 2)
+                    (inner_y, inner_y + main_h + vp)
                 } else {
-                    (usable_area.y + stack_h + gaps / 2, usable_area.y + gaps)
+                    (inner_y + stack_h + vp, inner_y)
                 };
 
                 // Arrange Master row
-                let main_w_step = (total_w - gaps * (main_count as i32 + 1)) / (main_count as i32);
+                let main_total_w = inner_w - vp * (main_count as i32 - 1);
+                let main_w_step = main_total_w / (main_count as i32);
+                let mut curr_x = inner_x;
                 for i in 0..main_count {
-                    let x = usable_area.x + gaps + i as i32 * (main_w_step + gaps);
-                    let y = master_start_y;
-                    let w = main_w_step.max(1) as u32;
-                    let h =
-                        (main_h - if has_stack { gaps / 2 + gaps } else { 2 * gaps }).max(1) as u32;
-                    rects.push(Rect::new(x, y, w, h));
+                    let w = if i == main_count - 1 {
+                        (inner_x + inner_w - curr_x).max(1) as u32
+                    } else {
+                        main_w_step.max(1) as u32
+                    };
+                    rects.push(Rect::new(curr_x, master_start_y, w, main_h as u32));
+                    curr_x += w as i32 + vp;
                 }
 
                 // Arrange Stack row
                 if has_stack {
                     let stack_count = count - main_count;
-                    let stack_h_win = (stack_h - gaps - gaps / 2).max(1) as u32;
-                    let total_stack_w = total_w - gaps * (stack_count as i32 + 1);
+                    let total_stack_w = inner_w - vp * (stack_count as i32 - 1);
 
                     if stack_count == 1 {
                         let w = total_stack_w.max(1) as u32;
-                        rects.push(Rect::new(
-                            usable_area.x + gaps,
-                            stack_start_y,
-                            w,
-                            stack_h_win,
-                        ));
+                        rects.push(Rect::new(inner_x, stack_start_y, w, stack_h as u32));
                     } else {
                         let rem_count = (stack_count - 1) as i32;
                         let first_w = ((total_stack_w as f32)
@@ -211,24 +212,24 @@ impl Layout for MasterStackLayout {
                         let first_w = first_w.clamp(1, max_first_w);
 
                         rects.push(Rect::new(
-                            usable_area.x + gaps,
+                            inner_x,
                             stack_start_y,
                             first_w as u32,
-                            stack_h_win,
+                            stack_h as u32,
                         ));
 
                         let rem_total_w = total_stack_w - first_w;
                         let rem_step = rem_total_w / rem_count;
-                        let mut curr_x = usable_area.x + gaps + first_w + gaps;
+                        let mut curr_x = inner_x + first_w + vp;
 
                         for i in 1..stack_count {
                             let w = if i == stack_count - 1 {
-                                (usable_area.x + total_w - gaps - curr_x).max(1) as u32
+                                (inner_x + inner_w - curr_x).max(1) as u32
                             } else {
                                 rem_step.max(1) as u32
                             };
-                            rects.push(Rect::new(curr_x, stack_start_y, w, stack_h_win));
-                            curr_x += w as i32 + gaps;
+                            rects.push(Rect::new(curr_x, stack_start_y, w, stack_h as u32));
+                            curr_x += w as i32 + vp;
                         }
                     }
                 }
@@ -254,11 +255,15 @@ mod tests {
     #[test]
     fn test_single_window_gaps() {
         let layout = MasterStackLayout;
-        let config = LayoutConfig::default(); // gaps is 4
+        let config = LayoutConfig {
+            outer_padding: 6,
+            view_padding: 4,
+            ..Default::default()
+        };
         let area = Rect::new(0, 0, 1920, 1080);
         let rects = layout.arrange(area, 1, &config);
         assert_eq!(rects.len(), 1);
-        assert_eq!(rects[0], Rect::new(4, 4, 1912, 1072));
+        assert_eq!(rects[0], Rect::new(6, 6, 1908, 1068));
     }
 
     #[test]
@@ -277,7 +282,8 @@ mod tests {
     fn test_master_stack_tiling() {
         let layout = MasterStackLayout;
         let config = LayoutConfig {
-            gaps: 0,
+            view_padding: 0,
+            outer_padding: 0,
             split_ratio: 0.5,
             ..Default::default()
         };
@@ -303,7 +309,8 @@ mod tests {
 
         // Right
         let config_right = LayoutConfig {
-            gaps: 0,
+            view_padding: 0,
+            outer_padding: 0,
             split_ratio: 0.5,
             main_location: MainLocation::Right,
             ..Default::default()
@@ -316,7 +323,8 @@ mod tests {
 
         // Top
         let config_top = LayoutConfig {
-            gaps: 0,
+            view_padding: 0,
+            outer_padding: 0,
             split_ratio: 0.5,
             main_location: MainLocation::Top,
             ..Default::default()
@@ -338,7 +346,8 @@ mod tests {
         // 3 windows: 1 master (split 0.5 -> 500px), 2 stack windows
         // default stack_split_ratio is 0.5 -> 500px each in height
         let config_default = LayoutConfig {
-            gaps: 0,
+            view_padding: 0,
+            outer_padding: 0,
             split_ratio: 0.5,
             stack_split_ratio: 0.5,
             ..Default::default()
@@ -354,7 +363,8 @@ mod tests {
 
         // Adjusted stack_split_ratio = 0.7 (70% top, 30% bottom)
         let config_70 = LayoutConfig {
-            gaps: 0,
+            view_padding: 0,
+            outer_padding: 0,
             split_ratio: 0.5,
             stack_split_ratio: 0.7,
             ..Default::default()
@@ -367,7 +377,8 @@ mod tests {
 
         // Adjusted stack_split_ratio = 0.3 (30% top, 70% bottom)
         let config_30 = LayoutConfig {
-            gaps: 0,
+            view_padding: 0,
+            outer_padding: 0,
             split_ratio: 0.5,
             stack_split_ratio: 0.3,
             ..Default::default()
@@ -386,7 +397,8 @@ mod tests {
 
         // Top main location, 3 windows: 1 master on top (height 500), 2 stack windows on bottom
         let config = LayoutConfig {
-            gaps: 0,
+            view_padding: 0,
+            outer_padding: 0,
             split_ratio: 0.5,
             stack_split_ratio: 0.6,
             main_location: MainLocation::Top,
@@ -407,7 +419,8 @@ mod tests {
         let layout = MasterStackLayout;
         let area = Rect::new(0, 0, 1000, 1000);
         let config = LayoutConfig {
-            gaps: 10,
+            view_padding: 10,
+            outer_padding: 10,
             split_ratio: 0.5,
             stack_split_ratio: 0.5,
             ..Default::default()
@@ -416,11 +429,31 @@ mod tests {
         assert_eq!(rects.len(), 3);
         // Master window on left
         assert_eq!(rects[0].x, 10);
-        // Stack windows on right: total height 1000 - 10 * 3 = 970 -> 485 each
+        // Stack windows on right: total height 1000 - 20 - 10 = 970 -> 485 each
         assert_eq!(rects[1].height, 485);
         assert_eq!(rects[2].height, 485);
         assert_eq!(rects[1].y, 10);
         assert_eq!(rects[2].y, 10 + 485 + 10);
+    }
+
+    #[test]
+    fn test_distinct_outer_and_view_padding() {
+        let layout = MasterStackLayout;
+        let config = LayoutConfig {
+            outer_padding: 10,
+            view_padding: 4,
+            split_ratio: 0.5,
+            ..Default::default()
+        };
+        let area = Rect::new(0, 0, 1000, 1000);
+        // Total available width: 1000 - 2 * 10 = 980
+        // Less view_padding between columns: 980 - 4 = 976 -> 488 each
+        let rects = layout.arrange(area, 2, &config);
+        assert_eq!(rects.len(), 2);
+        // Master on left
+        assert_eq!(rects[0], Rect::new(10, 10, 488, 980));
+        // Stack on right
+        assert_eq!(rects[1], Rect::new(10 + 488 + 4, 10, 488, 980));
     }
 
     #[test]
@@ -429,7 +462,8 @@ mod tests {
         let area = Rect::new(0, 0, 1000, 1000);
         // 4 windows: 1 master, 3 stack windows. First stack window gets 0.4 of total stack height (1000px -> 400px), remaining 2 share 600px -> 300px each
         let config = LayoutConfig {
-            gaps: 0,
+            view_padding: 0,
+            outer_padding: 0,
             split_ratio: 0.5,
             stack_split_ratio: 0.4,
             ..Default::default()

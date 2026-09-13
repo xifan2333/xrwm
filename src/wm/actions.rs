@@ -185,15 +185,16 @@ impl AppState {
             }
         };
 
-        let default_usable_area = crate::wm::DEFAULT_FALLBACK_AREA;
-
         if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
             let usable = w
                 .output
                 .as_ref()
                 .and_then(|out_id| self.outputs.get(out_id))
                 .map(|o| o.usable_area)
-                .unwrap_or(default_usable_area);
+                .or_else(|| self.outputs.values().next().map(|o| o.usable_area));
+            let Some(usable) = usable else {
+                return Err("window has no active output".to_string());
+            };
 
             w.floating = true;
 
@@ -599,9 +600,16 @@ impl AppState {
 
     /// Sets the padding around views in pixels (gaps).
     pub fn set_view_padding(&mut self, padding: u32) -> Result<String, String> {
-        self.layout_config.gaps = padding;
+        self.layout_config.view_padding = padding;
         self.manage_dirty();
         Ok(format!("view padding set to {padding}px"))
+    }
+
+    /// Sets the padding around the outer perimeter of the layout area.
+    pub fn set_outer_padding(&mut self, padding: u32) -> Result<String, String> {
+        self.layout_config.outer_padding = padding;
+        self.manage_dirty();
+        Ok(format!("outer padding set to {padding}px"))
     }
 
     /// Sets the attach mode for newly spawned windows.
@@ -623,6 +631,18 @@ impl AppState {
     ) -> Result<String, String> {
         self.focus_follows_cursor = mode;
         Ok(format!("focus-follows-cursor set to {:?}", mode).to_lowercase())
+    }
+
+    /// Sets cursor hide timeout in milliseconds.
+    pub fn set_hide_cursor_timeout(&mut self, timeout: u64) -> Result<String, String> {
+        self.cursor_hide_timeout = timeout;
+        Ok(format!("hide cursor timeout set to {timeout}ms"))
+    }
+
+    /// Sets whether cursor is hidden when typing.
+    pub fn set_hide_cursor_when_typing(&mut self, enabled: bool) -> Result<String, String> {
+        self.cursor_hide_when_typing = enabled;
+        Ok(format!("hide cursor when typing set to {enabled}"))
     }
 
     /// Toggles the focused tags mask on the WM.
@@ -1071,7 +1091,10 @@ impl AppState {
             IpcCommand::DefaultAttachMode(mode) => self.set_attach_mode(*mode),
             IpcCommand::SetCursorWarp(mode) => self.set_cursor_warp(*mode),
             IpcCommand::FocusFollowsCursor(mode) => self.set_focus_follows_cursor(*mode),
+            IpcCommand::HideCursorTimeout(ms) => self.set_hide_cursor_timeout(*ms),
+            IpcCommand::HideCursorWhenTyping(en) => self.set_hide_cursor_when_typing(*en),
             IpcCommand::ViewPadding(g) => self.set_view_padding(*g),
+            IpcCommand::OuterPadding(p) => self.set_outer_padding(*p),
             IpcCommand::BorderWidth(w) => {
                 self.border_width = *w;
                 self.manage_dirty();
@@ -1305,6 +1328,9 @@ impl AppState {
 
     /// Handles a keybinding press event triggered by river-xkb-bindings.
     pub fn handle_key_binding_pressed(&mut self, binding_id: &wayland_backend::client::ObjectId) {
+        if self.cursor_hide_when_typing {
+            self.hide_cursor();
+        }
         let action_opt = self.key_bindings.get(binding_id).map(|b| b.action.clone());
         let Some(action) = action_opt else {
             return;
@@ -1323,7 +1349,12 @@ mod tests {
         let cmd = IpcCommand::ViewPadding(8);
         let res = state.handle_ipc_command(&cmd);
         assert!(res.is_ok());
-        assert_eq!(state.layout_config.gaps, 8);
+        assert_eq!(state.layout_config.view_padding, 8);
+
+        let op_cmd = IpcCommand::OuterPadding(12);
+        let res_op = state.handle_ipc_command(&op_cmd);
+        assert!(res_op.is_ok());
+        assert_eq!(state.layout_config.outer_padding, 12);
     }
 
     #[test]
@@ -1577,7 +1608,9 @@ mod tests {
         state.execute_action_tokens(&["stack-ratio".into(), "+0.10".into()]);
         assert!((state.layout_config.stack_split_ratio - 0.70).abs() < 1e-4);
         state.execute_action_tokens(&["view-padding".into(), "12".into()]);
-        assert_eq!(state.layout_config.gaps, 12);
+        assert_eq!(state.layout_config.view_padding, 12);
+        state.execute_action_tokens(&["outer-padding".into(), "16".into()]);
+        assert_eq!(state.layout_config.outer_padding, 16);
 
         // Attach mode test
         state.execute_action_tokens(&["default-attach-mode".into(), "bottom".into()]);
@@ -1601,6 +1634,22 @@ mod tests {
             state.focus_follows_cursor,
             crate::wm::FocusFollowsCursor::Always
         );
+
+        // Hide cursor tests
+        state.execute_action_tokens(&["hide-cursor".into(), "timeout".into(), "3000".into()]);
+        assert_eq!(state.cursor_hide_timeout, 3000);
+        state.execute_action_tokens(&[
+            "hide-cursor".into(),
+            "when-typing".into(),
+            "enabled".into(),
+        ]);
+        assert!(state.cursor_hide_when_typing);
+        state.execute_action_tokens(&[
+            "hide-cursor".into(),
+            "when-typing".into(),
+            "disabled".into(),
+        ]);
+        assert!(!state.cursor_hide_when_typing);
 
         // Relative count adjustment
         assert_eq!(state.layout_config.main_count, 1);
