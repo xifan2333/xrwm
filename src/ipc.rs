@@ -43,6 +43,10 @@ pub enum IpcCommand {
     FocusFollowsCursor(crate::wm::FocusFollowsCursor),
     DeclareMode(String),
     EnterMode(String),
+    MoveWindow {
+        direction: String,
+        delta: i32,
+    },
     ResizeWindow {
         horizontal: bool,
         delta: i32,
@@ -332,6 +336,18 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
         "enter-mode" => {
             let mode = args.get(1).ok_or("Missing mode name")?.clone();
             Ok(IpcCommand::EnterMode(mode))
+        }
+        "move" => {
+            let direction = args
+                .get(1)
+                .ok_or("Missing direction: left|right|up|down")?
+                .clone();
+            let delta = args
+                .get(2)
+                .ok_or("Missing delta pixels (e.g. 50, -50)")?
+                .parse::<i32>()
+                .map_err(|_| "Delta must be an integer (e.g. 50, -50)")?;
+            Ok(IpcCommand::MoveWindow { direction, delta })
         }
         "resize" => {
             let orientation = args
@@ -712,6 +728,13 @@ mod tests {
         assert_eq!(
             parse_cli_args(&["enter-mode".into(), "resize".into()]).unwrap(),
             IpcCommand::EnterMode("resize".into())
+        );
+        assert_eq!(
+            parse_cli_args(&["move".into(), "left".into(), "50".into()]).unwrap(),
+            IpcCommand::MoveWindow {
+                direction: "left".into(),
+                delta: 50,
+            }
         );
         assert_eq!(
             parse_cli_args(&["resize".into(), "horizontal".into(), "20".into()]).unwrap(),

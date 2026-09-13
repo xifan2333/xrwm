@@ -26,7 +26,7 @@ xrwm <command> [arguments...]
 # 优雅关闭当前聚焦窗口
 xrwm close
 
-# 将当前聚焦窗口提升为主窗口（Master 顶层）
+# 将当前聚焦窗口提升为主窗口（Master 顶层）；若当前已在主栏，则提升副栏顶层窗口（双向 Toggle 对切）
 xrwm zoom
 
 # 切换当前聚焦窗口的 悬浮/平铺 状态
@@ -61,6 +61,13 @@ xrwm snap left
 xrwm snap right
 xrwm snap up
 xrwm snap down
+
+# 键盘平移浮动窗口（像素）：
+# 方向参数支持：left | right | up | down
+xrwm move left 50
+xrwm move right 50
+xrwm move up 50
+xrwm move down 50
 
 # 调整窗口尺寸：
 # - 悬浮窗口：调整宽度/高度像素（+/-delta）
