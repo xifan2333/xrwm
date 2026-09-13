@@ -153,11 +153,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 drop(guard);
             }
 
-            // IPC commands
+            // IPC commands with bounded aggregate processing budget
             if fds[1].revents & libc::POLLIN != 0 {
-                while let Ok((mut stream, _)) = listener.accept() {
-                    let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(50)));
-                    let _ = stream.set_write_timeout(Some(std::time::Duration::from_millis(50)));
+                let ipc_deadline = std::time::Instant::now() + std::time::Duration::from_millis(15);
+                let mut processed = 0;
+                while processed < 8 && std::time::Instant::now() < ipc_deadline {
+                    let Ok((mut stream, _)) = listener.accept() else {
+                        break;
+                    };
+                    processed += 1;
+                    let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(5)));
+                    let _ = stream.set_write_timeout(Some(std::time::Duration::from_millis(5)));
                     let Ok(read_stream) = stream.try_clone() else {
                         continue;
                     };
