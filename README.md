@@ -12,10 +12,11 @@ It bridges the architectural separation of River 0.4 with the beloved **32-bit t
 - **`river-classic` Soul**:
   - 32-bit tag bitmask system: multi-tag focus, multi-tag window assignment, scratchpad tag 32.
   - Classic dynamic master-stack tiling (rivertile style) + monocle + floating.
-  - Infinite composability through shell-script CLI commands (`xrwm-ctl`).
+  - Infinite composability through shell-script CLI commands (`xrwm <command>`).
+  - Complete command reference in [`docs/commands.md`](docs/commands.md).
 - **Suckless Frugality**:
-  - Standalone, stripped binary (< 1 MB).
-  - Native Waybar JSON status stream (`xrwm --waybar`).
+  - Standalone, stripped binary (< 1.5 MB).
+  - Native Waybar JSON status stream (`xrwm status --format waybar`).
   - Zero runtime dependencies, zero background garbage collection.
 
 ---
