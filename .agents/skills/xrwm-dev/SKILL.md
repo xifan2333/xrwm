@@ -1,0 +1,34 @@
+---
+name: xrwm-dev
+description: >
+  REQUIRED for developing, testing, and maintaining the xrwm River 0.4 Wayland
+  window manager. Use whenever modifying Rust source code (src/*), editing
+  Cargo.toml, managing protocols (protocols/*), running quality checks
+  (mise run check:plan, check:changed, fix, build), or following the strict
+  Chronological Issue + Draft PR workflow (SOP).
+---
+
+# xrwm: Developer & Engineering Guide
+
+This skill governs the engineering standards, quality gates, and development workflows for contributing to `xrwm`.
+
+## Workflow (Issue + Draft PR)
+
+All changes MUST follow the strict chronological lifecycle:
+
+1. `gh issue view <id>` -> `git checkout -b <type>/issue-<id>-<name>` -> empty commit -> push -> `gh pr create --draft` (all tasks unchecked `- [ ]`).
+2. Single-Item Loop: Implement only one unchecked item -> run `mise run check:plan` and `mise run check:changed` -> local atomic commit.
+3. Finalize: push all commits -> check all PR tasks (`- [x]`) -> `gh pr ready` (awakens review bots: CodeRabbit & Greptile).
+4. Review-Fix Loop: Ingest CodeRabbit `Prompt for AI Agents` and Greptile alerts (all reported findings & architectural warnings) -> defensively verify & commit fixes -> verify `gh pr checks` -> squash merge.
+
+See [`references/issue-pr-workflow.md`](references/issue-pr-workflow.md) for full SOP.
+
+## Quality Gates
+
+```bash
+mise run check:plan     # preview linter execution plan
+mise run check:changed  # run rustfmt, clippy, taplo on modified files
+mise run fix            # auto-format with hk
+mise run build          # cargo build
+mise run test           # cargo test
+```

@@ -1,0 +1,40 @@
+amends "package://github.com/jdx/hk/releases/download/v2.0.0/hk@2.0.0#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v2.0.0/hk@2.0.0#/Builtins.pkl"
+
+min_hk_version = "2.0.0"
+
+fail_fast = false
+
+steps {
+  ["rustfmt"] = Builtins.rustfmt
+  ["clippy"] {
+    glob = List("*.rs")
+    check = "cargo clippy --all-targets -- -D warnings"
+  }
+
+  ["shellcheck"] = Builtins.shellcheck
+  ["shfmt"] = Builtins.shfmt
+
+  ["taplo"] = (Builtins.taplo) {
+    check = "taplo lint --no-schema {{files}}"
+  }
+  ["taplo_format"] = Builtins.taplo_format
+
+  ["prettier"] = (Builtins.prettier) {
+    glob = List("*.json", "*.jsonc", "*.yaml", "*.yml", "*.md")
+  }
+}
+
+hooks {
+  ["pre-commit"] {
+    fix = true
+    stash = "git"
+  }
+  ["commit-msg"] {
+    steps {
+      ["commitlint"] {
+        check = "commitlint --edit {{commit_msg_file}}"
+      }
+    }
+  }
+}

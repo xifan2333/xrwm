@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=xrwm
+Comment=River 0.4+ Wayland Window Manager
+Exec=river -c xrwm
+Type=Application
+DesktopNames=river
