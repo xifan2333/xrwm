@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -138,7 +139,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Dispatch channels workflow for Arch AUR
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.AUR_AUTO_PAT || secrets.GITHUB_TOKEN }}
         run: |
           gh workflow run channels.yml \
             --field ref="${{ needs.meta.outputs.tag }}" \
