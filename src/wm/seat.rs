@@ -70,7 +70,7 @@ impl PointerAction {
         match tokens[0].as_str() {
             "move-view" | "move" => Self::Move,
             "resize-view" | "resize" => Self::Resize,
-            "toggle-float" | "toggle-floating" => Self::Command(vec!["toggle-float".to_string()]),
+            "toggle-float" => Self::Command(vec!["toggle-float".to_string()]),
             _ => Self::Command(tokens.to_vec()),
         }
     }

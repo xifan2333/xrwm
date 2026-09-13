@@ -185,7 +185,7 @@ impl AppState {
             }
         };
 
-        let default_usable_area = crate::layout::Rect::new(0, 30, 1280, 770);
+        let default_usable_area = crate::wm::DEFAULT_FALLBACK_AREA;
 
         if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
             let usable = w
@@ -217,8 +217,8 @@ impl AppState {
 
             w.x = new_x;
             w.y = new_y;
-            w.width = new_w.max(100);
-            w.height = new_h.max(100);
+            w.width = new_w.max(crate::wm::MIN_WINDOW_DIMENSION);
+            w.height = new_h.max(crate::wm::MIN_WINDOW_DIMENSION);
             w.float_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
             w.visual_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
 
@@ -769,9 +769,11 @@ impl AppState {
         if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
             if w.floating {
                 if horizontal {
-                    w.width = (w.width as i32 + delta).max(100) as u32;
+                    w.width =
+                        (w.width as i32 + delta).max(crate::wm::MIN_WINDOW_DIMENSION as i32) as u32;
                 } else {
-                    w.height = (w.height as i32 + delta).max(100) as u32;
+                    w.height = (w.height as i32 + delta).max(crate::wm::MIN_WINDOW_DIMENSION as i32)
+                        as u32;
                 }
                 w.float_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
                 let new_w = w.width;

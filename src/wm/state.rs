@@ -29,6 +29,9 @@ use crate::tag::TagState;
 use crate::wm::binds::{ActiveKeyBinding, PendingKeyBinding};
 use crate::wm::seat::{PointerAction, SeatItem, SeatOp};
 
+pub const DEFAULT_FALLBACK_AREA: Rect = Rect::new(0, 30, 1280, 770);
+pub const MIN_WINDOW_DIMENSION: u32 = 100;
+
 pub fn hex_to_river_rgba(hex_str: &str) -> (u32, u32, u32, u32) {
     let h = hex_str
         .trim_start_matches("0x")
@@ -706,7 +709,7 @@ impl AppState {
         }
 
         // 3. Arrange windows for each output
-        let default_area = Rect::new(0, 30, 1280, 770);
+        let default_area = DEFAULT_FALLBACK_AREA;
         let layout_engine = MasterStackLayout;
         let tag_state = self.tag_state;
         let mut any_geo_changed = false;
@@ -871,16 +874,20 @@ impl AppState {
                         let mut new_y = *start_y;
 
                         if edges.contains(Edges::Right) {
-                            new_w = (*start_width as i32 + seat.op_dx).max(100);
+                            new_w =
+                                (*start_width as i32 + seat.op_dx).max(MIN_WINDOW_DIMENSION as i32);
                         } else if edges.contains(Edges::Left) {
-                            new_w = (*start_width as i32 - seat.op_dx).max(100);
+                            new_w =
+                                (*start_width as i32 - seat.op_dx).max(MIN_WINDOW_DIMENSION as i32);
                             new_x = *start_x + (*start_width as i32 - new_w);
                         }
 
                         if edges.contains(Edges::Bottom) {
-                            new_h = (*start_height as i32 + seat.op_dy).max(100);
+                            new_h = (*start_height as i32 + seat.op_dy)
+                                .max(MIN_WINDOW_DIMENSION as i32);
                         } else if edges.contains(Edges::Top) {
-                            new_h = (*start_height as i32 - seat.op_dy).max(100);
+                            new_h = (*start_height as i32 - seat.op_dy)
+                                .max(MIN_WINDOW_DIMENSION as i32);
                             new_y = *start_y + (*start_height as i32 - new_h);
                         }
 
@@ -1037,7 +1044,7 @@ impl AppState {
 
     pub fn handle_render_start(&mut self, _proxy: &RiverWindowManagerV1) {
         let border_width = self.border_width as i32;
-        let default_usable_area = Rect::new(0, 30, 1280, 770);
+        let default_usable_area = DEFAULT_FALLBACK_AREA;
 
         let is_animating = self.anim.is_animating();
         let progress = self.anim.progress();

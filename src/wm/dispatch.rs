@@ -141,7 +141,7 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                         proxy: id,
                         ls_output: ls_out,
                         removed: false,
-                        usable_area: Rect::new(0, 30, 1280, 770),
+                        usable_area: crate::wm::DEFAULT_FALLBACK_AREA,
                         x: 0,
                         y: 0,
                         width: 1280,

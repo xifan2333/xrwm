@@ -14,6 +14,8 @@ pub use seat::SeatItem;
 pub use seat::SeatOp;
 pub use state::AppState;
 pub use state::AttachMode;
+pub use state::DEFAULT_FALLBACK_AREA;
+pub use state::MIN_WINDOW_DIMENSION;
 pub use state::OutputItem;
 pub use state::WindowItem;
 pub use state::WindowRule;
