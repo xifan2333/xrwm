@@ -19,7 +19,7 @@ All changes MUST follow the strict chronological lifecycle:
 1. `gh issue view <id>` -> `git checkout -b <type>/issue-<id>-<name>` -> empty commit -> push -> `gh pr create --draft` (all tasks unchecked `- [ ]`).
 2. Single-Item Loop: Implement only one unchecked item -> run `mise run check:plan` and `mise run check:changed` -> local atomic commit.
 3. Finalize: push all commits -> check all PR tasks (`- [x]`) -> `gh pr ready` (awakens review bots: CodeRabbit & Greptile).
-4. Review-Fix Loop: Ingest CodeRabbit `Prompt for AI Agents` and Greptile architectural alerts -> defensively verify & commit fixes -> verify `gh pr checks` -> squash merge.
+4. Review-Fix Loop: Ingest CodeRabbit `Prompt for AI Agents` and Greptile alerts (all reported findings & architectural warnings) -> defensively verify & commit fixes -> verify `gh pr checks` -> squash merge.
 
 See [`references/issue-pr-workflow.md`](references/issue-pr-workflow.md) for full SOP.
 
