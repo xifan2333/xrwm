@@ -185,7 +185,7 @@ impl AppState {
             }
         };
 
-        let default_usable_area = crate::layout::Rect::new(0, 30, 1280, 770);
+        let default_usable_area = crate::wm::DEFAULT_FALLBACK_AREA;
 
         if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
             let usable = w
@@ -217,8 +217,8 @@ impl AppState {
 
             w.x = new_x;
             w.y = new_y;
-            w.width = new_w.max(100);
-            w.height = new_h.max(100);
+            w.width = new_w.max(crate::wm::MIN_WINDOW_DIMENSION);
+            w.height = new_h.max(crate::wm::MIN_WINDOW_DIMENSION);
             w.float_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
             w.visual_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
 
@@ -440,8 +440,8 @@ impl AppState {
                 }
                 _ => (out.x + out.width as i32 / 2, out.y + out.height as i32 / 2),
             };
-            for seat in self.seats.values() {
-                seat.proxy.pointer_warp(cx, cy);
+            for seat in self.seats.values_mut() {
+                seat.pending_warp = Some((cx, cy));
             }
         }
 
@@ -506,7 +506,7 @@ impl AppState {
             for seat in self.seats.values_mut() {
                 seat.focused = Some(proxy.clone());
                 if self.cursor_warp == crate::wm::CursorWarp::OnFocusChange {
-                    seat.proxy.pointer_warp(cx, cy);
+                    seat.pending_warp = Some((cx, cy));
                 }
             }
             if let Some(out) = out_id {
@@ -769,9 +769,11 @@ impl AppState {
         if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
             if w.floating {
                 if horizontal {
-                    w.width = (w.width as i32 + delta).max(100) as u32;
+                    w.width =
+                        (w.width as i32 + delta).max(crate::wm::MIN_WINDOW_DIMENSION as i32) as u32;
                 } else {
-                    w.height = (w.height as i32 + delta).max(100) as u32;
+                    w.height = (w.height as i32 + delta).max(crate::wm::MIN_WINDOW_DIMENSION as i32)
+                        as u32;
                 }
                 w.float_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
                 let new_w = w.width;
@@ -1279,250 +1281,24 @@ impl AppState {
             return;
         }
 
-        match action[0].as_str() {
-            "spawn" => {
-                if action.len() > 1 {
-                    let cmd = &action[1];
-                    let args = &action[2..];
-                    tracing::info!("Binding spawn: {cmd} {args:?}");
-                    let _ = std::process::Command::new(cmd).args(args).spawn();
+        if action[0] == "spawn" {
+            if action.len() > 1 {
+                let cmd = &action[1];
+                let args = &action[2..];
+                tracing::info!("Binding spawn: {cmd} {args:?}");
+                let _ = std::process::Command::new(cmd).args(args).spawn();
+            }
+            return;
+        }
+
+        match crate::ipc::parse_cli_args(action) {
+            Ok(cmd) => {
+                if let Err(e) = self.handle_ipc_command(&cmd) {
+                    tracing::warn!("Action execution error for {action:?}: {e}");
                 }
             }
-            "close" => {
-                let _ = self.close_focused();
-            }
-            "toggle-float" | "toggle-floating" => {
-                tracing::info!("Binding toggle-float pressed");
-                let _ = self.toggle_float_focused();
-            }
-            "toggle-fullscreen" | "fullscreen" => {
-                tracing::info!("Binding toggle-fullscreen pressed");
-                let _ = self.toggle_fullscreen_focused();
-            }
-            "focus-previous-tags" => {
-                let _ = self.focus_previous_tags();
-            }
-            "send-to-previous-tags" => {
-                let _ = self.send_to_previous_tags();
-            }
-            "declare-mode" => {
-                if action.len() > 1 {
-                    let _ = self.declare_mode(&action[1]);
-                }
-            }
-            "enter-mode" => {
-                if action.len() > 1 {
-                    let _ = self.enter_mode(&action[1]);
-                }
-            }
-            "resize" => {
-                let horizontal = if action.len() > 1 {
-                    !matches!(action[1].as_str(), "vertical" | "v" | "height")
-                } else {
-                    true
-                };
-                let delta = if action.len() > 2 {
-                    action[2].parse::<i32>().unwrap_or(20)
-                } else {
-                    20
-                };
-                let _ = self.resize_window(horizontal, delta);
-            }
-            "move" => {
-                let dir = action.get(1).map(|s| s.as_str()).unwrap_or("left");
-                let delta = action
-                    .get(2)
-                    .and_then(|s| s.parse::<i32>().ok())
-                    .unwrap_or(50);
-                let _ = self.move_window(dir, delta);
-            }
-            "main-ratio" => {
-                if action.len() > 1 {
-                    let _ = self.set_main_ratio_arg(&action[1]);
-                }
-            }
-            "stack-ratio" => {
-                if action.len() > 1 {
-                    let _ = self.set_stack_ratio_arg(&action[1]);
-                }
-            }
-            "main-count" => {
-                if action.len() > 1 {
-                    let _ = self.set_main_count_arg(&action[1]);
-                }
-            }
-            "main-location" => {
-                if action.len() > 1 {
-                    let loc_str = &action[1];
-                    let loc = match loc_str.to_ascii_lowercase().as_str() {
-                        "top" => crate::layout::MainLocation::Top,
-                        "bottom" => crate::layout::MainLocation::Bottom,
-                        "left" => crate::layout::MainLocation::Left,
-                        "right" => crate::layout::MainLocation::Right,
-                        _ => crate::layout::MainLocation::Left,
-                    };
-                    let _ = self.set_main_location(loc);
-                }
-            }
-            "view-padding" => {
-                if action.len() > 1
-                    && let Ok(p) = action[1].parse::<u32>()
-                {
-                    let _ = self.set_view_padding(p);
-                }
-            }
-            "default-attach-mode" => {
-                if action.len() > 1 {
-                    let raw = action[1..].join(" ");
-                    if let Ok(mode) = AttachMode::parse(&raw) {
-                        let _ = self.set_attach_mode(mode);
-                    }
-                }
-            }
-            "unmap" => {
-                if action.len() >= 4 {
-                    let _ = self.unmap_key(&action[1], &action[2], &action[3]);
-                }
-            }
-            "unmap-pointer" => {
-                if action.len() >= 4 {
-                    let _ = self.unmap_pointer(&action[1], &action[2], &action[3]);
-                }
-            }
-            "set-cursor-warp" => {
-                if action.len() > 1
-                    && let Ok(mode) = crate::wm::CursorWarp::parse(&action[1])
-                {
-                    let _ = self.set_cursor_warp(mode);
-                }
-            }
-            "focus-follows-cursor" => {
-                if action.len() > 1
-                    && let Ok(mode) = crate::wm::FocusFollowsCursor::parse(&action[1])
-                {
-                    let _ = self.set_focus_follows_cursor(mode);
-                }
-            }
-            "border-width" => {
-                if action.len() > 1
-                    && let Ok(w) = action[1].parse::<u32>()
-                {
-                    self.border_width = w;
-                    self.manage_dirty();
-                }
-            }
-            "border-color-focused" => {
-                if action.len() > 1 {
-                    self.border_color_focused = action[1].clone();
-                    self.manage_dirty();
-                }
-            }
-            "border-color-unfocused" => {
-                if action.len() > 1 {
-                    self.border_color_unfocused = action[1].clone();
-                    self.manage_dirty();
-                }
-            }
-            "border-color-urgent" => {
-                if action.len() > 1 {
-                    self.border_color_urgent = action[1].clone();
-                    self.manage_dirty();
-                }
-            }
-            "animation" => {
-                if action.len() > 1 {
-                    self.anim.enabled = matches!(action[1].as_str(), "true" | "1" | "on");
-                }
-            }
-            "animation-duration" => {
-                if action.len() > 1
-                    && let Ok(ms) = action[1].parse::<u64>()
-                {
-                    self.anim.duration = Duration::from_millis(ms);
-                }
-            }
-            "zoom" => {
-                let _ = self.zoom_focused();
-            }
-            "focus-view" => {
-                let mut skip_floating = false;
-                let mut dir = "next";
-                for tok in &action[1..] {
-                    if tok == "-skip-floating" {
-                        skip_floating = true;
-                    } else {
-                        dir = tok.as_str();
-                    }
-                }
-                let _ = self.focus_view_direction(dir, skip_floating);
-            }
-            "focus-output" => {
-                let dir = action.get(1).map(|s| s.as_str()).unwrap_or("next");
-                let _ = self.focus_output(dir);
-            }
-            "send-to-output" => {
-                let mut current_tags = false;
-                let mut dir = "next";
-                for tok in &action[1..] {
-                    if tok == "-current-tags" {
-                        current_tags = true;
-                    } else {
-                        dir = tok.as_str();
-                    }
-                }
-                let _ = self.send_to_output(dir, current_tags);
-            }
-            "swap" => {
-                let dir = action.get(1).map(|s| s.as_str()).unwrap_or("next");
-                let _ = self.swap_direction(dir);
-            }
-            "snap" => {
-                let edge = action.get(1).map(|s| s.as_str()).unwrap_or("left");
-                let _ = self.snap_focused(edge);
-            }
-            "set-focused-tags" => {
-                if action.len() > 1
-                    && let Ok(mask) = action[1].parse::<u32>()
-                {
-                    let _ = self.set_focused_tags(mask);
-                }
-            }
-            "set-view-tags" => {
-                if action.len() > 1
-                    && let Ok(mask) = action[1].parse::<u32>()
-                {
-                    let _ = self.set_view_tags(mask);
-                }
-            }
-            "toggle-focused-tags" => {
-                if action.len() > 1
-                    && let Ok(mask) = action[1].parse::<u32>()
-                {
-                    let _ = self.toggle_focused_tags(mask);
-                }
-            }
-            "toggle-view-tags" => {
-                if action.len() > 1
-                    && let Ok(mask) = action[1].parse::<u32>()
-                {
-                    let _ = self.toggle_view_tags(mask);
-                }
-            }
-            "spawn-tagmask" => {
-                if action.len() > 1
-                    && let Ok(mask) = action[1].parse::<u32>()
-                {
-                    let _ = self.set_spawn_tagmask(mask);
-                }
-            }
-            "exit" => {
-                self.should_exit = true;
-            }
-            "reload" => {
-                spawn_init_script();
-            }
-            other => {
-                tracing::warn!("Unknown action: {other}");
+            Err(e) => {
+                tracing::warn!("Unknown action tokens {action:?}: {e}");
             }
         }
     }

@@ -70,7 +70,7 @@ impl PointerAction {
         match tokens[0].as_str() {
             "move-view" | "move" => Self::Move,
             "resize-view" | "resize" => Self::Resize,
-            "toggle-float" | "toggle-floating" => Self::Command(vec!["toggle-float".to_string()]),
+            "toggle-float" => Self::Command(vec!["toggle-float".to_string()]),
             _ => Self::Command(tokens.to_vec()),
         }
     }
@@ -127,6 +127,7 @@ pub struct SeatItem {
     pub op_release: bool,
     pub cursor_shape_device: Option<WpCursorShapeDeviceV1>,
     pub wl_pointer: Option<WlPointer>,
+    pub pending_warp: Option<(i32, i32)>,
     pub pointer_bindings: HashMap<ObjectId, PointerBinding>,
 }
 
@@ -145,6 +146,7 @@ impl SeatItem {
             op_release: false,
             cursor_shape_device: None,
             wl_pointer: None,
+            pending_warp: None,
             pointer_bindings: HashMap::new(),
         }
     }
