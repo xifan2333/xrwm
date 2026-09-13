@@ -847,31 +847,14 @@ impl AppState {
             w.proxy.set_tiled(Edges::empty());
         }
 
-        // Apply borders (SSD)
-        let (fr, fg, fb, fa) = hex_to_river_rgba(&self.border_color_focused);
-        let (ur, ug, ub, ua) = hex_to_river_rgba(&self.border_color_unfocused);
-        let focused_proxy = self.seats.values().find_map(|s| s.focused.clone());
-
+        // Apply decoration requests (SSD / CSD)
         for w in &self.windows {
-            let is_focused = focused_proxy.as_ref() == Some(&w.proxy);
-            let (cr, cg, cb, ca) = if is_focused {
-                (fr, fg, fb, fa)
-            } else {
-                (ur, ug, ub, ua)
-            };
-            if w.fullscreen {
-                w.proxy.set_borders(Edges::empty(), 0, 0, 0, 0, 0);
-            } else if w.ssd {
+            if w.ssd {
                 if w.new {
                     w.proxy.use_ssd();
                 }
-                w.proxy
-                    .set_borders(Edges::all(), self.border_width as i32, cr, cg, cb, ca);
-            } else {
-                if w.new {
-                    w.proxy.use_csd();
-                }
-                w.proxy.set_borders(Edges::empty(), 0, 0, 0, 0, 0);
+            } else if w.new {
+                w.proxy.use_csd();
             }
         }
 
@@ -1088,6 +1071,9 @@ impl AppState {
             return;
         }
         let border_width = self.border_width as i32;
+        let (fr, fg, fb, fa) = hex_to_river_rgba(&self.border_color_focused);
+        let (ur, ug, ub, ua) = hex_to_river_rgba(&self.border_color_unfocused);
+        let focused_proxy = self.seats.values().find_map(|s| s.focused.clone());
 
         let is_animating = self.anim.is_animating();
         let progress = self.anim.progress();
@@ -1099,6 +1085,20 @@ impl AppState {
         });
 
         for w in &mut self.windows {
+            let is_focused = focused_proxy.as_ref() == Some(&w.proxy);
+            let (cr, cg, cb, ca) = if is_focused {
+                (fr, fg, fb, fa)
+            } else {
+                (ur, ug, ub, ua)
+            };
+            if w.fullscreen {
+                w.proxy.set_borders(Edges::empty(), 0, 0, 0, 0, 0);
+            } else if w.ssd {
+                w.proxy
+                    .set_borders(Edges::all(), border_width, cr, cg, cb, ca);
+            } else {
+                w.proxy.set_borders(Edges::empty(), 0, 0, 0, 0, 0);
+            }
             let usable_area = w
                 .output
                 .as_ref()
