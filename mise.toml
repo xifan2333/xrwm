@@ -2,6 +2,7 @@ min_version = "2026.9.4"
 
 [tools]
 hk = "latest"
+node = "latest"
 prettier = "latest"
 rust = "latest"
 shellcheck = "latest"
