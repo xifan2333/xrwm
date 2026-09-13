@@ -55,3 +55,7 @@ run = "cargo build --release"
 [tasks.test]
 description = "Run test suite"
 run = "cargo test"
+
+[tasks.doc]
+description = "Compile manual page from Markdown source via pandoc"
+run = "pandoc -s -t man doc/xrwm.1.md -o doc/xrwm.1"
