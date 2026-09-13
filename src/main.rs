@@ -156,7 +156,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // IPC commands
             if fds[1].revents & libc::POLLIN != 0 {
                 while let Ok((mut stream, _)) = listener.accept() {
-                    let mut reader = BufReader::new(stream.try_clone().unwrap());
+                    let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(50)));
+                    let _ = stream.set_write_timeout(Some(std::time::Duration::from_millis(50)));
+                    let Ok(read_stream) = stream.try_clone() else {
+                        continue;
+                    };
+                    let mut reader = BufReader::new(read_stream);
                     let mut line = String::new();
                     if reader.read_line(&mut line).is_ok()
                         && let Ok(cmd) = serde_json::from_str::<ipc::IpcCommand>(&line)
