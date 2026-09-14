@@ -626,6 +626,9 @@ impl AppState {
 
     /// Sets the padding around views in pixels (gaps).
     pub fn set_view_padding(&mut self, padding: u32) -> Result<String, String> {
+        if padding > i32::MAX as u32 {
+            return Err("view padding exceeds maximum allowed value".to_string());
+        }
         self.layout_config.view_padding = padding;
         self.manage_dirty();
         Ok(format!("view padding set to {padding}px"))
@@ -633,6 +636,9 @@ impl AppState {
 
     /// Sets the padding around the outer perimeter of the layout area.
     pub fn set_outer_padding(&mut self, padding: u32) -> Result<String, String> {
+        if padding > i32::MAX as u32 {
+            return Err("outer padding exceeds maximum allowed value".to_string());
+        }
         self.layout_config.outer_padding = padding;
         self.manage_dirty();
         Ok(format!("outer padding set to {padding}px"))
@@ -1122,6 +1128,9 @@ impl AppState {
             IpcCommand::ViewPadding(g) => self.set_view_padding(*g),
             IpcCommand::OuterPadding(p) => self.set_outer_padding(*p),
             IpcCommand::BorderWidth(w) => {
+                if *w > i32::MAX as u32 {
+                    return Err("border width exceeds maximum allowed value".to_string());
+                }
                 self.border_width = *w;
                 self.manage_dirty();
                 Ok(format!("border width set to {w}px"))
@@ -1203,6 +1212,11 @@ impl AppState {
                         if action.len() > 2 {
                             let w = action[1].parse::<u32>().map_err(|_| "Invalid width")?;
                             let h = action[2].parse::<u32>().map_err(|_| "Invalid height")?;
+                            if w > i32::MAX as u32 || h > i32::MAX as u32 {
+                                return Err(
+                                    "window dimensions exceed maximum allowed value".to_string()
+                                );
+                            }
                             dimensions = Some((w, h));
                         } else {
                             return Err(

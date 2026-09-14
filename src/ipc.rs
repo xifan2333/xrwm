@@ -521,6 +521,9 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
                 .ok_or("Missing view-padding value")?
                 .parse::<u32>()
                 .map_err(|_| "view-padding must be a positive integer")?;
+            if gaps > i32::MAX as u32 {
+                return Err("view-padding exceeds maximum allowed value".to_string());
+            }
             Ok(IpcCommand::ViewPadding(gaps))
         }
         "outer-padding" => {
@@ -529,6 +532,9 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
                 .ok_or("Missing outer-padding value")?
                 .parse::<u32>()
                 .map_err(|_| "outer-padding must be a positive integer")?;
+            if padding > i32::MAX as u32 {
+                return Err("outer-padding exceeds maximum allowed value".to_string());
+            }
             Ok(IpcCommand::OuterPadding(padding))
         }
         "border-width" => {
@@ -537,6 +543,9 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
                 .ok_or("Missing width value")?
                 .parse::<u32>()
                 .map_err(|_| "Width must be a positive integer")?;
+            if width > i32::MAX as u32 {
+                return Err("border-width exceeds maximum allowed value".to_string());
+            }
             Ok(IpcCommand::BorderWidth(width))
         }
         "border-color-focused" => {
