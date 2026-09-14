@@ -1038,4 +1038,86 @@ mod tests {
             IpcCommand::Reload
         );
     }
+
+    #[test]
+    fn test_read_ipc_request_success() {
+        let (mut server, mut client) = UnixStream::pair().unwrap();
+        server.set_nonblocking(true).unwrap();
+        client.write_all(b"{\"type\":\"Ping\"}\n").unwrap();
+        let line = read_ipc_request(
+            &mut server,
+            std::time::Instant::now() + std::time::Duration::from_millis(100),
+            MAX_IPC_REQUEST_BYTES,
+        )
+        .unwrap();
+        assert_eq!(line, "{\"type\":\"Ping\"}");
+    }
+
+    #[test]
+    fn test_read_ipc_request_exceeds_max_size() {
+        let (mut server, mut client) = UnixStream::pair().unwrap();
+        server.set_nonblocking(true).unwrap();
+        client.write_all(&[b'x'; 200]).unwrap();
+        let res = read_ipc_request(
+            &mut server,
+            std::time::Instant::now() + std::time::Duration::from_millis(50),
+            100,
+        );
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_read_ipc_request_slow_fragmented_input_deadline() {
+        let (mut server, mut client) = UnixStream::pair().unwrap();
+        server.set_nonblocking(true).unwrap();
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stop_clone = stop.clone();
+        let sender_thread = std::thread::spawn(move || {
+            while !stop_clone.load(std::sync::atomic::Ordering::Relaxed) {
+                if client.write_all(b" ").is_err() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+        });
+
+        let start = std::time::Instant::now();
+        let deadline = start + std::time::Duration::from_millis(20);
+        let res = read_ipc_request(&mut server, deadline, MAX_IPC_REQUEST_BYTES);
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        let _ = sender_thread.join();
+
+        let elapsed = start.elapsed();
+        assert!(
+            res.is_err(),
+            "Expected timeout error on fragmented slow input without newline"
+        );
+        assert!(
+            elapsed >= std::time::Duration::from_millis(15)
+                && elapsed < std::time::Duration::from_millis(80),
+            "Expected elapsed around 20ms, got {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn test_write_ipc_response_deadline_on_blocked_receiver() {
+        let (mut server, _client) = UnixStream::pair().unwrap();
+        server.set_nonblocking(true).unwrap();
+
+        // Fill OS socket buffer with large buffer without reading on client side
+        let big_chunk = vec![0u8; 1024 * 1024];
+        let start = std::time::Instant::now();
+        let deadline = start + std::time::Duration::from_millis(20);
+
+        let res = write_ipc_response(&mut server, &big_chunk, deadline);
+        let elapsed = start.elapsed();
+        assert!(res.is_err(), "Expected write to timeout when buffer fills");
+        assert!(
+            elapsed >= std::time::Duration::from_millis(15)
+                && elapsed < std::time::Duration::from_millis(80),
+            "Expected elapsed around 20ms, got {elapsed:?}"
+        );
+    }
 }
