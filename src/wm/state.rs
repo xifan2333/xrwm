@@ -62,7 +62,8 @@ pub fn parse_hex_color(hex_str: &str) -> Result<(u32, u32, u32, u32), String> {
                 u32::from_str_radix(&h[4..6], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
             let a =
                 u32::from_str_radix(&h[6..8], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
-            Ok((r, g, b, a))
+            let premultiply = |channel: u32| ((channel as u64 * a as u64) / u32::MAX as u64) as u32;
+            Ok((premultiply(r), premultiply(g), premultiply(b), a))
         }
         _ => Err(format!(
             "Color '{hex_str}' has invalid length (expected 6 or 8 hex digits, got {})",
@@ -1461,6 +1462,14 @@ mod tests {
         assert_eq!(g, u32::MAX);
         assert_eq!(b, u32::MAX);
         assert_eq!(a, u32::MAX);
+
+        // 8-digit hex with premultiplied alpha
+        let (r, g, b, a) = parse_hex_color("#ff000080").unwrap();
+        assert_eq!(a, 0x80 * (u32::MAX / 255));
+        let expected_r = ((u32::MAX as u64 * a as u64) / u32::MAX as u64) as u32;
+        assert_eq!(r, expected_r);
+        assert_eq!(g, 0);
+        assert_eq!(b, 0);
     }
 
     #[test]
