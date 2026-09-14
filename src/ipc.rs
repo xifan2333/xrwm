@@ -1,8 +1,11 @@
 //! IPC protocol and UNIX domain socket client/server for xrwm.
 
 use std::io::{BufRead, BufReader, Read, Write};
+use std::os::fd::AsFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
+
+use rustix::event::{PollFd, PollFlags, Timespec};
 
 pub const MAX_IPC_REQUEST_BYTES: usize = 64 * 1024;
 pub const IPC_TOTAL_BUDGET_MS: u64 = 15;
@@ -188,13 +191,20 @@ impl Drop for IpcServerGuard {
     }
 }
 
+/// Converts a millisecond timeout into the [`Timespec`] expected by `poll(2)`.
+fn ipc_timeout_spec(timeout_ms: i32) -> Timespec {
+    let ms = timeout_ms.max(1);
+    Timespec {
+        tv_sec: i64::from(ms / 1000),
+        tv_nsec: (i64::from(ms % 1000) * 1_000_000) as _,
+    }
+}
+
 pub fn read_ipc_request(
     stream: &mut UnixStream,
     deadline: std::time::Instant,
     max_bytes: usize,
 ) -> std::io::Result<String> {
-    use std::os::unix::io::AsRawFd;
-
     let mut buffer = Vec::new();
     let mut chunk = [0u8; 1024];
 
@@ -210,21 +220,16 @@ pub fn read_ipc_request(
         let remaining = deadline.saturating_duration_since(now);
         let timeout_ms = remaining.as_millis().min(i32::MAX as u128) as i32;
 
-        let mut poll_fd = libc::pollfd {
-            fd: stream.as_raw_fd(),
-            events: libc::POLLIN,
-            revents: 0,
-        };
+        let mut poll_fd = PollFd::from_borrowed_fd(stream.as_fd(), PollFlags::IN);
+        let timeout_spec = ipc_timeout_spec(timeout_ms);
 
-        let ret = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms.max(1)) };
-        if ret < 0 {
-            let err = std::io::Error::last_os_error();
-            if err.kind() == std::io::ErrorKind::Interrupted {
-                continue;
-            }
-            return Err(err);
-        }
-        if ret == 0 {
+        let ready =
+            match rustix::event::poll(std::slice::from_mut(&mut poll_fd), Some(&timeout_spec)) {
+                Ok(ready) => ready,
+                Err(rustix::io::Errno::INTR) => continue,
+                Err(err) => return Err(std::io::Error::from(err)),
+            };
+        if ready == 0 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
                 "IPC request timed out",
@@ -265,8 +270,6 @@ pub fn write_ipc_response(
     data: &[u8],
     deadline: std::time::Instant,
 ) -> std::io::Result<()> {
-    use std::os::unix::io::AsRawFd;
-
     let mut written = 0;
     while written < data.len() {
         let now = std::time::Instant::now();
@@ -280,21 +283,16 @@ pub fn write_ipc_response(
         let remaining = deadline.saturating_duration_since(now);
         let timeout_ms = remaining.as_millis().min(i32::MAX as u128) as i32;
 
-        let mut poll_fd = libc::pollfd {
-            fd: stream.as_raw_fd(),
-            events: libc::POLLOUT,
-            revents: 0,
-        };
+        let mut poll_fd = PollFd::from_borrowed_fd(stream.as_fd(), PollFlags::OUT);
+        let timeout_spec = ipc_timeout_spec(timeout_ms);
 
-        let ret = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms.max(1)) };
-        if ret < 0 {
-            let err = std::io::Error::last_os_error();
-            if err.kind() == std::io::ErrorKind::Interrupted {
-                continue;
-            }
-            return Err(err);
-        }
-        if ret == 0 {
+        let ready =
+            match rustix::event::poll(std::slice::from_mut(&mut poll_fd), Some(&timeout_spec)) {
+                Ok(ready) => ready,
+                Err(rustix::io::Errno::INTR) => continue,
+                Err(err) => return Err(std::io::Error::from(err)),
+            };
+        if ready == 0 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
                 "IPC response write timed out",

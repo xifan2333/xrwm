@@ -25,6 +25,7 @@ This repository uses **hk** (`hk.pkl`) for git hooks and code quality checks:
 
 - **Rust formatting**: `rustfmt` (via `Builtins.rustfmt` or `cargo fmt`)
 - **Rust linting**: `cargo clippy --all-targets -- -D warnings`
+- **No panics or `unsafe`**: production code denies `unwrap()` (`clippy::unwrap_used`) and `unsafe` (`unsafe_code`), with no exceptions. Tests may use `unwrap()`; syscalls go through the safe `rustix` bindings.
 - **TOML**: `taplo` (with `--no-schema`)
 - **Shell / Markdown**: `shellcheck`, `shfmt`, `prettier`
 
@@ -66,19 +67,20 @@ All changes must follow the SOP documented in `.agents/skills/xrwm-dev/reference
                 +-------------------+-------------------+     |
                                     |                         |
                 +-------------------v-------------------+     |
-                | 4. Local Atomic Commit                |     |
+                | 4. Commit, Push & Tick the Item       |     |
                 |    git add <files>                    |     |
                 |    git commit -m "<type>(<scope>): ..."|    |
-                |    (Keep commit local)                |     |
+                |    git push origin <branch>          |     |
+                |    gh pr edit --body-file (tick N)    |     |
+                |    (PR stays DRAFT)                   |     |
                 +-------------------+-------------------+     |
                                     | (Remaining tasks?)      |
                                     +-------- Yes ------------+
                                     | No
 +-----------------------------------v-------------------+
-| 5. Unified Push & Mark Ready                          |
-|    git push origin <branch>                           |
-|    gh pr edit --body (check all - [x])                |
-|    gh pr ready (awakens review bots:                  |
+| 5. Mark Ready (Only After ALL Items)                  |
+|    gh pr view --json body (all - [x])                 |
+|    gh pr ready (awakens review bots once:             |
 |                 CodeRabbit & Greptile)                |
 +-----------------------------------+-------------------+
                                     |
@@ -99,6 +101,8 @@ All changes must follow the SOP documented in `.agents/skills/xrwm-dev/reference
 |    gh pr merge --squash --delete-branch               |
 +-------------------------------------------------------+
 ```
+
+Each checklist item is committed, pushed, and ticked in the same loop iteration, while the PR stays a draft. Only when every item is ticked do you call `gh pr ready`, so the review bots analyze the complete diff exactly once. Never invoke them mid-round: CodeRabbit reviews incrementally and will not re-review earlier commits.
 
 ### Review Bot Feedback Ingestion & Automated Review Triage
 
