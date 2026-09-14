@@ -1,0 +1,319 @@
+//! Exercise window management through a socket-backed Wayland protocol peer.
+
+use std::os::fd::{OwnedFd, RawFd};
+use std::os::unix::net::UnixStream;
+use std::sync::Arc;
+
+use wayland_backend::protocol::{Argument, Message};
+use wayland_backend::server::{
+    Backend, ClientId, GlobalHandler, GlobalId, Handle, ObjectData, ObjectId,
+};
+use wayland_client::{Connection, EventQueue, Proxy};
+
+use super::AppState;
+use crate::ipc::IpcCommand;
+use crate::protocol::{
+    river_output_v1 as output, river_window_manager_v1 as wm, river_window_v1 as window,
+};
+
+#[derive(Default)]
+struct ServerState {
+    manager: Option<ObjectId>,
+    requests: Vec<Message<ObjectId, OwnedFd>>,
+}
+
+struct Recorder;
+
+impl GlobalHandler<ServerState> for Recorder {
+    fn bind(
+        self: Arc<Self>,
+        _handle: &Handle,
+        state: &mut ServerState,
+        _client: ClientId,
+        _global: GlobalId,
+        object: ObjectId,
+    ) -> Arc<dyn ObjectData<ServerState>> {
+        state.manager = Some(object);
+        self
+    }
+}
+
+impl ObjectData<ServerState> for Recorder {
+    fn request(
+        self: Arc<Self>,
+        _handle: &Handle,
+        state: &mut ServerState,
+        _client: ClientId,
+        message: Message<ObjectId, OwnedFd>,
+    ) -> Option<Arc<dyn ObjectData<ServerState>>> {
+        let creates_object = message
+            .args
+            .iter()
+            .any(|arg| matches!(arg, Argument::NewId(_)));
+        state.requests.push(message);
+        if creates_object { Some(self) } else { None }
+    }
+
+    fn destroyed(
+        self: Arc<Self>,
+        _handle: &Handle,
+        _state: &mut ServerState,
+        _client: ClientId,
+        _object: ObjectId,
+    ) {
+    }
+}
+
+struct Harness {
+    backend: Backend<ServerState>,
+    server: ServerState,
+    connection: Connection,
+    queue: EventQueue<AppState>,
+    state: AppState,
+}
+
+impl Harness {
+    fn new() -> Self {
+        let (client, server) = UnixStream::pair().unwrap();
+        let backend = Backend::new().unwrap();
+        backend
+            .handle()
+            .insert_client(server, Arc::new(()))
+            .unwrap();
+        backend.handle().create_global::<ServerState>(
+            wm::RiverWindowManagerV1::interface(),
+            4,
+            Arc::new(Recorder),
+        );
+        let connection = Connection::from_socket(client).unwrap();
+        let queue = connection.new_event_queue();
+        connection.display().get_registry(&queue.handle(), ());
+        let mut harness = Self {
+            backend,
+            server: ServerState::default(),
+            connection,
+            queue,
+            state: AppState::new(),
+        };
+        harness.state.anim.enabled = false;
+        harness.collect_requests();
+        harness.dispatch_events();
+        assert!(harness.server.manager.is_some());
+        harness
+    }
+
+    fn collect_requests(&mut self) {
+        self.connection.flush().unwrap();
+        self.backend.dispatch_all_clients(&mut self.server).unwrap();
+    }
+
+    fn dispatch_events(&mut self) {
+        self.backend.flush(None).unwrap();
+        self.connection.prepare_read().unwrap().read().unwrap();
+        self.queue.dispatch_pending(&mut self.state).unwrap();
+        self.collect_requests();
+    }
+
+    fn event(&self, sender: &ObjectId, opcode: u16, args: Vec<Argument<ObjectId, RawFd>>) {
+        self.backend
+            .handle()
+            .send_event(Message {
+                sender_id: sender.clone(),
+                opcode,
+                args: args.into(),
+            })
+            .unwrap();
+    }
+
+    fn create<I: Proxy>(&self, opcode: u16) -> ObjectId {
+        let manager = self.server.manager.as_ref().unwrap();
+        let handle = self.backend.handle();
+        let client = handle.get_client(manager.clone()).unwrap();
+        let id = handle
+            .create_object::<ServerState>(client, I::interface(), 4, Arc::new(Recorder))
+            .unwrap();
+        self.event(manager, opcode, vec![Argument::NewId(id.clone())]);
+        id
+    }
+
+    fn add_output(&mut self) {
+        let id = self.create::<output::RiverOutputV1>(wm::EVT_OUTPUT_OPCODE);
+        self.event(
+            &id,
+            output::EVT_POSITION_OPCODE,
+            vec![Argument::Int(0), Argument::Int(0)],
+        );
+        self.event(
+            &id,
+            output::EVT_DIMENSIONS_OPCODE,
+            vec![Argument::Int(1920), Argument::Int(1080)],
+        );
+        self.dispatch_events();
+    }
+
+    fn add_window(&mut self) -> ObjectId {
+        let id = self.create::<window::RiverWindowV1>(wm::EVT_WINDOW_OPCODE);
+        self.event(
+            &id,
+            window::EVT_APP_ID_OPCODE,
+            vec![Argument::Str(Some(Box::new(c"demo".to_owned())))],
+        );
+        self.dispatch_events();
+        id
+    }
+
+    fn rule(&mut self, action: &[&str]) {
+        self.state
+            .handle_ipc_command(&IpcCommand::RuleAdd {
+                app_id: Some("demo".into()),
+                title: None,
+                action: action.iter().map(|s| (*s).to_owned()).collect(),
+            })
+            .unwrap();
+    }
+
+    fn manage(&mut self) {
+        self.server.requests.clear();
+        self.event(
+            self.server.manager.as_ref().unwrap(),
+            wm::EVT_MANAGE_START_OPCODE,
+            vec![],
+        );
+        self.dispatch_events();
+        let last = self.server.requests.last().unwrap();
+        assert_eq!(Some(&last.sender_id), self.server.manager.as_ref());
+        assert_eq!(last.opcode, wm::REQ_MANAGE_FINISH_OPCODE);
+    }
+
+    fn proposals(&self, id: &ObjectId) -> Vec<(i32, i32)> {
+        self.server
+            .requests
+            .iter()
+            .filter(|msg| {
+                msg.sender_id == *id && msg.opcode == window::REQ_PROPOSE_DIMENSIONS_OPCODE
+            })
+            .map(|msg| match msg.args.as_slice() {
+                [Argument::Int(width), Argument::Int(height)] => (*width, *height),
+                args => panic!("unexpected propose_dimensions arguments: {args:?}"),
+            })
+            .collect()
+    }
+}
+
+#[test]
+fn floating_without_dimensions_gets_one_initial_zero_proposal() {
+    let mut harness = Harness::new();
+    harness.add_output();
+    harness.rule(&["float"]);
+    let window = harness.add_window();
+
+    harness.manage();
+    assert!(harness.state.windows[0].floating);
+    assert_eq!(harness.proposals(&window), [(0, 0)]);
+
+    // An unrendered window can participate in more than one manage sequence.
+    harness.manage();
+    assert!(harness.proposals(&window).is_empty());
+
+    harness.state.windows[0].height = 600;
+    harness.manage();
+    assert_eq!(harness.proposals(&window), [(0, 600)]);
+    harness.state.windows[0].width = 800;
+    harness.manage();
+    assert_eq!(harness.proposals(&window), [(800, 600)]);
+    harness.manage();
+    assert!(harness.proposals(&window).is_empty());
+}
+
+#[test]
+fn floating_dimensions_rule_is_used_for_initial_proposal() {
+    for (width, height) in [(800, 600), (0, 600), (800, 0), (0, 0)] {
+        let mut harness = Harness::new();
+        harness.add_output();
+        harness.rule(&["float"]);
+        harness.rule(&["dimensions", &width.to_string(), &height.to_string()]);
+        let window = harness.add_window();
+        harness.manage();
+        assert_eq!(harness.proposals(&window), [(width, height)]);
+        harness.manage();
+        assert!(harness.proposals(&window).is_empty());
+    }
+}
+
+#[test]
+fn tiled_window_gets_only_its_layout_proposal() {
+    let mut harness = Harness::new();
+    harness.add_output();
+    let window = harness.add_window();
+    harness.manage();
+    let proposals = harness.proposals(&window);
+    assert_eq!(proposals.len(), 1);
+    assert!(proposals[0].0 > 0 && proposals[0].1 > 0);
+    harness.manage();
+    assert!(harness.proposals(&window).is_empty());
+}
+
+#[test]
+fn hidden_windows_get_an_initial_proposal() {
+    for floating in [false, true] {
+        let mut harness = Harness::new();
+        harness.add_output();
+        harness.rule(&["tags", "2"]);
+        if floating {
+            harness.rule(&["float"]);
+        }
+        let window = harness.add_window();
+        harness.manage();
+        assert_eq!(harness.proposals(&window), [(0, 0)]);
+        harness.manage();
+        assert!(harness.proposals(&window).is_empty());
+    }
+}
+
+#[test]
+fn windows_without_an_output_get_an_initial_proposal() {
+    for floating in [false, true] {
+        let mut harness = Harness::new();
+        if floating {
+            harness.rule(&["float"]);
+        }
+        let window = harness.add_window();
+        harness.manage();
+        assert_eq!(harness.proposals(&window), [(0, 0)]);
+        harness.manage();
+        assert!(harness.proposals(&window).is_empty());
+    }
+}
+
+#[test]
+fn fullscreen_window_uses_fullscreen_instead_of_a_dimension_proposal() {
+    let mut harness = Harness::new();
+    harness.add_output();
+    harness.rule(&["float"]);
+    harness.rule(&["fullscreen"]);
+    let window = harness.add_window();
+    harness.manage();
+    assert!(harness.proposals(&window).is_empty());
+    assert_eq!(
+        harness
+            .server
+            .requests
+            .iter()
+            .filter(|msg| msg.sender_id == window && msg.opcode == window::REQ_FULLSCREEN_OPCODE)
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn closed_window_does_not_get_an_initial_proposal() {
+    let mut harness = Harness::new();
+    harness.add_output();
+    harness.rule(&["float"]);
+    let window = harness.add_window();
+    harness.event(&window, window::EVT_CLOSED_OPCODE, vec![]);
+    harness.dispatch_events();
+    harness.manage();
+    assert!(harness.proposals(&window).is_empty());
+    assert!(harness.state.windows.is_empty());
+}

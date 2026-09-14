@@ -124,8 +124,8 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                     visual_geo: None,
                     anim_start_geo: None,
                     anim_target_geo: None,
-                    last_proposed_w: 0,
-                    last_proposed_h: 0,
+                    last_proposed_w: None,
+                    last_proposed_h: None,
                 });
             }
             Event::Output { id } => {

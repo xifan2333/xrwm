@@ -6,6 +6,9 @@ pub mod dispatch;
 pub mod seat;
 pub mod state;
 
+#[cfg(test)]
+mod tests;
+
 pub use seat::CursorWarp;
 pub use seat::FocusFollowsCursor;
 pub use seat::PointerAction;
