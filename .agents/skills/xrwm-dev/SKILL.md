@@ -17,7 +17,7 @@ This skill governs the engineering standards, quality gates, and development wor
 All changes MUST follow the strict chronological lifecycle:
 
 1. `gh issue view <id>` -> `git checkout -b <type>/issue-<id>-<name>` -> empty commit -> push -> `gh pr create --draft` (all tasks unchecked `- [ ]`).
-2. Single-Item Loop: Implement only one unchecked item -> run `mise run check:plan` and `mise run check:changed` -> local atomic commit -> `git push` -> `gh pr edit --body` to tick that item. Keep the PR in **draft**.
+2. Single-Item Loop: Implement only one unchecked item -> run `mise run check:plan` and `mise run check:changed` -> local atomic commit -> `git push` -> tick that item in the PR body with `gh pr edit --body-file` (preserving the rest of the body). Keep the PR in **draft**.
 3. Finalize (only after every item is ticked and pushed): `gh pr ready` (awakens review bots once on the complete diff: CodeRabbit & Greptile). Never trigger review bots mid-round: CodeRabbit reviews incrementally and will not re-review earlier commits.
 4. Review-Fix Loop: Ingest CodeRabbit `Prompt for AI Agents` and Greptile alerts (all reported findings & architectural warnings) -> defensively verify & commit fixes -> verify `gh pr checks` -> squash merge.
 

@@ -8,7 +8,7 @@ See [AGENTS.md](AGENTS.md) for the full architecture, coding guidelines, quality
   - _Phase A (Task Planning - BEFORE CODING)_: `gh issue view <id>` -> `git checkout -b <type>/issue-<id>-<desc>` -> `git commit --allow-empty -m "chore: initialize draft pr for #<id>"` -> `git push -u origin <branch>` -> `gh pr create --draft --body "Closes #<id>\n\n### Tasks\n- [ ] 1. ..."`
   - _Phase B (Quality Gate Pre-check - AFTER EDIT)_: `mise run check:plan`
 - **Single-Item Loop (ONE ITEM AT A TIME, PR STAYS DRAFT)**:
-  - Code task N -> `mise run check:changed` -> local atomic commit -> `git push` -> `gh pr edit --body` (tick that item `- [x]`) -> repeat
+  - Code task N -> `mise run check:plan` -> `mise run check:changed` -> local atomic commit -> `git push` -> `gh pr edit --body-file` (tick that item `- [x]`, preserving the rest of the body) -> repeat
 - **Finish (only when every item is ticked)**:
   - `gh pr ready` (awakens CodeRabbit & Greptile once on the complete diff) -> review-fix loop -> `gh pr merge --squash --delete-branch`
 - **Quality Gate Tasks (`mise`)**:

@@ -44,7 +44,7 @@ To maintain clear separation of concerns between functional task design and tool
                 |    git add <files>                    |     |
                 |    git commit -m "<type>(<scope>): ..."|    |
                 |    git push origin <branch>          |     |
-                |    gh pr edit --body (check - [x])    |     |
+                |    gh pr edit --body-file (tick N)    |     |
                 |    (PR stays DRAFT)                   |     |
                 +-------------------+-------------------+     |
                                     | (Remaining tasks?)      |
@@ -142,7 +142,12 @@ For each unchecked `- [ ]` task in order:
    git add <modified_files>
    git commit -m "<type>(<scope>): complete task N (#<issue_id>)"
    git push origin <branch>
-   gh pr edit --body "... - [x] N. ..."
+
+   # `gh pr edit --body` REPLACES the whole body, so round-trip it instead of
+   # passing a partial string: fetch, tick only item N, write the full body back.
+   gh pr view --json body -q .body > /tmp/pr-body.md
+   # edit /tmp/pr-body.md: change "- [ ] N." to "- [x] N."
+   gh pr edit --body-file /tmp/pr-body.md
    ```
    Keep the PR in **draft** while the round is in progress.
 

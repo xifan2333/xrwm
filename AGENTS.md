@@ -71,7 +71,7 @@ All changes must follow the SOP documented in `.agents/skills/xrwm-dev/reference
                 |    git add <files>                    |     |
                 |    git commit -m "<type>(<scope>): ..."|    |
                 |    git push origin <branch>          |     |
-                |    gh pr edit --body (check - [x])    |     |
+                |    gh pr edit --body-file (tick N)    |     |
                 |    (PR stays DRAFT)                   |     |
                 +-------------------+-------------------+     |
                                     | (Remaining tasks?)      |
