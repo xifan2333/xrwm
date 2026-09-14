@@ -23,11 +23,21 @@ hooks {
   }
   ["commit-msg"] {
     steps {
-      ["conventional-commit"] = (Builtins.check_conventional_commit) {
-        // Pass the message path as one argument, including in worktrees with spaces.
-        check {
+      ["conventional-commit"] {
+        // Merge commits are exempt, matching commitlint's default ignore behavior.
+        check = new CommandSpec {
+          effect = "read"
           command = new Command {
-            argv = List("hk", "util", "check-conventional-commit", "{{commit_msg_file}}")
+            argv = List("bash", "-ec", #"""
+              {% raw %}
+              header=$(head -n1 "$1")
+              header=${header%$'\r'}
+              case "$header" in
+                'Merge '*) exit 0 ;;
+              esac
+              exec hk util check-conventional-commit "$1"
+              {% endraw %}
+              """#, "conventional-commit", "{{commit_msg_file}}")
           }
         }
       }
@@ -42,7 +52,7 @@ hooks {
                 header=${header%$'\r'}
                 case "$header" in
                   \#*) continue ;;
-                  'fixup! '*|'squash! '*|'amend! '*) exit 0 ;;
+                  'fixup! '*|'squash! '*|'amend! '*|'Merge '*) exit 0 ;;
                 esac
                 if [ "${#header}" -gt 100 ]; then
                   printf '%s\n' 'Commit header must not exceed 100 characters.' >&2
