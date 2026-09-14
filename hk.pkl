@@ -23,8 +23,37 @@ hooks {
   }
   ["commit-msg"] {
     steps {
-      ["commitlint"] {
-        check = "commitlint --edit {{commit_msg_file}}"
+      ["conventional-commit"] = (Builtins.check_conventional_commit) {
+        // Pass the message path as one argument, including in worktrees with spaces.
+        check {
+          command = new Command {
+            argv = List("hk", "util", "check-conventional-commit", "{{commit_msg_file}}")
+          }
+        }
+      }
+      ["commit-header-length"] {
+        env { ["LC_ALL"] = "C.UTF-8" }
+        check = new CommandSpec {
+          effect = "read"
+          command = new Command {
+            argv = List("bash", "-ec", #"""
+              {% raw %}
+              while IFS= read -r header || [ -n "$header" ]; do
+                header=${header%$'\r'}
+                case "$header" in
+                  \#*) continue ;;
+                  'fixup! '*|'squash! '*|'amend! '*) exit 0 ;;
+                esac
+                if [ "${#header}" -gt 100 ]; then
+                  printf '%s\n' 'Commit header must not exceed 100 characters.' >&2
+                  exit 1
+                fi
+                exit 0
+              done < "$1"
+              {% endraw %}
+              """#, "commit-header-length", "{{commit_msg_file}}")
+          }
+        }
       }
     }
   }
