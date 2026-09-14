@@ -1238,7 +1238,8 @@ impl AppState {
         self.status_listeners.retain_mut(|(client, fmt)| {
             let now = std::time::Instant::now();
             if now >= broadcast_deadline {
-                return false;
+                // Do not evict healthy listeners whose writes were not attempted due to deadline exhaustion
+                return true;
             }
             let client_deadline =
                 (now + std::time::Duration::from_millis(2)).min(broadcast_deadline);
@@ -1385,5 +1386,34 @@ mod tests {
         // When 3 windows exist, no focus
         assert_eq!(AttachMode::Above.calculate_insert_index(None, len), 0);
         assert_eq!(AttachMode::Below.calculate_insert_index(None, len), 3);
+    }
+
+    #[test]
+    fn test_broadcast_status_preserves_healthy_subscribers() {
+        let mut state = AppState::new();
+        let (server1, _client1) = UnixStream::pair().unwrap();
+        let (server2, _client2) = UnixStream::pair().unwrap();
+
+        state.status_listeners.push((server1, None));
+        state.status_listeners.push((server2, None));
+
+        state.broadcast_status();
+        assert_eq!(state.status_listeners.len(), 2);
+    }
+
+    #[test]
+    fn test_broadcast_status_drops_broken_pipe_subscriber() {
+        let mut state = AppState::new();
+        let (server1, client1) = UnixStream::pair().unwrap();
+        let (server2, _client2) = UnixStream::pair().unwrap();
+
+        drop(client1); // peer disconnected
+
+        state.status_listeners.push((server1, None));
+        state.status_listeners.push((server2, None));
+
+        state.broadcast_status();
+        // Broken pipe subscriber should be evicted, while healthy one remains
+        assert_eq!(state.status_listeners.len(), 1);
     }
 }
