@@ -48,10 +48,9 @@ pub fn resolve_keysym(key_name: &str, _modifiers: Modifiers) -> Option<u32> {
 
     // River matches keybindings against the base keysym (lowercase for letters),
     // with modifiers like Shift tracked separately in the modifiers bitmask.
-    let effective_name = if name.len() == 1 && name.chars().next().unwrap().is_ascii_alphabetic() {
-        name.to_ascii_lowercase()
-    } else {
-        name.to_string()
+    let effective_name = match name.as_bytes() {
+        [byte] if byte.is_ascii_alphabetic() => name.to_ascii_lowercase(),
+        _ => name.to_string(),
     };
 
     parse_keysym(&effective_name)

@@ -20,6 +20,14 @@ xkbcommon = { version = "0.7", features = ["wayland"] }
 [build-dependencies]
 wayland-scanner = "0.31"
 
+[lints.rust]
+# The whole crate is safe Rust except for the audited `poll(2)` wrapper in `src/sys.rs`.
+unsafe_code = "deny"
+
+[lints.clippy]
+# Ban `unwrap()` outside of tests; use explicit error handling instead.
+unwrap_used = "deny"
+
 [profile.release]
 opt-level = "z"
 lto = true
