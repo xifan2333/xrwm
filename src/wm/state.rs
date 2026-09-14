@@ -178,8 +178,9 @@ pub struct WindowItem {
     pub visual_geo: Option<Rect>,
     pub anim_start_geo: Option<Rect>,
     pub anim_target_geo: Option<Rect>,
-    pub last_proposed_w: u32,
-    pub last_proposed_h: u32,
+    // None means no proposal has been sent; zero lets the client choose its size.
+    pub last_proposed_w: Option<u32>,
+    pub last_proposed_h: Option<u32>,
 }
 
 #[derive(Debug)]
@@ -840,13 +841,15 @@ impl AppState {
                     w.width = rect.width;
                     w.height = rect.height;
 
-                    if w.last_proposed_w != rect.width || w.last_proposed_h != rect.height {
+                    if w.last_proposed_w != Some(rect.width)
+                        || w.last_proposed_h != Some(rect.height)
+                    {
                         w.proxy.propose_dimensions(
                             rect.width.min(i32::MAX as u32) as i32,
                             rect.height.min(i32::MAX as u32) as i32,
                         );
-                        w.last_proposed_w = rect.width;
-                        w.last_proposed_h = rect.height;
+                        w.last_proposed_w = Some(rect.width);
+                        w.last_proposed_h = Some(rect.height);
                     }
                     w.proxy.set_tiled(Edges::all());
                 }
@@ -881,13 +884,13 @@ impl AppState {
                     any_geo_changed = true;
                 }
             }
-            if w.last_proposed_w != w.width || w.last_proposed_h != w.height {
+            if w.last_proposed_w != Some(w.width) || w.last_proposed_h != Some(w.height) {
                 w.proxy.propose_dimensions(
                     w.width.min(i32::MAX as u32) as i32,
                     w.height.min(i32::MAX as u32) as i32,
                 );
-                w.last_proposed_w = w.width;
-                w.last_proposed_h = w.height;
+                w.last_proposed_w = Some(w.width);
+                w.last_proposed_h = Some(w.height);
             }
             w.proxy.set_tiled(Edges::empty());
         }
@@ -966,13 +969,14 @@ impl AppState {
                         w.float_geo = Some(Rect::new(w.x, w.y, w.width, w.height));
                         w.visual_geo = Some(Rect::new(w.x, w.y, w.width, w.height));
 
-                        if w.last_proposed_w != w.width || w.last_proposed_h != w.height {
+                        if w.last_proposed_w != Some(w.width) || w.last_proposed_h != Some(w.height)
+                        {
                             proxy.propose_dimensions(
                                 w.width.min(i32::MAX as u32) as i32,
                                 w.height.min(i32::MAX as u32) as i32,
                             );
-                            w.last_proposed_w = w.width;
-                            w.last_proposed_h = w.height;
+                            w.last_proposed_w = Some(w.width);
+                            w.last_proposed_h = Some(w.height);
                         }
                     }
                 }
