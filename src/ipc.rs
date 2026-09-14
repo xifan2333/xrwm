@@ -1,8 +1,12 @@
 //! IPC protocol and UNIX domain socket client/server for xrwm.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
+
+pub const MAX_IPC_REQUEST_BYTES: usize = 64 * 1024;
+pub const IPC_TOTAL_BUDGET_MS: u64 = 15;
+pub const IPC_PER_REQUEST_TIMEOUT_MS: u64 = 5;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "payload")]
@@ -134,6 +138,138 @@ pub fn create_ipc_server() -> std::io::Result<UnixListener> {
         let _ = std::fs::remove_file(&socket_path);
     }
     UnixListener::bind(&socket_path)
+}
+
+pub fn read_ipc_request(
+    stream: &mut UnixStream,
+    deadline: std::time::Instant,
+    max_bytes: usize,
+) -> std::io::Result<String> {
+    use std::os::unix::io::AsRawFd;
+
+    let mut buffer = Vec::new();
+    let mut chunk = [0u8; 1024];
+
+    loop {
+        let now = std::time::Instant::now();
+        if now >= deadline {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "IPC request timed out",
+            ));
+        }
+
+        let remaining = deadline.saturating_duration_since(now);
+        let timeout_ms = remaining.as_millis().min(i32::MAX as u128) as i32;
+
+        let mut poll_fd = libc::pollfd {
+            fd: stream.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+
+        let ret = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms.max(1)) };
+        if ret < 0 {
+            let err = std::io::Error::last_os_error();
+            if err.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(err);
+        }
+        if ret == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "IPC request timed out",
+            ));
+        }
+
+        match stream.read(&mut chunk) {
+            Ok(0) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "Connection closed before newline",
+                ));
+            }
+            Ok(n) => {
+                if buffer.len() + n > max_bytes {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "IPC request exceeded maximum allowed size",
+                    ));
+                }
+                buffer.extend_from_slice(&chunk[..n]);
+                if let Some(pos) = buffer.iter().position(|&b| b == b'\n') {
+                    let line = std::str::from_utf8(&buffer[..pos])
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?
+                        .to_string();
+                    return Ok(line);
+                }
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+            Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+pub fn write_ipc_response(
+    stream: &mut UnixStream,
+    data: &[u8],
+    deadline: std::time::Instant,
+) -> std::io::Result<()> {
+    use std::os::unix::io::AsRawFd;
+
+    let mut written = 0;
+    while written < data.len() {
+        let now = std::time::Instant::now();
+        if now >= deadline {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "IPC response write timed out",
+            ));
+        }
+
+        let remaining = deadline.saturating_duration_since(now);
+        let timeout_ms = remaining.as_millis().min(i32::MAX as u128) as i32;
+
+        let mut poll_fd = libc::pollfd {
+            fd: stream.as_raw_fd(),
+            events: libc::POLLOUT,
+            revents: 0,
+        };
+
+        let ret = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms.max(1)) };
+        if ret < 0 {
+            let err = std::io::Error::last_os_error();
+            if err.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(err);
+        }
+        if ret == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "IPC response write timed out",
+            ));
+        }
+
+        match stream.write(&data[written..]) {
+            Ok(0) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::WriteZero,
+                    "Failed to write to IPC socket",
+                ));
+            }
+            Ok(n) => {
+                written += n;
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+            Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    let _ = stream.flush();
+    Ok(())
 }
 
 pub fn send_ipc_command(cmd: &IpcCommand) -> Result<IpcResponse, String> {

@@ -5,7 +5,6 @@ pub mod protocol;
 pub mod tag;
 pub mod wm;
 
-use std::io::{BufRead, BufReader, Write};
 use std::os::unix::io::{AsFd, AsRawFd};
 
 use wayland_client::Connection;
@@ -155,47 +154,87 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // IPC commands with bounded aggregate processing budget
             if fds[1].revents & libc::POLLIN != 0 {
-                let ipc_deadline = std::time::Instant::now() + std::time::Duration::from_millis(15);
+                let ipc_deadline = std::time::Instant::now()
+                    + std::time::Duration::from_millis(ipc::IPC_TOTAL_BUDGET_MS);
                 let mut processed = 0;
                 while processed < 8 && std::time::Instant::now() < ipc_deadline {
                     let Ok((mut stream, _)) = listener.accept() else {
                         break;
                     };
                     processed += 1;
-                    let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(5)));
-                    let _ = stream.set_write_timeout(Some(std::time::Duration::from_millis(5)));
-                    let Ok(read_stream) = stream.try_clone() else {
+                    if stream.set_nonblocking(true).is_err() {
+                        continue;
+                    }
+                    let now = std::time::Instant::now();
+                    let req_deadline = (now
+                        + std::time::Duration::from_millis(ipc::IPC_PER_REQUEST_TIMEOUT_MS))
+                    .min(ipc_deadline);
+
+                    let line = match ipc::read_ipc_request(
+                        &mut stream,
+                        req_deadline,
+                        ipc::MAX_IPC_REQUEST_BYTES,
+                    ) {
+                        Ok(l) => l,
+                        Err(e) => {
+                            tracing::debug!("Failed to read IPC request: {:?}", e);
+                            continue;
+                        }
+                    };
+
+                    let Ok(cmd) = serde_json::from_str::<ipc::IpcCommand>(&line) else {
+                        let resp = ipc::IpcResponse::err("Malformed JSON request");
+                        if let Ok(mut resp_json) = serde_json::to_string(&resp) {
+                            resp_json.push('\n');
+                            let write_deadline = (std::time::Instant::now()
+                                + std::time::Duration::from_millis(
+                                    ipc::IPC_PER_REQUEST_TIMEOUT_MS,
+                                ))
+                            .min(ipc_deadline);
+                            let _ = ipc::write_ipc_response(
+                                &mut stream,
+                                resp_json.as_bytes(),
+                                write_deadline,
+                            );
+                        }
                         continue;
                     };
-                    let mut reader = BufReader::new(read_stream);
-                    let mut line = String::new();
-                    if reader.read_line(&mut line).is_ok()
-                        && let Ok(cmd) = serde_json::from_str::<ipc::IpcCommand>(&line)
+
+                    if let ipc::IpcCommand::Status {
+                        stream: true,
+                        format,
+                    } = cmd
                     {
-                        if let ipc::IpcCommand::Status {
-                            stream: true,
-                            format,
-                        } = cmd
-                        {
-                            let text = if format.as_deref() == Some("waybar") {
-                                state.format_waybar_status()
-                            } else {
-                                state.format_json_status()
-                            };
-                            let _ = stream.write_all(text.as_bytes());
-                            let _ = stream.write_all(b"\n");
-                            let _ = stream.flush();
-                            state.status_listeners.push((stream, format));
+                        let text = if format.as_deref() == Some("waybar") {
+                            state.format_waybar_status()
                         } else {
-                            let response = match state.handle_ipc_command(&cmd) {
-                                Ok(msg) => ipc::IpcResponse::ok(msg),
-                                Err(err) => ipc::IpcResponse::err(err),
-                            };
-                            if let Ok(resp_json) = serde_json::to_string(&response) {
-                                let _ = stream.write_all(resp_json.as_bytes());
-                                let _ = stream.write_all(b"\n");
-                                let _ = stream.flush();
-                            }
+                            state.format_json_status()
+                        };
+                        let mut msg = text.into_bytes();
+                        msg.push(b'\n');
+                        let write_deadline = (std::time::Instant::now()
+                            + std::time::Duration::from_millis(ipc::IPC_PER_REQUEST_TIMEOUT_MS))
+                        .min(ipc_deadline);
+                        if ipc::write_ipc_response(&mut stream, &msg, write_deadline).is_ok() {
+                            state.status_listeners.push((stream, format));
+                        }
+                    } else {
+                        let response = match state.handle_ipc_command(&cmd) {
+                            Ok(msg) => ipc::IpcResponse::ok(msg),
+                            Err(err) => ipc::IpcResponse::err(err),
+                        };
+                        if let Ok(mut resp_json) = serde_json::to_string(&response) {
+                            resp_json.push('\n');
+                            let write_deadline = (std::time::Instant::now()
+                                + std::time::Duration::from_millis(
+                                    ipc::IPC_PER_REQUEST_TIMEOUT_MS,
+                                ))
+                            .min(ipc_deadline);
+                            let _ = ipc::write_ipc_response(
+                                &mut stream,
+                                resp_json.as_bytes(),
+                                write_deadline,
+                            );
                         }
                     }
                 }
