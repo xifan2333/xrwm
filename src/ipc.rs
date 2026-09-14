@@ -216,15 +216,12 @@ pub fn read_ipc_request(
             revents: 0,
         };
 
-        let ret = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms.max(1)) };
-        if ret < 0 {
-            let err = std::io::Error::last_os_error();
-            if err.kind() == std::io::ErrorKind::Interrupted {
-                continue;
-            }
-            return Err(err);
-        }
-        if ret == 0 {
+        let ready = match crate::sys::poll(std::slice::from_mut(&mut poll_fd), timeout_ms.max(1)) {
+            Ok(ready) => ready,
+            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(err) => return Err(err),
+        };
+        if ready == 0 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
                 "IPC request timed out",
@@ -286,15 +283,12 @@ pub fn write_ipc_response(
             revents: 0,
         };
 
-        let ret = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms.max(1)) };
-        if ret < 0 {
-            let err = std::io::Error::last_os_error();
-            if err.kind() == std::io::ErrorKind::Interrupted {
-                continue;
-            }
-            return Err(err);
-        }
-        if ret == 0 {
+        let ready = match crate::sys::poll(std::slice::from_mut(&mut poll_fd), timeout_ms.max(1)) {
+            Ok(ready) => ready,
+            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(err) => return Err(err),
+        };
+        if ready == 0 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
                 "IPC response write timed out",
