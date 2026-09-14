@@ -30,19 +30,50 @@ use crate::wm::seat::{PointerAction, SeatItem, SeatOp};
 
 pub const MIN_WINDOW_DIMENSION: u32 = 100;
 
-pub fn hex_to_river_rgba(hex_str: &str) -> (u32, u32, u32, u32) {
+pub fn parse_hex_color(hex_str: &str) -> Result<(u32, u32, u32, u32), String> {
     let h = hex_str
         .trim_start_matches("0x")
         .trim_start_matches('#')
         .trim();
-    if h.len() < 6 {
-        return (u32::MAX, u32::MAX, u32::MAX, u32::MAX);
+
+    if !h.is_ascii() || !h.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(format!(
+            "Color '{hex_str}' contains non-hexadecimal characters"
+        ));
     }
-    let r = u32::from_str_radix(&h[0..2], 16).unwrap_or(255) * (u32::MAX / 255);
-    let g = u32::from_str_radix(&h[2..4], 16).unwrap_or(255) * (u32::MAX / 255);
-    let b = u32::from_str_radix(&h[4..6], 16).unwrap_or(255) * (u32::MAX / 255);
-    let a = u32::MAX;
-    (r, g, b, a)
+
+    match h.len() {
+        6 => {
+            let r =
+                u32::from_str_radix(&h[0..2], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
+            let g =
+                u32::from_str_radix(&h[2..4], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
+            let b =
+                u32::from_str_radix(&h[4..6], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
+            let a = u32::MAX;
+            Ok((r, g, b, a))
+        }
+        8 => {
+            let r =
+                u32::from_str_radix(&h[0..2], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
+            let g =
+                u32::from_str_radix(&h[2..4], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
+            let b =
+                u32::from_str_radix(&h[4..6], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
+            let a =
+                u32::from_str_radix(&h[6..8], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
+            let premultiply = |channel: u32| ((channel as u64 * a as u64) / u32::MAX as u64) as u32;
+            Ok((premultiply(r), premultiply(g), premultiply(b), a))
+        }
+        _ => Err(format!(
+            "Color '{hex_str}' has invalid length (expected 6 or 8 hex digits, got {})",
+            h.len()
+        )),
+    }
+}
+
+pub fn hex_to_river_rgba(hex_str: &str) -> (u32, u32, u32, u32) {
+    parse_hex_color(hex_str).unwrap_or((u32::MAX, u32::MAX, u32::MAX, u32::MAX))
 }
 
 pub fn glob_match(pattern: &str, text: &str) -> bool {
@@ -1415,5 +1446,53 @@ mod tests {
         state.broadcast_status();
         // Broken pipe subscriber should be evicted, while healthy one remains
         assert_eq!(state.status_listeners.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_hex_color_valid() {
+        assert!(parse_hex_color("#61afef").is_ok());
+        assert!(parse_hex_color("0x61afef").is_ok());
+        assert!(parse_hex_color("61afef").is_ok());
+        assert!(parse_hex_color("#61afef80").is_ok());
+        assert!(parse_hex_color("0x61afef80").is_ok());
+        assert!(parse_hex_color("61afef80").is_ok());
+
+        let (r, g, b, a) = parse_hex_color("#ffffff").unwrap();
+        assert_eq!(r, u32::MAX);
+        assert_eq!(g, u32::MAX);
+        assert_eq!(b, u32::MAX);
+        assert_eq!(a, u32::MAX);
+
+        // 8-digit hex with premultiplied alpha
+        let (r, g, b, a) = parse_hex_color("#ff000080").unwrap();
+        assert_eq!(a, 0x80 * (u32::MAX / 255));
+        let expected_r = ((u32::MAX as u64 * a as u64) / u32::MAX as u64) as u32;
+        assert_eq!(r, expected_r);
+        assert_eq!(g, 0);
+        assert_eq!(b, 0);
+    }
+
+    #[test]
+    fn test_parse_hex_color_invalid() {
+        // Non-ASCII string (would panic with naive slicing)
+        assert!(parse_hex_color("你好").is_err());
+        assert_eq!(
+            hex_to_river_rgba("你好"),
+            (u32::MAX, u32::MAX, u32::MAX, u32::MAX)
+        );
+
+        // Invalid hex characters
+        assert!(parse_hex_color("#12345z").is_err());
+        assert!(parse_hex_color("0xhello!").is_err());
+
+        // Too short
+        assert!(parse_hex_color("").is_err());
+        assert!(parse_hex_color("#123").is_err());
+        assert!(parse_hex_color("0x").is_err());
+        assert!(parse_hex_color("#12345").is_err());
+
+        // Too long
+        assert!(parse_hex_color("#1234567").is_err());
+        assert!(parse_hex_color("#123456789").is_err());
     }
 }

@@ -541,14 +541,17 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
         }
         "border-color-focused" => {
             let color = args.get(1).ok_or("Missing color value")?.clone();
+            crate::wm::state::parse_hex_color(&color)?;
             Ok(IpcCommand::BorderColorFocused(color))
         }
         "border-color-unfocused" => {
             let color = args.get(1).ok_or("Missing color value")?.clone();
+            crate::wm::state::parse_hex_color(&color)?;
             Ok(IpcCommand::BorderColorUnfocused(color))
         }
         "border-color-urgent" => {
             let color = args.get(1).ok_or("Missing color value")?.clone();
+            crate::wm::state::parse_hex_color(&color)?;
             Ok(IpcCommand::BorderColorUrgent(color))
         }
         "declare-mode" => {
@@ -1263,5 +1266,12 @@ mod tests {
         let _ = std::fs::remove_file(&socket_path);
         drop(listener);
         drop(replacement_listener);
+    }
+
+    #[test]
+    fn test_parse_cli_args_border_color_validation() {
+        assert!(parse_cli_args(&["border-color-focused".into(), "你好".into()]).is_err());
+        assert!(parse_cli_args(&["border-color-focused".into(), "#123".into()]).is_err());
+        assert!(parse_cli_args(&["border-color-focused".into(), "#61afef".into()]).is_ok());
     }
 }

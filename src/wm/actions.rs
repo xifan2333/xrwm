@@ -1127,16 +1127,19 @@ impl AppState {
                 Ok(format!("border width set to {w}px"))
             }
             IpcCommand::BorderColorFocused(c) => {
+                crate::wm::state::parse_hex_color(c)?;
                 self.border_color_focused = c.clone();
                 self.manage_dirty();
                 Ok(format!("focused border color set to {c}"))
             }
             IpcCommand::BorderColorUnfocused(c) => {
+                crate::wm::state::parse_hex_color(c)?;
                 self.border_color_unfocused = c.clone();
                 self.manage_dirty();
                 Ok(format!("unfocused border color set to {c}"))
             }
             IpcCommand::BorderColorUrgent(c) => {
+                crate::wm::state::parse_hex_color(c)?;
                 self.border_color_urgent = c.clone();
                 self.manage_dirty();
                 Ok(format!("urgent border color set to {c}"))
@@ -1781,5 +1784,26 @@ mod tests {
         assert_eq!(pick_adjacent_output(&stacked, 0, "up"), None);
         assert_eq!(pick_adjacent_output(&stacked, 1, "up"), Some("Top"));
         assert_eq!(pick_adjacent_output(&stacked, 1, "down"), None);
+    }
+
+    #[test]
+    fn test_border_color_ipc_rejection_and_retention() {
+        let mut state = AppState::new();
+        let original_focused = state.border_color_focused.clone();
+
+        // Non-ASCII input rejected
+        let res = state.handle_ipc_command(&IpcCommand::BorderColorFocused("你好".into()));
+        assert!(res.is_err());
+        assert_eq!(state.border_color_focused, original_focused);
+
+        // Invalid hex rejected
+        let res2 = state.handle_ipc_command(&IpcCommand::BorderColorFocused("xyz123".into()));
+        assert!(res2.is_err());
+        assert_eq!(state.border_color_focused, original_focused);
+
+        // Valid hex accepted
+        let res3 = state.handle_ipc_command(&IpcCommand::BorderColorFocused("#112233".into()));
+        assert!(res3.is_ok());
+        assert_eq!(state.border_color_focused, "#112233");
     }
 }
