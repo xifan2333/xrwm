@@ -541,14 +541,17 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
         }
         "border-color-focused" => {
             let color = args.get(1).ok_or("Missing color value")?.clone();
+            crate::wm::state::parse_hex_color(&color)?;
             Ok(IpcCommand::BorderColorFocused(color))
         }
         "border-color-unfocused" => {
             let color = args.get(1).ok_or("Missing color value")?.clone();
+            crate::wm::state::parse_hex_color(&color)?;
             Ok(IpcCommand::BorderColorUnfocused(color))
         }
         "border-color-urgent" => {
             let color = args.get(1).ok_or("Missing color value")?.clone();
+            crate::wm::state::parse_hex_color(&color)?;
             Ok(IpcCommand::BorderColorUrgent(color))
         }
         "declare-mode" => {

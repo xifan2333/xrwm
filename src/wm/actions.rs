@@ -1127,16 +1127,19 @@ impl AppState {
                 Ok(format!("border width set to {w}px"))
             }
             IpcCommand::BorderColorFocused(c) => {
+                crate::wm::state::parse_hex_color(c)?;
                 self.border_color_focused = c.clone();
                 self.manage_dirty();
                 Ok(format!("focused border color set to {c}"))
             }
             IpcCommand::BorderColorUnfocused(c) => {
+                crate::wm::state::parse_hex_color(c)?;
                 self.border_color_unfocused = c.clone();
                 self.manage_dirty();
                 Ok(format!("unfocused border color set to {c}"))
             }
             IpcCommand::BorderColorUrgent(c) => {
+                crate::wm::state::parse_hex_color(c)?;
                 self.border_color_urgent = c.clone();
                 self.manage_dirty();
                 Ok(format!("urgent border color set to {c}"))
