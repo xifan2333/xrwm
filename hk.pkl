@@ -11,15 +11,6 @@ steps {
     glob = List("*.rs")
     check = "cargo clippy --all-targets -- -D warnings"
   }
-
-  ["shellcheck"] = Builtins.shellcheck
-  ["shfmt"] = Builtins.shfmt
-
-  ["taplo"] = (Builtins.taplo) {
-    check = "taplo lint --no-schema {{files}}"
-  }
-  ["taplo_format"] = Builtins.taplo_format
-
   ["prettier"] = (Builtins.prettier) {
     glob = List("*.json", "*.jsonc", "*.yaml", "*.yml", "*.md")
   }

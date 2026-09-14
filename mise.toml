@@ -5,9 +5,6 @@ hk = "latest"
 node = "latest"
 prettier = "latest"
 rust = "latest"
-shellcheck = "latest"
-shfmt = "latest"
-taplo = "latest"
 
 [tasks.hooks]
 description = "Install or refresh hk Git hooks"
