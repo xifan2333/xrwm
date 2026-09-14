@@ -521,6 +521,9 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
                 .ok_or("Missing view-padding value")?
                 .parse::<u32>()
                 .map_err(|_| "view-padding must be a positive integer")?;
+            if gaps > i32::MAX as u32 {
+                return Err("view-padding exceeds maximum allowed value".to_string());
+            }
             Ok(IpcCommand::ViewPadding(gaps))
         }
         "outer-padding" => {
@@ -529,6 +532,9 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
                 .ok_or("Missing outer-padding value")?
                 .parse::<u32>()
                 .map_err(|_| "outer-padding must be a positive integer")?;
+            if padding > i32::MAX as u32 {
+                return Err("outer-padding exceeds maximum allowed value".to_string());
+            }
             Ok(IpcCommand::OuterPadding(padding))
         }
         "border-width" => {
@@ -537,6 +543,9 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
                 .ok_or("Missing width value")?
                 .parse::<u32>()
                 .map_err(|_| "Width must be a positive integer")?;
+            if width > i32::MAX as u32 {
+                return Err("border-width exceeds maximum allowed value".to_string());
+            }
             Ok(IpcCommand::BorderWidth(width))
         }
         "border-color-focused" => {
@@ -1273,5 +1282,18 @@ mod tests {
         assert!(parse_cli_args(&["border-color-focused".into(), "你好".into()]).is_err());
         assert!(parse_cli_args(&["border-color-focused".into(), "#123".into()]).is_err());
         assert!(parse_cli_args(&["border-color-focused".into(), "#61afef".into()]).is_ok());
+    }
+
+    #[test]
+    fn test_parse_cli_args_i32_bounds_validation() {
+        // Values > i32::MAX should be rejected
+        assert!(parse_cli_args(&["border-width".into(), "4294967295".into()]).is_err());
+        assert!(parse_cli_args(&["view-padding".into(), "4294967295".into()]).is_err());
+        assert!(parse_cli_args(&["outer-padding".into(), "4294967295".into()]).is_err());
+
+        // Valid values should succeed
+        assert!(parse_cli_args(&["border-width".into(), "4".into()]).is_ok());
+        assert!(parse_cli_args(&["view-padding".into(), "8".into()]).is_ok());
+        assert!(parse_cli_args(&["outer-padding".into(), "12".into()]).is_ok());
     }
 }

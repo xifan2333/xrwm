@@ -402,8 +402,14 @@ impl AppState {
                     w.width = width;
                     w.height = height;
                     if let Some(usable) = usable_area {
-                        let cx = usable.x + ((usable.width as i32 - width as i32) / 2).max(0);
-                        let cy = usable.y + ((usable.height as i32 - height as i32) / 2).max(0);
+                        let cx = (usable.x as i64
+                            + ((usable.width as i64 - width as i64) / 2).max(0))
+                        .clamp(i32::MIN as i64, i32::MAX as i64)
+                            as i32;
+                        let cy = (usable.y as i64
+                            + ((usable.height as i64 - height as i64) / 2).max(0))
+                        .clamp(i32::MIN as i64, i32::MAX as i64)
+                            as i32;
                         w.x = cx;
                         w.y = cy;
                         w.float_geo = Some(Rect::new(cx, cy, width, height));
@@ -835,8 +841,10 @@ impl AppState {
                     w.height = rect.height;
 
                     if w.last_proposed_w != rect.width || w.last_proposed_h != rect.height {
-                        w.proxy
-                            .propose_dimensions(rect.width as i32, rect.height as i32);
+                        w.proxy.propose_dimensions(
+                            rect.width.min(i32::MAX as u32) as i32,
+                            rect.height.min(i32::MAX as u32) as i32,
+                        );
                         w.last_proposed_w = rect.width;
                         w.last_proposed_h = rect.height;
                     }
@@ -856,10 +864,14 @@ impl AppState {
             let target = Rect::new(w.x, w.y, w.width, w.height);
             if !is_any_pointer_op {
                 if w.new {
-                    let start_w = (target.width * 7 / 10).max(10);
-                    let start_h = (target.height * 7 / 10).max(10);
-                    let start_x = target.x + (target.width as i32 - start_w as i32) / 2;
-                    let start_y = target.y + (target.height as i32 - start_h as i32) / 2;
+                    let start_w = ((target.width as u64 * 7 / 10) as u32).max(10);
+                    let start_h = ((target.height as u64 * 7 / 10) as u32).max(10);
+                    let start_x = (target.x as i64 + (target.width as i64 - start_w as i64) / 2)
+                        .clamp(i32::MIN as i64, i32::MAX as i64)
+                        as i32;
+                    let start_y = (target.y as i64 + (target.height as i64 - start_h as i64) / 2)
+                        .clamp(i32::MIN as i64, i32::MAX as i64)
+                        as i32;
                     w.anim_start_geo = Some(Rect::new(start_x, start_y, start_w, start_h));
                     w.anim_target_geo = Some(target);
                     any_geo_changed = true;
@@ -870,7 +882,10 @@ impl AppState {
                 }
             }
             if w.last_proposed_w != w.width || w.last_proposed_h != w.height {
-                w.proxy.propose_dimensions(w.width as i32, w.height as i32);
+                w.proxy.propose_dimensions(
+                    w.width.min(i32::MAX as u32) as i32,
+                    w.height.min(i32::MAX as u32) as i32,
+                );
                 w.last_proposed_w = w.width;
                 w.last_proposed_h = w.height;
             }
@@ -952,7 +967,10 @@ impl AppState {
                         w.visual_geo = Some(Rect::new(w.x, w.y, w.width, w.height));
 
                         if w.last_proposed_w != w.width || w.last_proposed_h != w.height {
-                            proxy.propose_dimensions(w.width as i32, w.height as i32);
+                            proxy.propose_dimensions(
+                                w.width.min(i32::MAX as u32) as i32,
+                                w.height.min(i32::MAX as u32) as i32,
+                            );
                             w.last_proposed_w = w.width;
                             w.last_proposed_h = w.height;
                         }
@@ -1100,7 +1118,7 @@ impl AppState {
             _proxy.render_finish();
             return;
         }
-        let border_width = self.border_width as i32;
+        let border_width = (self.border_width.min(i32::MAX as u32)) as i32;
         let (fr, fg, fb, fa) = hex_to_river_rgba(&self.border_color_focused);
         let (ur, ug, ub, ua) = hex_to_river_rgba(&self.border_color_unfocused);
         let focused_proxy = self.seats.values().find_map(|s| s.focused.clone());

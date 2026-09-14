@@ -626,6 +626,9 @@ impl AppState {
 
     /// Sets the padding around views in pixels (gaps).
     pub fn set_view_padding(&mut self, padding: u32) -> Result<String, String> {
+        if padding > i32::MAX as u32 {
+            return Err("view padding exceeds maximum allowed value".to_string());
+        }
         self.layout_config.view_padding = padding;
         self.manage_dirty();
         Ok(format!("view padding set to {padding}px"))
@@ -633,6 +636,9 @@ impl AppState {
 
     /// Sets the padding around the outer perimeter of the layout area.
     pub fn set_outer_padding(&mut self, padding: u32) -> Result<String, String> {
+        if padding > i32::MAX as u32 {
+            return Err("outer padding exceeds maximum allowed value".to_string());
+        }
         self.layout_config.outer_padding = padding;
         self.manage_dirty();
         Ok(format!("outer padding set to {padding}px"))
@@ -1122,6 +1128,9 @@ impl AppState {
             IpcCommand::ViewPadding(g) => self.set_view_padding(*g),
             IpcCommand::OuterPadding(p) => self.set_outer_padding(*p),
             IpcCommand::BorderWidth(w) => {
+                if *w > i32::MAX as u32 {
+                    return Err("border width exceeds maximum allowed value".to_string());
+                }
                 self.border_width = *w;
                 self.manage_dirty();
                 Ok(format!("border width set to {w}px"))
@@ -1203,6 +1212,11 @@ impl AppState {
                         if action.len() > 2 {
                             let w = action[1].parse::<u32>().map_err(|_| "Invalid width")?;
                             let h = action[2].parse::<u32>().map_err(|_| "Invalid height")?;
+                            if w > i32::MAX as u32 || h > i32::MAX as u32 {
+                                return Err(
+                                    "window dimensions exceed maximum allowed value".to_string()
+                                );
+                            }
                             dimensions = Some((w, h));
                         } else {
                             return Err(
@@ -1805,5 +1819,47 @@ mod tests {
         let res3 = state.handle_ipc_command(&IpcCommand::BorderColorFocused("#112233".into()));
         assert!(res3.is_ok());
         assert_eq!(state.border_color_focused, "#112233");
+    }
+
+    #[test]
+    fn test_i32_bounds_ipc_rejection() {
+        let mut state = AppState::new();
+
+        // Border width > i32::MAX rejected
+        let orig_bw = state.border_width;
+        let res = state.handle_ipc_command(&IpcCommand::BorderWidth(u32::MAX));
+        assert!(res.is_err());
+        assert_eq!(state.border_width, orig_bw);
+
+        // View padding > i32::MAX rejected
+        let orig_vp = state.layout_config.view_padding;
+        let res_vp = state.handle_ipc_command(&IpcCommand::ViewPadding(u32::MAX));
+        assert!(res_vp.is_err());
+        assert_eq!(state.layout_config.view_padding, orig_vp);
+
+        // Outer padding > i32::MAX rejected
+        let orig_op = state.layout_config.outer_padding;
+        let res_op = state.handle_ipc_command(&IpcCommand::OuterPadding(u32::MAX));
+        assert!(res_op.is_err());
+        assert_eq!(state.layout_config.outer_padding, orig_op);
+
+        // Dimensions > i32::MAX in rule-add rejected
+        let orig_rules_len = state.rules.len();
+        let res_rule = state.handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: Some("mpv".into()),
+            title: None,
+            action: vec!["dimensions".into(), "4294967295".into(), "600".into()],
+        });
+        assert!(res_rule.is_err());
+        assert_eq!(state.rules.len(), orig_rules_len);
+
+        // Valid dimensions accepted
+        let res_valid = state.handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: Some("mpv".into()),
+            title: None,
+            action: vec!["dimensions".into(), "960".into(), "540".into()],
+        });
+        assert!(res_valid.is_ok());
+        assert_eq!(state.rules.len(), orig_rules_len + 1);
     }
 }
