@@ -24,5 +24,5 @@ See [AGENTS.md](AGENTS.md) for the full architecture, coding guidelines, quality
 - **Sequential Checklist**: implement only the topmost unchecked item. Commit, push, and tick it before starting the next one.
 - **No Mid-Round Reviews**: keep the PR in draft and never invoke CodeRabbit/Greptile until every checklist item is ticked. CodeRabbit reviews incrementally and will not re-review earlier commits.
 - **Quality Gate Before Every Commit**: keep `mise run check:changed` green; never bypass hooks with `--no-verify` or suppress diagnostics with `#[allow]`/`-Wno-*`.
-- **Panic & Unsafe Policy**: production code denies `unwrap()` (`clippy::unwrap_used`) and `unsafe` (`unsafe_code`). Tests may use `unwrap()`; the only permitted `unsafe` is the audited `poll(2)` wrapper in `src/sys.rs`.
+- **Panic & Unsafe Policy**: production code denies `unwrap()` (`clippy::unwrap_used`) and `unsafe` (`unsafe_code`), with no exceptions. Tests may use `unwrap()`; syscalls go through the safe `rustix` bindings.
 - **Atomic Commits**: one commit per checklist item, squash-merged at the end.
