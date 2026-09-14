@@ -40,19 +40,20 @@ To maintain clear separation of concerns between functional task design and tool
                 +-------------------+-------------------+     |
                                     |                         |
                 +-------------------v-------------------+     |
-                | 4. Local Atomic Commit                |     |
+                | 4. Commit, Push & Tick the Item       |     |
                 |    git add <files>                    |     |
                 |    git commit -m "<type>(<scope>): ..."|    |
-                |    (Keep commit local)                |     |
+                |    git push origin <branch>          |     |
+                |    gh pr edit --body (check - [x])    |     |
+                |    (PR stays DRAFT)                   |     |
                 +-------------------+-------------------+     |
                                     | (Remaining tasks?)      |
                                     +-------- Yes ------------+
                                     | No
 +-----------------------------------v-------------------+
-| 5. Unified Push & Mark Ready                          |
-|    git push origin <branch>                           |
-|    gh pr edit --body (check all - [x])                |
-|    gh pr ready (awakens review bots:                  |
+| 5. Mark Ready (Only After ALL Items)                  |
+|    gh pr view --json body (all - [x])                 |
+|    gh pr ready (awakens review bots once:             |
 |                 CodeRabbit & Greptile)                |
 +-----------------------------------+-------------------+
                                     |
@@ -135,34 +136,34 @@ For each unchecked `- [ ]` task in order:
      ```bash
      mise bootstrap plan
      ```
-4. **Local Atomic Commit**:
-   Keep commits strictly atomic (one commit per `- [ ]` task) and keep them **local** during intermediate steps:
+4. **Commit, Push & Tick the Item**:
+   Keep commits strictly atomic (one commit per `- [ ]` task), publish immediately, and tick the checklist so the Draft PR always reflects real progress:
    ```bash
    git add <modified_files>
    git commit -m "<type>(<scope>): complete task N (#<issue_id>)"
+   git push origin <branch>
+   gh pr edit --body "... - [x] N. ..."
    ```
+   Keep the PR in **draft** while the round is in progress.
 
 ---
 
-### Phase 3: Final Validation & Unified Push
+### Phase 3: Mark Ready (Only After Every Item Is Complete)
 
-Once all tasks in the checklist are completed:
+Every checklist item must already be committed, pushed, and ticked in the Draft PR body before this phase:
 
 ```bash
-# 1. Push all completed atomic commits in one unified push
-git push origin <branch>
+# 1. Confirm every task in the Draft PR body is checked (- [x])
+gh pr view --json body -q .body
 
-# 2. Update Draft PR body to check off all completed tasks (- [x])
-gh pr edit --body "Closes #<issue_id>
-
-### Implementation Tasks
-- [x] 1. Core script / collector / configuration setup
-- [x] 2. UI / Widget implementation
-- [x] 3. Quality checks, formatting & shell/bootstrap integration"
-
-# 3. Mark PR ready for review (activates review bots: CodeRabbit, Greptile)
+# 2. Mark PR ready for review; this activates the review bots ONCE on the complete diff
+#    (CodeRabbit & Greptile)
 gh pr ready
 ```
+
+> **Never mark the PR ready, or invoke review bots, mid-round.** CodeRabbit is an incremental
+> reviewer and will not re-review earlier commits, so a partial review can silently miss later
+> changes. Finish the whole checklist while the PR stays a draft, then trigger a single review.
 
 ---
 
