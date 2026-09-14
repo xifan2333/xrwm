@@ -452,6 +452,20 @@ impl AppState {
         self.tag_state.occupied = mask;
     }
 
+    fn propose_initial_dimensions(&mut self) {
+        // Windows skipped by layout still need a proposal before River can map them.
+        for w in self.windows.iter_mut().filter(|w| {
+            !w.fullscreen && (w.last_proposed_w.is_none() || w.last_proposed_h.is_none())
+        }) {
+            w.proxy.propose_dimensions(
+                w.width.min(i32::MAX as u32) as i32,
+                w.height.min(i32::MAX as u32) as i32,
+            );
+            w.last_proposed_w = Some(w.width);
+            w.last_proposed_h = Some(w.height);
+        }
+    }
+
     pub fn handle_manage_start(&mut self, _proxy: &RiverWindowManagerV1, qh: &QueueHandle<Self>) {
         // Register any pending keybindings during the manage sequence
         if !self.pending_key_bindings.is_empty()
@@ -784,6 +798,7 @@ impl AppState {
 
         // 3. Arrange windows for each output
         if self.outputs.is_empty() {
+            self.propose_initial_dimensions();
             self.sync_occupied_tags();
             self.broadcast_status();
             _proxy.manage_finish();
@@ -1112,6 +1127,7 @@ impl AppState {
             }
         }
 
+        self.propose_initial_dimensions();
         self.sync_occupied_tags();
         self.broadcast_status();
         _proxy.manage_finish();
