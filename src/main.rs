@@ -76,7 +76,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::process::exit(1);
         }
     };
-    let _ipc_guard = ipc::IpcServerGuard::new(socket_path);
+    let _ipc_guard = ipc::IpcServerGuard::for_path(socket_path).ok();
     listener.set_nonblocking(true)?;
 
     // 3. Spawn ~/.config/xrwm/init once daemon and Wayland protocol are ready

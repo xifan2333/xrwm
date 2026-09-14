@@ -145,8 +145,8 @@ pub fn create_ipc_server_at(socket_path: &std::path::Path) -> std::io::Result<Un
                 let _ = std::fs::remove_file(socket_path);
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(_) => {
-                let _ = std::fs::remove_file(socket_path);
+            Err(e) => {
+                return Err(e);
             }
         }
     }
@@ -160,17 +160,31 @@ pub fn create_ipc_server() -> std::io::Result<UnixListener> {
 
 pub struct IpcServerGuard {
     path: PathBuf,
+    ino: u64,
+    dev: u64,
 }
 
 impl IpcServerGuard {
-    pub fn new(path: PathBuf) -> Self {
-        Self { path }
+    pub fn for_path(path: PathBuf) -> std::io::Result<Self> {
+        use std::os::unix::fs::MetadataExt;
+        let meta = std::fs::metadata(&path)?;
+        Ok(Self {
+            path,
+            ino: meta.ino(),
+            dev: meta.dev(),
+        })
     }
 }
 
 impl Drop for IpcServerGuard {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
+        use std::os::unix::fs::MetadataExt;
+        if let Ok(meta) = std::fs::metadata(&self.path)
+            && meta.ino() == self.ino
+            && meta.dev() == self.dev
+        {
+            let _ = std::fs::remove_file(&self.path);
+        }
     }
 }
 
@@ -1212,13 +1226,42 @@ mod tests {
         let socket_path = temp_dir.join(format!("xrwm-test-guard-{}.sock", std::process::id()));
         let _ = std::fs::remove_file(&socket_path);
 
-        let _listener = UnixListener::bind(&socket_path).unwrap();
+        let listener = UnixListener::bind(&socket_path).unwrap();
         assert!(socket_path.exists());
 
         {
-            let _guard = IpcServerGuard::new(socket_path.clone());
+            let _guard = IpcServerGuard::for_path(socket_path.clone()).unwrap();
         }
-        // Guard was dropped, file should be unlinked
+        // Guard was dropped and inode matched, file should be unlinked
         assert!(!socket_path.exists());
+        drop(listener);
+    }
+
+    #[test]
+    fn test_ipc_server_guard_does_not_unlink_replaced_socket() {
+        let temp_dir = std::env::temp_dir();
+        let socket_path = temp_dir.join(format!(
+            "xrwm-test-guard-replace-{}.sock",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&socket_path);
+
+        let listener = UnixListener::bind(&socket_path).unwrap();
+        let guard = IpcServerGuard::for_path(socket_path.clone()).unwrap();
+
+        // Simulate replacement: original file unlinked and replaced with a new inode
+        let _ = std::fs::remove_file(&socket_path);
+        let replacement_listener = UnixListener::bind(&socket_path).unwrap();
+
+        // When original guard drops, it must NOT delete the replacement socket
+        drop(guard);
+        assert!(
+            socket_path.exists(),
+            "Replacement socket was incorrectly unlinked by old guard"
+        );
+
+        let _ = std::fs::remove_file(&socket_path);
+        drop(listener);
+        drop(replacement_listener);
     }
 }
