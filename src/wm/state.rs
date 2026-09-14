@@ -925,7 +925,7 @@ impl AppState {
             .get_focused_output_id()
             .and_then(|id| self.outputs.get(&id))
             .map(|o| o.usable_area)
-            .unwrap_or_else(|| self.outputs.values().next().unwrap().usable_area);
+            .or_else(|| self.outputs.values().next().map(|o| o.usable_area));
 
         // 4. Interactive pointer operations (Move / Resize)
         for seat in self.seats.values_mut() {
@@ -996,6 +996,9 @@ impl AppState {
                     }
                 }
                 SeatOp::TiledResize { start_ratio } => {
+                    let Some(focused_out_area) = focused_out_area else {
+                        continue;
+                    };
                     let usable_w = focused_out_area.width as f32;
                     let usable_h = focused_out_area.height as f32;
                     match self.layout_config.main_location {
@@ -1022,6 +1025,9 @@ impl AppState {
                     }
                 }
                 SeatOp::TiledStackResize { start_ratio } => {
+                    let Some(focused_out_area) = focused_out_area else {
+                        continue;
+                    };
                     let usable_w = focused_out_area.width as f32;
                     let usable_h = focused_out_area.height as f32;
                     match self.layout_config.main_location {

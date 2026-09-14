@@ -2,6 +2,7 @@ pub mod animation;
 pub mod ipc;
 pub mod layout;
 pub mod protocol;
+pub mod sys;
 pub mod tag;
 pub mod wm;
 
@@ -85,7 +86,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let wayland_fd = conn.as_fd().as_raw_fd();
     let ipc_fd = listener.as_raw_fd();
 
-    // 4. Solid single-threaded event loop with libc::poll
+    // 4. Solid single-threaded event loop with poll(2)
     while !state.should_exit {
         // Dispatch pending events in the queue
         if let Err(e) = event_queue.dispatch_pending(&mut state) {
@@ -129,7 +130,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             -1
         };
 
-        let ret = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, timeout) };
+        let ret = match sys::poll(&mut fds, timeout) {
+            Ok(ready) => ready as i32,
+            // A failed poll (including EINTR) is a no-op tick.
+            Err(_) => -1,
+        };
 
         if ret == 0 {
             drop(guard);
