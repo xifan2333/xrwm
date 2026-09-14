@@ -68,13 +68,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // 2. Create IPC UNIX domain socket server after confirming Wayland connection and WM ownership
-    let listener = match ipc::create_ipc_server() {
+    let socket_path = ipc::get_socket_path();
+    let listener = match ipc::create_ipc_server_at(&socket_path) {
         Ok(l) => l,
         Err(e) => {
             eprintln!("Failed to bind IPC socket: {e}");
             std::process::exit(1);
         }
     };
+    let _ipc_guard = ipc::IpcServerGuard::new(socket_path);
     listener.set_nonblocking(true)?;
 
     // 3. Spawn ~/.config/xrwm/init once daemon and Wayland protocol are ready

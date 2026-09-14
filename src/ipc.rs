@@ -158,6 +158,22 @@ pub fn create_ipc_server() -> std::io::Result<UnixListener> {
     create_ipc_server_at(&socket_path)
 }
 
+pub struct IpcServerGuard {
+    path: PathBuf,
+}
+
+impl IpcServerGuard {
+    pub fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+}
+
+impl Drop for IpcServerGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
 pub fn read_ipc_request(
     stream: &mut UnixStream,
     deadline: std::time::Instant,
@@ -1137,5 +1153,72 @@ mod tests {
                 && elapsed < std::time::Duration::from_millis(80),
             "Expected elapsed around 20ms, got {elapsed:?}"
         );
+    }
+
+    #[test]
+    fn test_create_ipc_server_protects_active_socket() {
+        let temp_dir = std::env::temp_dir();
+        let socket_path = temp_dir.join(format!("xrwm-test-active-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&socket_path);
+
+        let listener = create_ipc_server_at(&socket_path).unwrap();
+
+        // Attempting to bind another server on the active socket must fail with AddrInUse
+        let second_res = create_ipc_server_at(&socket_path);
+        assert!(second_res.is_err());
+        assert_eq!(
+            second_res.unwrap_err().kind(),
+            std::io::ErrorKind::AddrInUse
+        );
+
+        // The probe connection from second_res was queued in listener's backlog
+        let (probe_conn, _) = listener.accept().unwrap();
+        drop(probe_conn);
+
+        // Verify the original listener is still active and can accept connections
+        let mut client = UnixStream::connect(&socket_path).unwrap();
+        client.write_all(b"test").unwrap();
+        let (mut accepted, _) = listener.accept().unwrap();
+        let mut buf = [0u8; 4];
+        accepted.read_exact(&mut buf).unwrap();
+        assert_eq!(&buf, b"test");
+
+        let _ = std::fs::remove_file(&socket_path);
+    }
+
+    #[test]
+    fn test_create_ipc_server_cleans_stale_socket() {
+        let temp_dir = std::env::temp_dir();
+        let socket_path = temp_dir.join(format!("xrwm-test-stale-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&socket_path);
+
+        // Create a listener and immediately drop it, leaving a stale socket file
+        {
+            let _l = UnixListener::bind(&socket_path).unwrap();
+        }
+        assert!(socket_path.exists());
+
+        // create_ipc_server_at should recognize it is stale, remove it, and successfully bind
+        let listener = create_ipc_server_at(&socket_path).unwrap();
+        assert!(socket_path.exists());
+
+        let _ = std::fs::remove_file(&socket_path);
+        drop(listener);
+    }
+
+    #[test]
+    fn test_ipc_server_guard_drop_cleans_socket() {
+        let temp_dir = std::env::temp_dir();
+        let socket_path = temp_dir.join(format!("xrwm-test-guard-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&socket_path);
+
+        let _listener = UnixListener::bind(&socket_path).unwrap();
+        assert!(socket_path.exists());
+
+        {
+            let _guard = IpcServerGuard::new(socket_path.clone());
+        }
+        // Guard was dropped, file should be unlinked
+        assert!(!socket_path.exists());
     }
 }
