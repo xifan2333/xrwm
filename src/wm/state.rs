@@ -1,7 +1,6 @@
 //! Central application state machine for xrwm.
 
 use std::collections::HashMap;
-use std::io::Write;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 
@@ -1232,10 +1231,17 @@ impl AppState {
         if self.status_listeners.is_empty() {
             return;
         }
+        let broadcast_deadline = std::time::Instant::now() + std::time::Duration::from_millis(10);
         let json_status = self.format_json_status();
         let waybar_status = self.format_waybar_status();
 
         self.status_listeners.retain_mut(|(client, fmt)| {
+            let now = std::time::Instant::now();
+            if now >= broadcast_deadline {
+                return false;
+            }
+            let client_deadline =
+                (now + std::time::Duration::from_millis(2)).min(broadcast_deadline);
             let text = if fmt.as_deref() == Some("waybar") {
                 &waybar_status
             } else {
@@ -1243,7 +1249,8 @@ impl AppState {
             };
             let mut msg = text.clone();
             msg.push('\n');
-            client.write_all(msg.as_bytes()).is_ok()
+            let _ = client.set_nonblocking(true);
+            crate::ipc::write_ipc_response(client, msg.as_bytes(), client_deadline).is_ok()
         });
     }
 
