@@ -53,17 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut state = AppState::new();
 
-    // 1. Create IPC UNIX domain socket server
-    let listener = match ipc::create_ipc_server() {
-        Ok(l) => l,
-        Err(e) => {
-            eprintln!("Failed to bind IPC socket: {e}");
-            std::process::exit(1);
-        }
-    };
-    listener.set_nonblocking(true)?;
-
-    // 2. Connect to Wayland server (River)
+    // 1. Connect to Wayland server (River)
     let conn = Connection::connect_to_env()?;
     let display = conn.display();
     let mut event_queue = conn.new_event_queue();
@@ -76,6 +66,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("river_window_manager_v1 global not found! Is river running?");
         std::process::exit(1);
     }
+
+    // 2. Create IPC UNIX domain socket server after confirming Wayland connection and WM ownership
+    let listener = match ipc::create_ipc_server() {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("Failed to bind IPC socket: {e}");
+            std::process::exit(1);
+        }
+    };
+    listener.set_nonblocking(true)?;
 
     // 3. Spawn ~/.config/xrwm/init once daemon and Wayland protocol are ready
     spawn_init_script();
