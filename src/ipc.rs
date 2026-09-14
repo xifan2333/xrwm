@@ -1267,4 +1267,11 @@ mod tests {
         drop(listener);
         drop(replacement_listener);
     }
+
+    #[test]
+    fn test_parse_cli_args_border_color_validation() {
+        assert!(parse_cli_args(&["border-color-focused".into(), "你好".into()]).is_err());
+        assert!(parse_cli_args(&["border-color-focused".into(), "#123".into()]).is_err());
+        assert!(parse_cli_args(&["border-color-focused".into(), "#61afef".into()]).is_ok());
+    }
 }

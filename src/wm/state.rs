@@ -1446,4 +1446,44 @@ mod tests {
         // Broken pipe subscriber should be evicted, while healthy one remains
         assert_eq!(state.status_listeners.len(), 1);
     }
+
+    #[test]
+    fn test_parse_hex_color_valid() {
+        assert!(parse_hex_color("#61afef").is_ok());
+        assert!(parse_hex_color("0x61afef").is_ok());
+        assert!(parse_hex_color("61afef").is_ok());
+        assert!(parse_hex_color("#61afef80").is_ok());
+        assert!(parse_hex_color("0x61afef80").is_ok());
+        assert!(parse_hex_color("61afef80").is_ok());
+
+        let (r, g, b, a) = parse_hex_color("#ffffff").unwrap();
+        assert_eq!(r, u32::MAX);
+        assert_eq!(g, u32::MAX);
+        assert_eq!(b, u32::MAX);
+        assert_eq!(a, u32::MAX);
+    }
+
+    #[test]
+    fn test_parse_hex_color_invalid() {
+        // Non-ASCII string (would panic with naive slicing)
+        assert!(parse_hex_color("你好").is_err());
+        assert_eq!(
+            hex_to_river_rgba("你好"),
+            (u32::MAX, u32::MAX, u32::MAX, u32::MAX)
+        );
+
+        // Invalid hex characters
+        assert!(parse_hex_color("#12345z").is_err());
+        assert!(parse_hex_color("0xhello!").is_err());
+
+        // Too short
+        assert!(parse_hex_color("").is_err());
+        assert!(parse_hex_color("#123").is_err());
+        assert!(parse_hex_color("0x").is_err());
+        assert!(parse_hex_color("#12345").is_err());
+
+        // Too long
+        assert!(parse_hex_color("#1234567").is_err());
+        assert!(parse_hex_color("#123456789").is_err());
+    }
 }
