@@ -1,7 +1,6 @@
 //! Central application state machine for xrwm.
 
 use std::collections::HashMap;
-use std::io::Write;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 
@@ -1232,10 +1231,18 @@ impl AppState {
         if self.status_listeners.is_empty() {
             return;
         }
+        let broadcast_deadline = std::time::Instant::now() + std::time::Duration::from_millis(10);
         let json_status = self.format_json_status();
         let waybar_status = self.format_waybar_status();
 
         self.status_listeners.retain_mut(|(client, fmt)| {
+            let now = std::time::Instant::now();
+            if now >= broadcast_deadline {
+                // Do not evict healthy listeners whose writes were not attempted due to deadline exhaustion
+                return true;
+            }
+            let client_deadline =
+                (now + std::time::Duration::from_millis(2)).min(broadcast_deadline);
             let text = if fmt.as_deref() == Some("waybar") {
                 &waybar_status
             } else {
@@ -1243,7 +1250,8 @@ impl AppState {
             };
             let mut msg = text.clone();
             msg.push('\n');
-            client.write_all(msg.as_bytes()).is_ok()
+            let _ = client.set_nonblocking(true);
+            crate::ipc::write_ipc_response(client, msg.as_bytes(), client_deadline).is_ok()
         });
     }
 
@@ -1378,5 +1386,34 @@ mod tests {
         // When 3 windows exist, no focus
         assert_eq!(AttachMode::Above.calculate_insert_index(None, len), 0);
         assert_eq!(AttachMode::Below.calculate_insert_index(None, len), 3);
+    }
+
+    #[test]
+    fn test_broadcast_status_preserves_healthy_subscribers() {
+        let mut state = AppState::new();
+        let (server1, _client1) = UnixStream::pair().unwrap();
+        let (server2, _client2) = UnixStream::pair().unwrap();
+
+        state.status_listeners.push((server1, None));
+        state.status_listeners.push((server2, None));
+
+        state.broadcast_status();
+        assert_eq!(state.status_listeners.len(), 2);
+    }
+
+    #[test]
+    fn test_broadcast_status_drops_broken_pipe_subscriber() {
+        let mut state = AppState::new();
+        let (server1, client1) = UnixStream::pair().unwrap();
+        let (server2, _client2) = UnixStream::pair().unwrap();
+
+        drop(client1); // peer disconnected
+
+        state.status_listeners.push((server1, None));
+        state.status_listeners.push((server2, None));
+
+        state.broadcast_status();
+        // Broken pipe subscriber should be evicted, while healthy one remains
+        assert_eq!(state.status_listeners.len(), 1);
     }
 }
