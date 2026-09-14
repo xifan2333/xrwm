@@ -49,7 +49,7 @@ xrwm/
 ├── Cargo.toml               # 包规范与体积优化编译配置
 ├── Makefile                 # 标准 Unix FHS 系统安装规则
 ├── mise.toml                # 开发者工具与质量门禁任务
-├── hk.pkl                   # Git pre-commit 钩子规范 (rustfmt, clippy, taplo, prettier)
+├── hk.pkl                   # Git pre-commit 钩子规范 (rustfmt, clippy, prettier)
 ├── protocols/               # Wayland & River XML 协议定义
 ├── doc/
 │   ├── xrwm.1.md            # 官方 UNIX Man 手册 Markdown 源码
@@ -186,7 +186,7 @@ man xrwm
 
 ```bash
 mise run check:plan     # 预览静态检查执行计划
-mise run check:changed  # 针对变更文件执行 rustfmt、clippy 与 taplo 检查
+mise run check:changed  # 针对变更文件执行 rustfmt、clippy 与 prettier 检查
 mise run fix            # 自动修复格式化问题
 mise run build          # 编译 Debug 二进制
 mise run build:release  # 编译优化版 Release 二进制
