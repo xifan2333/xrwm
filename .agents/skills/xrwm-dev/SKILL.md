@@ -27,7 +27,7 @@ See [`references/issue-pr-workflow.md`](references/issue-pr-workflow.md) for ful
 
 ```bash
 mise run check:plan     # preview linter execution plan
-mise run check:changed  # run rustfmt, clippy, taplo on modified files
+mise run check:changed  # run rustfmt, clippy, prettier on modified files
 mise run fix            # auto-format with hk
 mise run build          # cargo build
 mise run test           # cargo test

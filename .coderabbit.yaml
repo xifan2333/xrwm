@@ -12,6 +12,6 @@ reviews:
     github-checks:
       enabled: true
     shellcheck:
-      enabled: true
+      enabled: false
 chat:
   auto_reply: true

@@ -26,8 +26,7 @@ This repository uses **hk** (`hk.pkl`) for git hooks and code quality checks:
 - **Rust formatting**: `rustfmt` (via `Builtins.rustfmt` or `cargo fmt`)
 - **Rust linting**: `cargo clippy --all-targets -- -D warnings`
 - **No panics or `unsafe`**: production code denies `unwrap()` (`clippy::unwrap_used`) and `unsafe` (`unsafe_code`), with no exceptions. Tests may use `unwrap()`; syscalls go through the safe `rustix` bindings.
-- **TOML**: `taplo` (with `--no-schema`)
-- **Shell / Markdown**: `shellcheck`, `shfmt`, `prettier`
+- **Markdown / YAML / JSON**: `prettier`
 
 Run scoped checks during development:
 

@@ -49,7 +49,7 @@ xrwm/
 ├── Cargo.toml               # Package spec with size-optimized release profile
 ├── Makefile                 # Standard FHS installation rules
 ├── mise.toml                # Developer tools & quality tasks (hk, cargo, linters)
-├── hk.pkl                   # Quality gates (rustfmt, clippy, taplo, prettier)
+├── hk.pkl                   # Quality gates (rustfmt, clippy, prettier)
 ├── protocols/               # Wayland & River protocol XML definitions
 ├── doc/
 │   ├── xrwm.1.md            # Official man page Markdown source
@@ -186,7 +186,7 @@ This repository strictly adheres to the **Issue + Draft PR** lifecycle with auto
 
 ```bash
 mise run check:plan     # preview linter execution plan
-mise run check:changed  # run rustfmt, clippy, taplo on modified files
+mise run check:changed  # run rustfmt, clippy, prettier on modified files
 mise run fix            # auto-format modified files
 mise run build          # compile debug binary
 mise run build:release  # compile optimized release binary
