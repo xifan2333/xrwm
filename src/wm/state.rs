@@ -30,19 +30,49 @@ use crate::wm::seat::{PointerAction, SeatItem, SeatOp};
 
 pub const MIN_WINDOW_DIMENSION: u32 = 100;
 
-pub fn hex_to_river_rgba(hex_str: &str) -> (u32, u32, u32, u32) {
+pub fn parse_hex_color(hex_str: &str) -> Result<(u32, u32, u32, u32), String> {
     let h = hex_str
         .trim_start_matches("0x")
         .trim_start_matches('#')
         .trim();
-    if h.len() < 6 {
-        return (u32::MAX, u32::MAX, u32::MAX, u32::MAX);
+
+    if !h.is_ascii() || !h.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(format!(
+            "Color '{hex_str}' contains non-hexadecimal characters"
+        ));
     }
-    let r = u32::from_str_radix(&h[0..2], 16).unwrap_or(255) * (u32::MAX / 255);
-    let g = u32::from_str_radix(&h[2..4], 16).unwrap_or(255) * (u32::MAX / 255);
-    let b = u32::from_str_radix(&h[4..6], 16).unwrap_or(255) * (u32::MAX / 255);
-    let a = u32::MAX;
-    (r, g, b, a)
+
+    match h.len() {
+        6 => {
+            let r =
+                u32::from_str_radix(&h[0..2], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
+            let g =
+                u32::from_str_radix(&h[2..4], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
+            let b =
+                u32::from_str_radix(&h[4..6], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
+            let a = u32::MAX;
+            Ok((r, g, b, a))
+        }
+        8 => {
+            let r =
+                u32::from_str_radix(&h[0..2], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
+            let g =
+                u32::from_str_radix(&h[2..4], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
+            let b =
+                u32::from_str_radix(&h[4..6], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
+            let a =
+                u32::from_str_radix(&h[6..8], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
+            Ok((r, g, b, a))
+        }
+        _ => Err(format!(
+            "Color '{hex_str}' has invalid length (expected 6 or 8 hex digits, got {})",
+            h.len()
+        )),
+    }
+}
+
+pub fn hex_to_river_rgba(hex_str: &str) -> (u32, u32, u32, u32) {
+    parse_hex_color(hex_str).unwrap_or((u32::MAX, u32::MAX, u32::MAX, u32::MAX))
 }
 
 pub fn glob_match(pattern: &str, text: &str) -> bool {
