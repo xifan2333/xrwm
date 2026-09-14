@@ -1820,4 +1820,46 @@ mod tests {
         assert!(res3.is_ok());
         assert_eq!(state.border_color_focused, "#112233");
     }
+
+    #[test]
+    fn test_i32_bounds_ipc_rejection() {
+        let mut state = AppState::new();
+
+        // Border width > i32::MAX rejected
+        let orig_bw = state.border_width;
+        let res = state.handle_ipc_command(&IpcCommand::BorderWidth(u32::MAX));
+        assert!(res.is_err());
+        assert_eq!(state.border_width, orig_bw);
+
+        // View padding > i32::MAX rejected
+        let orig_vp = state.layout_config.view_padding;
+        let res_vp = state.handle_ipc_command(&IpcCommand::ViewPadding(u32::MAX));
+        assert!(res_vp.is_err());
+        assert_eq!(state.layout_config.view_padding, orig_vp);
+
+        // Outer padding > i32::MAX rejected
+        let orig_op = state.layout_config.outer_padding;
+        let res_op = state.handle_ipc_command(&IpcCommand::OuterPadding(u32::MAX));
+        assert!(res_op.is_err());
+        assert_eq!(state.layout_config.outer_padding, orig_op);
+
+        // Dimensions > i32::MAX in rule-add rejected
+        let orig_rules_len = state.rules.len();
+        let res_rule = state.handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: Some("mpv".into()),
+            title: None,
+            action: vec!["dimensions".into(), "4294967295".into(), "600".into()],
+        });
+        assert!(res_rule.is_err());
+        assert_eq!(state.rules.len(), orig_rules_len);
+
+        // Valid dimensions accepted
+        let res_valid = state.handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: Some("mpv".into()),
+            title: None,
+            action: vec!["dimensions".into(), "960".into(), "540".into()],
+        });
+        assert!(res_valid.is_ok());
+        assert_eq!(state.rules.len(), orig_rules_len + 1);
+    }
 }

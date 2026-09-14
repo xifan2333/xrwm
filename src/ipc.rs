@@ -1283,4 +1283,17 @@ mod tests {
         assert!(parse_cli_args(&["border-color-focused".into(), "#123".into()]).is_err());
         assert!(parse_cli_args(&["border-color-focused".into(), "#61afef".into()]).is_ok());
     }
+
+    #[test]
+    fn test_parse_cli_args_i32_bounds_validation() {
+        // Values > i32::MAX should be rejected
+        assert!(parse_cli_args(&["border-width".into(), "4294967295".into()]).is_err());
+        assert!(parse_cli_args(&["view-padding".into(), "4294967295".into()]).is_err());
+        assert!(parse_cli_args(&["outer-padding".into(), "4294967295".into()]).is_err());
+
+        // Valid values should succeed
+        assert!(parse_cli_args(&["border-width".into(), "4".into()]).is_ok());
+        assert!(parse_cli_args(&["view-padding".into(), "8".into()]).is_ok());
+        assert!(parse_cli_args(&["outer-padding".into(), "12".into()]).is_ok());
+    }
 }
