@@ -2,12 +2,12 @@ pub mod animation;
 pub mod ipc;
 pub mod layout;
 pub mod protocol;
-pub mod sys;
 pub mod tag;
 pub mod wm;
 
-use std::os::unix::io::{AsFd, AsRawFd};
+use std::os::fd::AsFd;
 
+use rustix::event::{PollFd, PollFlags, Timespec};
 use wayland_client::Connection;
 use wm::AppState;
 use wm::spawn_init_script;
@@ -83,8 +83,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 3. Spawn ~/.config/xrwm/init once daemon and Wayland protocol are ready
     spawn_init_script();
 
-    let wayland_fd = conn.as_fd().as_raw_fd();
-    let ipc_fd = listener.as_raw_fd();
+    let wayland_fd = conn.as_fd();
+    let ipc_fd = listener.as_fd();
 
     // 4. Solid single-threaded event loop with poll(2)
     while !state.should_exit {
@@ -104,16 +104,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         let mut fds = [
-            libc::pollfd {
-                fd: wayland_fd,
-                events: libc::POLLIN,
-                revents: 0,
-            },
-            libc::pollfd {
-                fd: ipc_fd,
-                events: libc::POLLIN,
-                revents: 0,
-            },
+            PollFd::from_borrowed_fd(wayland_fd, PollFlags::IN),
+            PollFd::from_borrowed_fd(ipc_fd, PollFlags::IN),
         ];
 
         // Animation and cursor hide timeout clock
@@ -130,7 +122,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             -1
         };
 
-        let ret = match sys::poll(&mut fds, timeout) {
+        let timeout_spec = if timeout < 0 {
+            None
+        } else {
+            Some(Timespec {
+                tv_sec: i64::from(timeout / 1000),
+                tv_nsec: (i64::from(timeout % 1000) * 1_000_000) as _,
+            })
+        };
+
+        let ret = match rustix::event::poll(&mut fds, timeout_spec.as_ref()) {
             Ok(ready) => ready as i32,
             // A failed poll (including EINTR) is a no-op tick.
             Err(_) => -1,
@@ -150,7 +151,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             continue;
         } else if ret > 0 {
-            if fds[0].revents & libc::POLLIN != 0 {
+            if fds[0].revents().contains(PollFlags::IN) {
                 if let Err(e) = guard.read() {
                     tracing::error!("Read events error: {:?}", e);
                     break;
@@ -160,7 +161,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             // IPC commands with bounded aggregate processing budget
-            if fds[1].revents & libc::POLLIN != 0 {
+            if fds[1].revents().contains(PollFlags::IN) {
                 let ipc_deadline = std::time::Instant::now()
                     + std::time::Duration::from_millis(ipc::IPC_TOTAL_BUDGET_MS);
                 let mut processed = 0;
