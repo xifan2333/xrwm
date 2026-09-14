@@ -402,10 +402,14 @@ impl AppState {
                     w.width = width;
                     w.height = height;
                     if let Some(usable) = usable_area {
-                        let cx =
-                            usable.x + (((usable.width as i64 - width as i64) / 2).max(0)) as i32;
-                        let cy =
-                            usable.y + (((usable.height as i64 - height as i64) / 2).max(0)) as i32;
+                        let cx = (usable.x as i64
+                            + ((usable.width as i64 - width as i64) / 2).max(0))
+                        .clamp(i32::MIN as i64, i32::MAX as i64)
+                            as i32;
+                        let cy = (usable.y as i64
+                            + ((usable.height as i64 - height as i64) / 2).max(0))
+                        .clamp(i32::MIN as i64, i32::MAX as i64)
+                            as i32;
                         w.x = cx;
                         w.y = cy;
                         w.float_geo = Some(Rect::new(cx, cy, width, height));
@@ -862,8 +866,12 @@ impl AppState {
                 if w.new {
                     let start_w = ((target.width as u64 * 7 / 10) as u32).max(10);
                     let start_h = ((target.height as u64 * 7 / 10) as u32).max(10);
-                    let start_x = target.x + ((target.width as i64 - start_w as i64) / 2) as i32;
-                    let start_y = target.y + ((target.height as i64 - start_h as i64) / 2) as i32;
+                    let start_x = (target.x as i64 + (target.width as i64 - start_w as i64) / 2)
+                        .clamp(i32::MIN as i64, i32::MAX as i64)
+                        as i32;
+                    let start_y = (target.y as i64 + (target.height as i64 - start_h as i64) / 2)
+                        .clamp(i32::MIN as i64, i32::MAX as i64)
+                        as i32;
                     w.anim_start_geo = Some(Rect::new(start_x, start_y, start_w, start_h));
                     w.anim_target_geo = Some(target);
                     any_geo_changed = true;
