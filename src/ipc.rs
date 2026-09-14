@@ -132,12 +132,30 @@ pub fn get_socket_path() -> PathBuf {
     PathBuf::from(xdg).join(format!("xrwm-{display}.sock"))
 }
 
+pub fn create_ipc_server_at(socket_path: &std::path::Path) -> std::io::Result<UnixListener> {
+    if socket_path.exists() {
+        match UnixStream::connect(socket_path) {
+            Ok(_) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::AddrInUse,
+                    format!("Another xrwm instance is already listening on {socket_path:?}"),
+                ));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::ConnectionRefused => {
+                let _ = std::fs::remove_file(socket_path);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => {
+                let _ = std::fs::remove_file(socket_path);
+            }
+        }
+    }
+    UnixListener::bind(socket_path)
+}
+
 pub fn create_ipc_server() -> std::io::Result<UnixListener> {
     let socket_path = get_socket_path();
-    if socket_path.exists() {
-        let _ = std::fs::remove_file(&socket_path);
-    }
-    UnixListener::bind(&socket_path)
+    create_ipc_server_at(&socket_path)
 }
 
 pub fn read_ipc_request(
