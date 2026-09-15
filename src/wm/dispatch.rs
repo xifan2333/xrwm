@@ -107,6 +107,7 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                     node,
                     initial_managed: false,
                     initial_rendered: false,
+                    last_applied_ssd: None,
                     closed: false,
                     app_id: None,
                     title: None,
