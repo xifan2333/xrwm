@@ -3,6 +3,7 @@
 use std::os::fd::{OwnedFd, RawFd};
 use std::os::unix::net::UnixStream;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use wayland_backend::protocol::{Argument, Message};
 use wayland_backend::server::{
@@ -185,6 +186,33 @@ impl Harness {
         assert_eq!(last.opcode, wm::REQ_MANAGE_FINISH_OPCODE);
     }
 
+    fn render(&mut self) {
+        self.server.requests.clear();
+        self.event(
+            self.server.manager.as_ref().unwrap(),
+            wm::EVT_RENDER_START_OPCODE,
+            vec![],
+        );
+        self.dispatch_events();
+        let last = self.server.requests.last().unwrap();
+        assert_eq!(Some(&last.sender_id), self.server.manager.as_ref());
+        assert_eq!(last.opcode, wm::REQ_RENDER_FINISH_OPCODE);
+    }
+
+    fn has_wm_request(&self, opcode: u16) -> bool {
+        self.server
+            .requests
+            .iter()
+            .any(|msg| Some(&msg.sender_id) == self.server.manager.as_ref() && msg.opcode == opcode)
+    }
+
+    fn has_window_request(&self, id: &ObjectId, opcode: u16) -> bool {
+        self.server
+            .requests
+            .iter()
+            .any(|msg| msg.sender_id == *id && msg.opcode == opcode)
+    }
+
     fn proposals(&self, id: &ObjectId) -> Vec<(i32, i32)> {
         self.server
             .requests
@@ -316,4 +344,140 @@ fn closed_window_does_not_get_an_initial_proposal() {
     harness.manage();
     assert!(harness.proposals(&window).is_empty());
     assert!(harness.state.windows.is_empty());
+}
+
+#[test]
+fn hidden_floating_window_does_not_loop_manage_dirty_or_restart_animation() {
+    let mut harness = Harness::new();
+    harness.state.anim.enabled = true;
+    harness.state.anim.duration = Duration::from_millis(150);
+    harness.add_output();
+
+    harness.rule(&["tags", "2"]);
+    harness.rule(&["float"]);
+    harness.rule(&["dimensions", "800", "600"]);
+
+    let window = harness.add_window();
+    assert!(!harness.state.windows[0].initial_managed);
+    assert!(!harness.state.windows[0].initial_rendered);
+
+    // Initial manage sequence
+    harness.manage();
+    assert!(harness.state.windows[0].initial_managed);
+    assert!(!harness.state.windows[0].initial_rendered);
+    assert!(!harness.state.anim.is_animating());
+    assert!(!harness.has_wm_request(wm::REQ_MANAGE_DIRTY_OPCODE));
+    assert_eq!(harness.proposals(&window), [(800, 600)]);
+    assert!(harness.has_window_request(&window, window::REQ_USE_SSD_OPCODE));
+
+    // Render sequence while window is on hidden tag
+    harness.render();
+    assert!(!harness.state.windows[0].initial_rendered);
+
+    // Subsequent manage cycles should remain completely idle
+    for _ in 0..3 {
+        harness.manage();
+        assert!(!harness.state.anim.is_animating());
+        assert!(!harness.has_wm_request(wm::REQ_MANAGE_DIRTY_OPCODE));
+        assert!(harness.proposals(&window).is_empty());
+        assert!(!harness.has_window_request(&window, window::REQ_USE_SSD_OPCODE));
+        harness.render();
+        assert!(!harness.state.windows[0].initial_rendered);
+    }
+}
+
+#[test]
+fn hidden_floating_window_recovers_to_idle_when_existing_animation_expires() {
+    let mut harness = Harness::new();
+    harness.state.anim.enabled = true;
+    harness.state.anim.duration = Duration::from_millis(150);
+    harness.add_output();
+
+    // Window 1 on visible tag (tag 1)
+    harness.rule(&["float"]);
+    let _win1 = harness.add_window();
+    harness.manage();
+    assert!(harness.state.anim.is_animating());
+    assert!(harness.has_wm_request(wm::REQ_MANAGE_DIRTY_OPCODE));
+
+    // Window 2 on hidden tag (tag 2)
+    harness.rule(&["tags", "2"]);
+    let _win2 = harness.add_window();
+
+    // Simulate animation duration elapsed
+    harness.state.anim.start_time = Some(Instant::now() - Duration::from_millis(200));
+
+    // Manage pass: window 2 completes initial manage without restarting animation;
+    // expired animation allows event loop to recover to idle.
+    harness.manage();
+    assert!(!harness.state.anim.is_animating());
+    assert!(!harness.has_wm_request(wm::REQ_MANAGE_DIRTY_OPCODE));
+}
+
+#[test]
+fn hidden_floating_window_rendered_lifecycle_on_tag_switch() {
+    let mut harness = Harness::new();
+    harness.add_output();
+
+    harness.rule(&["tags", "2"]);
+    harness.rule(&["float"]);
+    let _win = harness.add_window();
+
+    harness.manage();
+    harness.render();
+    assert!(harness.state.windows[0].initial_managed);
+    assert!(!harness.state.windows[0].initial_rendered);
+
+    // Switch focus to tag 2
+    harness.state.tag_state.focused = 2;
+    harness.manage();
+    harness.render();
+    assert!(harness.state.windows[0].initial_managed);
+    assert!(harness.state.windows[0].initial_rendered);
+}
+
+#[test]
+fn hidden_tiled_window_lifecycle_and_tag_switch() {
+    let mut harness = Harness::new();
+    harness.state.anim.enabled = true;
+    harness.state.anim.duration = Duration::from_millis(150);
+    harness.add_output();
+
+    harness.rule(&["tags", "2"]);
+    let window = harness.add_window();
+
+    assert!(!harness.state.windows[0].initial_managed);
+    assert!(!harness.state.windows[0].initial_rendered);
+
+    // Initial manage sequence while tiled window is on hidden tag
+    harness.manage();
+    assert!(harness.state.windows[0].initial_managed);
+    assert!(!harness.state.windows[0].initial_rendered);
+    assert!(!harness.state.anim.is_animating());
+    assert!(!harness.has_wm_request(wm::REQ_MANAGE_DIRTY_OPCODE));
+    assert_eq!(harness.proposals(&window), [(0, 0)]);
+    assert!(harness.has_window_request(&window, window::REQ_USE_SSD_OPCODE));
+
+    harness.render();
+    assert!(!harness.state.windows[0].initial_rendered);
+
+    // Subsequent manage cycles while hidden should remain idle
+    for _ in 0..2 {
+        harness.manage();
+        assert!(!harness.state.anim.is_animating());
+        assert!(!harness.has_wm_request(wm::REQ_MANAGE_DIRTY_OPCODE));
+        assert!(harness.proposals(&window).is_empty());
+        assert!(!harness.has_window_request(&window, window::REQ_USE_SSD_OPCODE));
+    }
+
+    // Switch focus to tag 2
+    harness.state.tag_state.focused = 2;
+    harness.manage();
+    let proposals = harness.proposals(&window);
+    assert_eq!(proposals.len(), 1);
+    assert!(proposals[0].0 > 0 && proposals[0].1 > 0);
+
+    harness.render();
+    assert!(harness.state.windows[0].initial_managed);
+    assert!(harness.state.windows[0].initial_rendered);
 }
