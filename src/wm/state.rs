@@ -158,7 +158,8 @@ pub struct WindowItem {
     pub id: u32,
     pub proxy: RiverWindowV1,
     pub node: RiverNodeV1,
-    pub new: bool,
+    pub initial_managed: bool,
+    pub initial_rendered: bool,
     pub closed: bool,
     pub app_id: Option<String>,
     pub title: Option<String>,
@@ -838,7 +839,7 @@ impl AppState {
                 if let Some(rect) = rects.get(slot) {
                     let w = &mut self.windows[idx];
                     let target = *rect;
-                    if w.new {
+                    if !w.initial_managed {
                         let start_w = (target.width * 7 / 10).max(10);
                         let start_h = (target.height * 7 / 10).max(10);
                         let start_x = target.x + (target.width as i32 - start_w as i32) / 2;
@@ -879,24 +880,36 @@ impl AppState {
             .iter_mut()
             .filter(|w| w.floating && !w.fullscreen)
         {
+            let is_visible = tag_state.is_view_visible(w.tags);
             let target = Rect::new(w.x, w.y, w.width, w.height);
             if !is_any_pointer_op {
-                if w.new {
-                    let start_w = ((target.width as u64 * 7 / 10) as u32).max(10);
-                    let start_h = ((target.height as u64 * 7 / 10) as u32).max(10);
-                    let start_x = (target.x as i64 + (target.width as i64 - start_w as i64) / 2)
-                        .clamp(i32::MIN as i64, i32::MAX as i64)
-                        as i32;
-                    let start_y = (target.y as i64 + (target.height as i64 - start_h as i64) / 2)
-                        .clamp(i32::MIN as i64, i32::MAX as i64)
-                        as i32;
-                    w.anim_start_geo = Some(Rect::new(start_x, start_y, start_w, start_h));
-                    w.anim_target_geo = Some(target);
-                    any_geo_changed = true;
-                } else if w.anim_target_geo != Some(target) {
+                if !w.initial_managed {
+                    if is_visible {
+                        let start_w = ((target.width as u64 * 7 / 10) as u32).max(10);
+                        let start_h = ((target.height as u64 * 7 / 10) as u32).max(10);
+                        let start_x = (target.x as i64 + (target.width as i64 - start_w as i64) / 2)
+                            .clamp(i32::MIN as i64, i32::MAX as i64)
+                            as i32;
+                        let start_y = (target.y as i64
+                            + (target.height as i64 - start_h as i64) / 2)
+                            .clamp(i32::MIN as i64, i32::MAX as i64)
+                            as i32;
+                        w.anim_start_geo = Some(Rect::new(start_x, start_y, start_w, start_h));
+                        w.anim_target_geo = Some(target);
+                        any_geo_changed = true;
+                    } else {
+                        w.anim_start_geo = Some(target);
+                        w.anim_target_geo = Some(target);
+                        w.visual_geo = Some(target);
+                    }
+                } else if is_visible && w.anim_target_geo != Some(target) {
                     w.anim_start_geo = w.visual_geo.or(w.anim_target_geo).or(Some(target));
                     w.anim_target_geo = Some(target);
                     any_geo_changed = true;
+                } else if !is_visible && w.anim_target_geo != Some(target) {
+                    w.anim_start_geo = Some(target);
+                    w.anim_target_geo = Some(target);
+                    w.visual_geo = Some(target);
                 }
             }
             if w.last_proposed_w != Some(w.width) || w.last_proposed_h != Some(w.height) {
@@ -911,13 +924,14 @@ impl AppState {
         }
 
         // Apply decoration requests (SSD / CSD)
-        for w in &self.windows {
-            if w.ssd {
-                if w.new {
+        for w in &mut self.windows {
+            if !w.initial_managed {
+                if w.ssd {
                     w.proxy.use_ssd();
+                } else {
+                    w.proxy.use_csd();
                 }
-            } else if w.new {
-                w.proxy.use_csd();
+                w.initial_managed = true;
             }
         }
 
@@ -1241,7 +1255,7 @@ impl AppState {
 
                 w.visual_geo = Some(render_geo);
                 w.node.set_position(render_geo.x, render_geo.y);
-                w.new = false;
+                w.initial_rendered = true;
             } else {
                 w.node.set_position(-10000, -10000);
             }
