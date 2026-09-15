@@ -934,6 +934,10 @@ impl AppState {
                 }
                 w.last_applied_ssd = Some(w.ssd);
             }
+        }
+
+        // Mark all windows as initially managed
+        for w in &mut self.windows {
             w.initial_managed = true;
         }
 
