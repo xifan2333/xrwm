@@ -1135,9 +1135,14 @@ impl AppState {
         }
         if self.anim.is_animating() {
             self.manage_dirty();
-        } else if self.tag_slide_dir.is_some() {
-            self.tag_slide_dir = None;
-            self.tag_anim_old_mask = TAG_NONE;
+        } else {
+            if self.anim.start_time.is_some() {
+                self.anim.stop();
+            }
+            if self.tag_slide_dir.is_some() {
+                self.tag_slide_dir = None;
+                self.tag_anim_old_mask = TAG_NONE;
+            }
         }
 
         // Apply any pending pointer warps during the manage sequence
