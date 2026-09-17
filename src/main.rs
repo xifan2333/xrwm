@@ -73,10 +73,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = match ipc::create_ipc_server_at(&socket_path) {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("Failed to bind IPC socket: {e}");
+            eprintln!("Failed to bind IPC socket at {socket_path:?}: {e}");
             std::process::exit(1);
         }
     };
+    tracing::info!("IPC server listening on {socket_path:?}");
     let _ipc_guard = ipc::IpcServerGuard::for_path(socket_path).ok();
     listener.set_nonblocking(true)?;
 

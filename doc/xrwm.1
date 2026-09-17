@@ -313,6 +313,12 @@ User configuration script executed upon daemon startup and reloaded via
 .TP
 \f[CR]$XDG_RUNTIME_DIR/xrwm\-$WAYLAND_DISPLAY.sock\f[R]
 UNIX domain socket used for IPC communication.
+If \f[CR]$WAYLAND_DISPLAY\f[R] contains path separators, special
+characters, or exceeds safe length bounds, a sanitized prefix and stable
+hash are used instead.
+When \f[CR]$XDG_RUNTIME_DIR\f[R] exceeds socket length limits, a
+user\-private fallback directory under \f[CR]/tmp/xrwm\-<uid>/\f[R] is
+used.
 .SH AUTHORS
 Developed by xifan2333 and contributors.
 .SH SEE ALSO

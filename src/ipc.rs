@@ -3,7 +3,7 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::fd::AsFd;
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use rustix::event::{PollFd, PollFlags, Timespec};
 
@@ -129,13 +129,126 @@ impl IpcResponse {
     }
 }
 
+const MAX_SUN_LEN: usize = 107; // 108 bytes minus null terminator
+
+fn fnv1a_64(bytes: &[u8]) -> u64 {
+    const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+    const FNV_PRIME: u64 = 0x100000001b3;
+
+    let mut hash = FNV_OFFSET_BASIS;
+    for &byte in bytes {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    hash
+}
+
+fn is_safe_relative_name(name: &str) -> bool {
+    if name.is_empty() || name.len() > 32 {
+        return false;
+    }
+    if name.starts_with('.') || name.starts_with('-') {
+        return false;
+    }
+    if name.contains('/') || name.contains('\\') || name.contains("..") {
+        return false;
+    }
+    name.chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+}
+
+pub fn format_socket_name(display: &str) -> String {
+    let display_str = if display.trim().is_empty() {
+        "wayland-0"
+    } else {
+        display
+    };
+
+    if is_safe_relative_name(display_str) {
+        format!("xrwm-{display_str}.sock")
+    } else {
+        let hash = fnv1a_64(display_str.as_bytes());
+        let raw_basename = Path::new(display_str)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+
+        let sanitized: String = raw_basename
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+            .take(16)
+            .collect();
+
+        let prefix = if sanitized.is_empty() {
+            "display"
+        } else {
+            &sanitized
+        };
+
+        format!("xrwm-{prefix}-{hash:016x}.sock")
+    }
+}
+
+pub fn socket_path_for_display(xdg_runtime_dir: &Path, display: &str) -> PathBuf {
+    let socket_name = format_socket_name(display);
+    let path = xdg_runtime_dir.join(&socket_name);
+    if path.as_os_str().len() > MAX_SUN_LEN {
+        let uid = rustix::process::getuid().as_raw();
+        let xdg_hash = fnv1a_64(xdg_runtime_dir.as_os_str().as_encoded_bytes());
+        let fallback_dir = PathBuf::from(format!("/tmp/xrwm-{uid}"));
+        let fallback_socket_name = format!("{xdg_hash:08x}-{socket_name}");
+        fallback_dir.join(fallback_socket_name)
+    } else {
+        path
+    }
+}
+
 pub fn get_socket_path() -> PathBuf {
     let xdg = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
     let display = std::env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "wayland-0".to_string());
-    PathBuf::from(xdg).join(format!("xrwm-{display}.sock"))
+    socket_path_for_display(Path::new(&xdg), &display)
 }
 
 pub fn create_ipc_server_at(socket_path: &std::path::Path) -> std::io::Result<UnixListener> {
+    if let Some(parent) = socket_path.parent() {
+        if !parent.as_os_str().is_empty() && !parent.exists() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt;
+                std::fs::DirBuilder::new()
+                    .recursive(true)
+                    .mode(0o700)
+                    .create(parent)?;
+            }
+            #[cfg(not(unix))]
+            {
+                std::fs::create_dir_all(parent)?;
+            }
+        } else if parent.exists() {
+            #[cfg(unix)]
+            if parent.starts_with("/tmp/xrwm-") {
+                use std::os::unix::fs::MetadataExt;
+                let meta = std::fs::metadata(parent)?;
+                let current_uid = rustix::process::getuid().as_raw();
+                if meta.uid() != current_uid {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        format!(
+                            "Fallback directory {parent:?} is owned by UID {}, expected UID {current_uid}",
+                            meta.uid()
+                        ),
+                    ));
+                }
+                if (meta.mode() & 0o077) != 0 {
+                    use std::os::unix::fs::PermissionsExt;
+                    let mut perms = meta.permissions();
+                    perms.set_mode(0o700);
+                    let _ = std::fs::set_permissions(parent, perms);
+                }
+            }
+        }
+    }
+
     if socket_path.exists() {
         match UnixStream::connect(socket_path) {
             Ok(_) => {
@@ -1293,5 +1406,127 @@ mod tests {
         assert!(parse_cli_args(&["border-width".into(), "4".into()]).is_ok());
         assert!(parse_cli_args(&["view-padding".into(), "8".into()]).is_ok());
         assert!(parse_cli_args(&["outer-padding".into(), "12".into()]).is_ok());
+    }
+
+    #[test]
+    fn test_format_socket_name_relative_display() {
+        assert_eq!(format_socket_name("wayland-0"), "xrwm-wayland-0.sock");
+        assert_eq!(format_socket_name("wayland-1"), "xrwm-wayland-1.sock");
+        assert_eq!(
+            format_socket_name("custom_display.1"),
+            "xrwm-custom_display.1.sock"
+        );
+        // Empty or whitespace-only falls back to default wayland-0
+        assert_eq!(format_socket_name(""), "xrwm-wayland-0.sock");
+        assert_eq!(format_socket_name("   "), "xrwm-wayland-0.sock");
+
+        // Preserves non-empty display value with leading/trailing whitespace without collision
+        let trimmed_name = format_socket_name("wayland-0");
+        let trailing_space_name = format_socket_name("wayland-0 ");
+        let leading_space_name = format_socket_name(" wayland-0");
+        assert_ne!(trailing_space_name, trimmed_name);
+        assert_ne!(leading_space_name, trimmed_name);
+        assert_ne!(trailing_space_name, leading_space_name);
+    }
+
+    #[test]
+    fn test_format_socket_name_absolute_paths_isolation() {
+        let path1 = "/run/user/1000/wayland-0";
+        let path2 = "/tmp/nested/test/wayland-0";
+
+        let name1 = format_socket_name(path1);
+        let name2 = format_socket_name(path2);
+
+        // Neither contains path separators
+        assert!(!name1.contains('/'));
+        assert!(!name2.contains('/'));
+        assert!(name1.starts_with("xrwm-wayland-0-"));
+        assert!(name2.starts_with("xrwm-wayland-0-"));
+        assert!(name1.ends_with(".sock"));
+        assert!(name2.ends_with(".sock"));
+
+        // Different absolute paths with identical basenames MUST have distinct socket names
+        assert_ne!(name1, name2);
+
+        // Deterministic: formatting the same path twice yields identical results
+        assert_eq!(format_socket_name(path1), name1);
+    }
+
+    #[test]
+    fn test_format_socket_name_special_characters_and_edge_cases() {
+        // Path with trailing slash or no valid basename
+        let root_name = format_socket_name("/");
+        assert!(!root_name.contains('/'));
+        assert!(root_name.starts_with("xrwm-display-"));
+        assert!(root_name.ends_with(".sock"));
+
+        // Name with special characters
+        let special_name = format_socket_name("display:with!special@chars");
+        assert!(!special_name.contains(':'));
+        assert!(!special_name.contains('!'));
+        assert!(!special_name.contains('@'));
+        assert!(special_name.ends_with(".sock"));
+    }
+
+    #[test]
+    fn test_socket_path_length_bounds_and_server_binding() {
+        let temp_dir = std::env::temp_dir();
+        // Extremely long compositor socket path (exceeding standard SUN_LEN if directly appended)
+        let long_display = "/var/run/user/1000/very/deeply/nested/compositor/instance/with/a/super/long/path/hierarchy/that/would/exceed/sun_len/wayland-99.sock";
+
+        let socket_path = socket_path_for_display(&temp_dir, long_display);
+
+        // The overall path must be strictly within SUN_LEN limit (107 bytes)
+        assert!(
+            socket_path.as_os_str().len() <= MAX_SUN_LEN,
+            "Socket path length {} exceeds MAX_SUN_LEN {MAX_SUN_LEN}",
+            socket_path.as_os_str().len()
+        );
+
+        // Verify the generated path can actually be bound and connected
+        let _ = std::fs::remove_file(&socket_path);
+        let listener = create_ipc_server_at(&socket_path).unwrap();
+        assert!(socket_path.exists());
+
+        let client = UnixStream::connect(&socket_path).unwrap();
+        drop(client);
+        drop(listener);
+        let _ = std::fs::remove_file(&socket_path);
+    }
+
+    #[test]
+    fn test_socket_path_excessive_xdg_dir_falls_back_to_tmp() {
+        // Two distinct overlong XDG_RUNTIME_DIR paths (> 90 chars)
+        let long_xdg1 = Path::new(
+            "/var/run/user/100000/extremely/long/runtime/dir/one/that/leaves/no/room/for/any/reasonable/socket/name",
+        );
+        let long_xdg2 = Path::new(
+            "/var/run/user/100000/extremely/long/runtime/dir/two/that/leaves/no/room/for/any/reasonable/socket/name",
+        );
+        let display = "/run/user/1000/wayland-0";
+
+        let socket_path1 = socket_path_for_display(long_xdg1, display);
+        let socket_path2 = socket_path_for_display(long_xdg2, display);
+
+        // They must produce distinct fallback paths
+        assert_ne!(socket_path1, socket_path2);
+
+        // Both must be located under user-private /tmp/xrwm-<uid> fallback
+        assert!(socket_path1.starts_with("/tmp"));
+        assert!(socket_path2.starts_with("/tmp"));
+        assert!(socket_path1.to_string_lossy().starts_with("/tmp/xrwm-"));
+        assert!(socket_path2.to_string_lossy().starts_with("/tmp/xrwm-"));
+        assert!(socket_path1.as_os_str().len() <= MAX_SUN_LEN);
+        assert!(socket_path2.as_os_str().len() <= MAX_SUN_LEN);
+
+        // Verify fallback directory and socket can actually be created and bound
+        let _ = std::fs::remove_file(&socket_path1);
+        let listener = create_ipc_server_at(&socket_path1).unwrap();
+        assert!(socket_path1.exists());
+
+        let client = UnixStream::connect(&socket_path1).unwrap();
+        drop(client);
+        drop(listener);
+        let _ = std::fs::remove_file(&socket_path1);
     }
 }
