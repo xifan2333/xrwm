@@ -92,7 +92,6 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
             Event::SessionUnlocked => {}
             Event::Window { id } => {
                 let node = id.get_node(qh, ());
-                id.use_ssd();
                 let vid = state.next_view_id;
                 state.next_view_id += 1;
                 let mut current_tags = state.tag_state.focused & state.spawn_tagmask;

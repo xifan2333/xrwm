@@ -527,6 +527,8 @@ fn initial_rule_csd_applies_csd_and_stays_idle() {
 
     assert_eq!(harness.state.windows[0].last_applied_ssd, None);
     assert!(!harness.state.windows[0].ssd);
+    assert!(!harness.has_window_request(&window, window::REQ_USE_SSD_OPCODE));
+    assert!(!harness.has_window_request(&window, window::REQ_USE_CSD_OPCODE));
 
     harness.manage();
     assert_eq!(harness.state.windows[0].last_applied_ssd, Some(false));
@@ -551,6 +553,8 @@ fn async_metadata_triggers_decoration_mode_switch_and_stays_idle() {
     let window = harness.add_window_without_metadata();
     assert_eq!(harness.state.windows[0].last_applied_ssd, None);
     assert!(harness.state.windows[0].ssd);
+    assert!(!harness.has_window_request(&window, window::REQ_USE_SSD_OPCODE));
+    assert!(!harness.has_window_request(&window, window::REQ_USE_CSD_OPCODE));
 
     // Initial manage sequence applies default SSD
     harness.manage();
