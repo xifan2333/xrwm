@@ -163,11 +163,47 @@ impl Harness {
         id
     }
 
+    fn add_window_without_metadata(&mut self) -> ObjectId {
+        let id = self.create::<window::RiverWindowV1>(wm::EVT_WINDOW_OPCODE);
+        self.dispatch_events();
+        id
+    }
+
+    fn set_app_id(&mut self, window: &ObjectId, app_id: &str) {
+        let c_str = std::ffi::CString::new(app_id).unwrap();
+        self.event(
+            window,
+            window::EVT_APP_ID_OPCODE,
+            vec![Argument::Str(Some(Box::new(c_str)))],
+        );
+        self.dispatch_events();
+    }
+
+    fn set_title(&mut self, window: &ObjectId, title: &str) {
+        let c_str = std::ffi::CString::new(title).unwrap();
+        self.event(
+            window,
+            window::EVT_TITLE_OPCODE,
+            vec![Argument::Str(Some(Box::new(c_str)))],
+        );
+        self.dispatch_events();
+    }
+
     fn rule(&mut self, action: &[&str]) {
         self.state
             .handle_ipc_command(&IpcCommand::RuleAdd {
                 app_id: Some("demo".into()),
                 title: None,
+                action: action.iter().map(|s| (*s).to_owned()).collect(),
+            })
+            .unwrap();
+    }
+
+    fn rule_with_match(&mut self, app_id: Option<&str>, title: Option<&str>, action: &[&str]) {
+        self.state
+            .handle_ipc_command(&IpcCommand::RuleAdd {
+                app_id: app_id.map(Into::into),
+                title: title.map(Into::into),
                 action: action.iter().map(|s| (*s).to_owned()).collect(),
             })
             .unwrap();
@@ -480,4 +516,99 @@ fn hidden_tiled_window_lifecycle_and_tag_switch() {
     harness.render();
     assert!(harness.state.windows[0].initial_managed);
     assert!(harness.state.windows[0].initial_rendered);
+}
+
+#[test]
+fn initial_rule_csd_applies_csd_and_stays_idle() {
+    let mut harness = Harness::new();
+    harness.add_output();
+    harness.rule(&["csd"]);
+    let window = harness.add_window();
+
+    assert_eq!(harness.state.windows[0].last_applied_ssd, None);
+    assert!(!harness.state.windows[0].ssd);
+
+    harness.manage();
+    assert_eq!(harness.state.windows[0].last_applied_ssd, Some(false));
+    assert!(harness.has_window_request(&window, window::REQ_USE_CSD_OPCODE));
+    assert!(!harness.has_window_request(&window, window::REQ_USE_SSD_OPCODE));
+
+    harness.manage();
+    assert!(!harness.has_window_request(&window, window::REQ_USE_CSD_OPCODE));
+    assert!(!harness.has_window_request(&window, window::REQ_USE_SSD_OPCODE));
+}
+
+#[test]
+fn async_metadata_triggers_decoration_mode_switch_and_stays_idle() {
+    let mut harness = Harness::new();
+    harness.add_output();
+
+    // Configure rules: app-id "terminal" uses csd, title "*floating-dialog*" switches back to ssd
+    harness.rule_with_match(Some("terminal"), None, &["csd"]);
+    harness.rule_with_match(None, Some("*floating-dialog*"), &["ssd"]);
+
+    // Window arrives without metadata initially
+    let window = harness.add_window_without_metadata();
+    assert_eq!(harness.state.windows[0].last_applied_ssd, None);
+    assert!(harness.state.windows[0].ssd);
+
+    // Initial manage sequence applies default SSD
+    harness.manage();
+    assert!(harness.state.windows[0].initial_managed);
+    assert_eq!(harness.state.windows[0].last_applied_ssd, Some(true));
+    assert!(harness.has_window_request(&window, window::REQ_USE_SSD_OPCODE));
+    assert!(!harness.has_window_request(&window, window::REQ_USE_CSD_OPCODE));
+
+    // Idle manage cycles emit no redundant decoration requests
+    harness.manage();
+    assert!(!harness.has_window_request(&window, window::REQ_USE_SSD_OPCODE));
+    assert!(!harness.has_window_request(&window, window::REQ_USE_CSD_OPCODE));
+
+    // Async app_id arrives matching the CSD rule
+    harness.server.requests.clear();
+    harness.set_app_id(&window, "terminal");
+    assert!(harness.has_wm_request(wm::REQ_MANAGE_DIRTY_OPCODE));
+    assert!(!harness.state.windows[0].ssd);
+    assert_eq!(harness.state.windows[0].last_applied_ssd, Some(true));
+
+    // Manage pass applies CSD and synchronizes last_applied_ssd
+    harness.manage();
+    assert_eq!(harness.state.windows[0].last_applied_ssd, Some(false));
+    assert!(harness.has_window_request(&window, window::REQ_USE_CSD_OPCODE));
+    assert!(!harness.has_window_request(&window, window::REQ_USE_SSD_OPCODE));
+
+    // Subsequent manage cycles stay idle
+    for _ in 0..2 {
+        harness.manage();
+        assert!(!harness.has_window_request(&window, window::REQ_USE_SSD_OPCODE));
+        assert!(!harness.has_window_request(&window, window::REQ_USE_CSD_OPCODE));
+    }
+
+    // Async title arrives matching the SSD rule
+    harness.server.requests.clear();
+    harness.set_title(&window, "preferences floating-dialog");
+    assert!(harness.has_wm_request(wm::REQ_MANAGE_DIRTY_OPCODE));
+    assert!(harness.state.windows[0].ssd);
+    assert_eq!(harness.state.windows[0].last_applied_ssd, Some(false));
+
+    // Manage pass applies SSD and synchronizes last_applied_ssd
+    harness.manage();
+    assert_eq!(harness.state.windows[0].last_applied_ssd, Some(true));
+    assert!(harness.has_window_request(&window, window::REQ_USE_SSD_OPCODE));
+    assert!(!harness.has_window_request(&window, window::REQ_USE_CSD_OPCODE));
+
+    // Subsequent manage cycles stay idle
+    for _ in 0..2 {
+        harness.manage();
+        assert!(!harness.has_window_request(&window, window::REQ_USE_SSD_OPCODE));
+        assert!(!harness.has_window_request(&window, window::REQ_USE_CSD_OPCODE));
+    }
+
+    // Metadata update that does not change decoration mode does not re-apply
+    harness.server.requests.clear();
+    harness.set_title(&window, "other title floating-dialog");
+    harness.manage();
+    assert_eq!(harness.state.windows[0].last_applied_ssd, Some(true));
+    assert!(!harness.has_window_request(&window, window::REQ_USE_SSD_OPCODE));
+    assert!(!harness.has_window_request(&window, window::REQ_USE_CSD_OPCODE));
 }
