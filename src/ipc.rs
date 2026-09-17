@@ -158,11 +158,10 @@ fn is_safe_relative_name(name: &str) -> bool {
 }
 
 pub fn format_socket_name(display: &str) -> String {
-    let trimmed = display.trim();
-    let display_str = if trimmed.is_empty() {
+    let display_str = if display.trim().is_empty() {
         "wayland-0"
     } else {
-        trimmed
+        display
     };
 
     if is_safe_relative_name(display_str) {
@@ -194,7 +193,11 @@ pub fn socket_path_for_display(xdg_runtime_dir: &Path, display: &str) -> PathBuf
     let socket_name = format_socket_name(display);
     let path = xdg_runtime_dir.join(&socket_name);
     if path.as_os_str().len() > MAX_SUN_LEN {
-        PathBuf::from("/tmp").join(socket_name)
+        let uid = rustix::process::getuid().as_raw();
+        let xdg_hash = fnv1a_64(xdg_runtime_dir.as_os_str().as_encoded_bytes());
+        let fallback_dir = PathBuf::from(format!("/tmp/xrwm-{uid}"));
+        let fallback_socket_name = format!("{xdg_hash:08x}-{socket_name}");
+        fallback_dir.join(fallback_socket_name)
     } else {
         path
     }
@@ -207,6 +210,45 @@ pub fn get_socket_path() -> PathBuf {
 }
 
 pub fn create_ipc_server_at(socket_path: &std::path::Path) -> std::io::Result<UnixListener> {
+    if let Some(parent) = socket_path.parent() {
+        if !parent.as_os_str().is_empty() && !parent.exists() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt;
+                std::fs::DirBuilder::new()
+                    .recursive(true)
+                    .mode(0o700)
+                    .create(parent)?;
+            }
+            #[cfg(not(unix))]
+            {
+                std::fs::create_dir_all(parent)?;
+            }
+        } else if parent.exists() {
+            #[cfg(unix)]
+            if parent.starts_with("/tmp/xrwm-") {
+                use std::os::unix::fs::MetadataExt;
+                let meta = std::fs::metadata(parent)?;
+                let current_uid = rustix::process::getuid().as_raw();
+                if meta.uid() != current_uid {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        format!(
+                            "Fallback directory {parent:?} is owned by UID {}, expected UID {current_uid}",
+                            meta.uid()
+                        ),
+                    ));
+                }
+                if (meta.mode() & 0o077) != 0 {
+                    use std::os::unix::fs::PermissionsExt;
+                    let mut perms = meta.permissions();
+                    perms.set_mode(0o700);
+                    let _ = std::fs::set_permissions(parent, perms);
+                }
+            }
+        }
+    }
+
     if socket_path.exists() {
         match UnixStream::connect(socket_path) {
             Ok(_) => {
@@ -1374,9 +1416,17 @@ mod tests {
             format_socket_name("custom_display.1"),
             "xrwm-custom_display.1.sock"
         );
-        // Empty or whitespace falls back to default wayland-0
+        // Empty or whitespace-only falls back to default wayland-0
         assert_eq!(format_socket_name(""), "xrwm-wayland-0.sock");
         assert_eq!(format_socket_name("   "), "xrwm-wayland-0.sock");
+
+        // Preserves non-empty display value with leading/trailing whitespace without collision
+        let trimmed_name = format_socket_name("wayland-0");
+        let trailing_space_name = format_socket_name("wayland-0 ");
+        let leading_space_name = format_socket_name(" wayland-0");
+        assert_ne!(trailing_space_name, trimmed_name);
+        assert_ne!(leading_space_name, trimmed_name);
+        assert_ne!(trailing_space_name, leading_space_name);
     }
 
     #[test]
@@ -1446,16 +1496,37 @@ mod tests {
 
     #[test]
     fn test_socket_path_excessive_xdg_dir_falls_back_to_tmp() {
-        // Create an excessively long XDG_RUNTIME_DIR path (> 90 chars)
-        let long_xdg = Path::new(
-            "/var/run/user/100000/extremely/long/runtime/dir/that/leaves/no/room/for/any/reasonable/socket/name",
+        // Two distinct overlong XDG_RUNTIME_DIR paths (> 90 chars)
+        let long_xdg1 = Path::new(
+            "/var/run/user/100000/extremely/long/runtime/dir/one/that/leaves/no/room/for/any/reasonable/socket/name",
+        );
+        let long_xdg2 = Path::new(
+            "/var/run/user/100000/extremely/long/runtime/dir/two/that/leaves/no/room/for/any/reasonable/socket/name",
         );
         let display = "/run/user/1000/wayland-0";
 
-        let socket_path = socket_path_for_display(long_xdg, display);
+        let socket_path1 = socket_path_for_display(long_xdg1, display);
+        let socket_path2 = socket_path_for_display(long_xdg2, display);
 
-        // It must safely fall back to /tmp so the total path is within bounds
-        assert!(socket_path.starts_with("/tmp"));
-        assert!(socket_path.as_os_str().len() <= MAX_SUN_LEN);
+        // They must produce distinct fallback paths
+        assert_ne!(socket_path1, socket_path2);
+
+        // Both must be located under user-private /tmp/xrwm-<uid> fallback
+        assert!(socket_path1.starts_with("/tmp"));
+        assert!(socket_path2.starts_with("/tmp"));
+        assert!(socket_path1.to_string_lossy().starts_with("/tmp/xrwm-"));
+        assert!(socket_path2.to_string_lossy().starts_with("/tmp/xrwm-"));
+        assert!(socket_path1.as_os_str().len() <= MAX_SUN_LEN);
+        assert!(socket_path2.as_os_str().len() <= MAX_SUN_LEN);
+
+        // Verify fallback directory and socket can actually be created and bound
+        let _ = std::fs::remove_file(&socket_path1);
+        let listener = create_ipc_server_at(&socket_path1).unwrap();
+        assert!(socket_path1.exists());
+
+        let client = UnixStream::connect(&socket_path1).unwrap();
+        drop(client);
+        drop(listener);
+        let _ = std::fs::remove_file(&socket_path1);
     }
 }

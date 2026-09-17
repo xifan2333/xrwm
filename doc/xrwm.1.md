@@ -256,7 +256,7 @@ pipe streaming JSON updates on every state change.
 : User configuration script executed upon daemon startup and reloaded via `xrwm reload`.
 
 `$XDG_RUNTIME_DIR/xrwm-$WAYLAND_DISPLAY.sock`
-: UNIX domain socket used for IPC communication.
+: UNIX domain socket used for IPC communication. If `$WAYLAND_DISPLAY` contains path separators, special characters, or exceeds safe length bounds, a sanitized prefix and stable hash are used instead. When `$XDG_RUNTIME_DIR` exceeds socket length limits, a user-private fallback directory under `/tmp/xrwm-<uid>/` is used.
 
 # AUTHORS
 
