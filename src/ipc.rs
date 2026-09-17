@@ -1365,4 +1365,97 @@ mod tests {
         assert!(parse_cli_args(&["view-padding".into(), "8".into()]).is_ok());
         assert!(parse_cli_args(&["outer-padding".into(), "12".into()]).is_ok());
     }
+
+    #[test]
+    fn test_format_socket_name_relative_display() {
+        assert_eq!(format_socket_name("wayland-0"), "xrwm-wayland-0.sock");
+        assert_eq!(format_socket_name("wayland-1"), "xrwm-wayland-1.sock");
+        assert_eq!(
+            format_socket_name("custom_display.1"),
+            "xrwm-custom_display.1.sock"
+        );
+        // Empty or whitespace falls back to default wayland-0
+        assert_eq!(format_socket_name(""), "xrwm-wayland-0.sock");
+        assert_eq!(format_socket_name("   "), "xrwm-wayland-0.sock");
+    }
+
+    #[test]
+    fn test_format_socket_name_absolute_paths_isolation() {
+        let path1 = "/run/user/1000/wayland-0";
+        let path2 = "/tmp/nested/test/wayland-0";
+
+        let name1 = format_socket_name(path1);
+        let name2 = format_socket_name(path2);
+
+        // Neither contains path separators
+        assert!(!name1.contains('/'));
+        assert!(!name2.contains('/'));
+        assert!(name1.starts_with("xrwm-wayland-0-"));
+        assert!(name2.starts_with("xrwm-wayland-0-"));
+        assert!(name1.ends_with(".sock"));
+        assert!(name2.ends_with(".sock"));
+
+        // Different absolute paths with identical basenames MUST have distinct socket names
+        assert_ne!(name1, name2);
+
+        // Deterministic: formatting the same path twice yields identical results
+        assert_eq!(format_socket_name(path1), name1);
+    }
+
+    #[test]
+    fn test_format_socket_name_special_characters_and_edge_cases() {
+        // Path with trailing slash or no valid basename
+        let root_name = format_socket_name("/");
+        assert!(!root_name.contains('/'));
+        assert!(root_name.starts_with("xrwm-display-"));
+        assert!(root_name.ends_with(".sock"));
+
+        // Name with special characters
+        let special_name = format_socket_name("display:with!special@chars");
+        assert!(!special_name.contains(':'));
+        assert!(!special_name.contains('!'));
+        assert!(!special_name.contains('@'));
+        assert!(special_name.ends_with(".sock"));
+    }
+
+    #[test]
+    fn test_socket_path_length_bounds_and_server_binding() {
+        let temp_dir = std::env::temp_dir();
+        // Extremely long compositor socket path (exceeding standard SUN_LEN if directly appended)
+        let long_display = "/var/run/user/1000/very/deeply/nested/compositor/instance/with/a/super/long/path/hierarchy/that/would/exceed/sun_len/wayland-99.sock";
+
+        let socket_path = socket_path_for_display(&temp_dir, long_display);
+
+        // The overall path must be strictly within SUN_LEN limit (107 bytes)
+        assert!(
+            socket_path.as_os_str().len() <= MAX_SUN_LEN,
+            "Socket path length {} exceeds MAX_SUN_LEN {MAX_SUN_LEN}",
+            socket_path.as_os_str().len()
+        );
+
+        // Verify the generated path can actually be bound and connected
+        let _ = std::fs::remove_file(&socket_path);
+        let listener = create_ipc_server_at(&socket_path).unwrap();
+        assert!(socket_path.exists());
+
+        let client = UnixStream::connect(&socket_path).unwrap();
+        drop(client);
+        drop(listener);
+        let _ = std::fs::remove_file(&socket_path);
+    }
+
+    #[test]
+    fn test_socket_path_excessive_xdg_dir_falls_back_to_tmp() {
+        // Create an excessively long XDG_RUNTIME_DIR path (> 90 chars)
+        let long_xdg = Path::new(
+            "/var/run/user/100000/extremely/long/runtime/dir/that/leaves/no/room/for/any/reasonable/socket/name",
+        );
+        let display = "/run/user/1000/wayland-0";
+
+        let socket_path = socket_path_for_display(long_xdg, display);
+
+        // It must safely fall back to /tmp so the total path is within bounds
+        assert!(socket_path.starts_with("/tmp"));
+        assert!(socket_path.as_os_str().len() <= MAX_SUN_LEN);
+    }
 }
