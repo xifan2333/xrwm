@@ -3,7 +3,7 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::fd::AsFd;
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use rustix::event::{PollFd, PollFlags, Timespec};
 
@@ -129,10 +129,81 @@ impl IpcResponse {
     }
 }
 
+const MAX_SUN_LEN: usize = 107; // 108 bytes minus null terminator
+
+fn fnv1a_64(bytes: &[u8]) -> u64 {
+    const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+    const FNV_PRIME: u64 = 0x100000001b3;
+
+    let mut hash = FNV_OFFSET_BASIS;
+    for &byte in bytes {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    hash
+}
+
+fn is_safe_relative_name(name: &str) -> bool {
+    if name.is_empty() || name.len() > 32 {
+        return false;
+    }
+    if name.starts_with('.') || name.starts_with('-') {
+        return false;
+    }
+    if name.contains('/') || name.contains('\\') || name.contains("..") {
+        return false;
+    }
+    name.chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+}
+
+pub fn format_socket_name(display: &str) -> String {
+    let trimmed = display.trim();
+    let display_str = if trimmed.is_empty() {
+        "wayland-0"
+    } else {
+        trimmed
+    };
+
+    if is_safe_relative_name(display_str) {
+        format!("xrwm-{display_str}.sock")
+    } else {
+        let hash = fnv1a_64(display_str.as_bytes());
+        let raw_basename = Path::new(display_str)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+
+        let sanitized: String = raw_basename
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+            .take(16)
+            .collect();
+
+        let prefix = if sanitized.is_empty() {
+            "display"
+        } else {
+            &sanitized
+        };
+
+        format!("xrwm-{prefix}-{hash:016x}.sock")
+    }
+}
+
+pub fn socket_path_for_display(xdg_runtime_dir: &Path, display: &str) -> PathBuf {
+    let socket_name = format_socket_name(display);
+    let path = xdg_runtime_dir.join(&socket_name);
+    if path.as_os_str().len() > MAX_SUN_LEN {
+        PathBuf::from("/tmp").join(socket_name)
+    } else {
+        path
+    }
+}
+
 pub fn get_socket_path() -> PathBuf {
     let xdg = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
     let display = std::env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "wayland-0".to_string());
-    PathBuf::from(xdg).join(format!("xrwm-{display}.sock"))
+    socket_path_for_display(Path::new(&xdg), &display)
 }
 
 pub fn create_ipc_server_at(socket_path: &std::path::Path) -> std::io::Result<UnixListener> {
