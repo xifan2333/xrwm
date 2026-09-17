@@ -170,6 +170,7 @@ pub struct WindowItem {
     pub pending_fullscreen_change: bool,
     pub float_geo: Option<Rect>,
     pub ssd: bool,
+    pub last_applied_ssd: Option<bool>,
     pub output: Option<ObjectId>,
     pub x: i32,
     pub y: i32,
@@ -925,14 +926,19 @@ impl AppState {
 
         // Apply decoration requests (SSD / CSD)
         for w in &mut self.windows {
-            if !w.initial_managed {
+            if w.last_applied_ssd != Some(w.ssd) {
                 if w.ssd {
                     w.proxy.use_ssd();
                 } else {
                     w.proxy.use_csd();
                 }
-                w.initial_managed = true;
+                w.last_applied_ssd = Some(w.ssd);
             }
+        }
+
+        // Mark all windows as initially managed
+        for w in &mut self.windows {
+            w.initial_managed = true;
         }
 
         let focused_out_area = self
