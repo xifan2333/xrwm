@@ -428,6 +428,14 @@ impl AppState {
         }
     }
 
+    pub fn offscreen_hiding_position(&self) -> (i32, i32) {
+        let min_x = self.outputs.values().map(|o| o.x as i64).min().unwrap_or(0);
+        let min_y = self.outputs.values().map(|o| o.y as i64).min().unwrap_or(0);
+        let hide_x = (min_x - 100_000).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+        let hide_y = (min_y - 100_000).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+        (hide_x, hide_y)
+    }
+
     pub fn focused_window_id(&self) -> Option<u32> {
         let win = self.seats.values().find_map(|s| {
             if s.layer_focus == LayerShellFocus::None {
@@ -1207,6 +1215,7 @@ impl AppState {
                 None
             }
         });
+        let (hide_x, hide_y) = self.offscreen_hiding_position();
 
         let is_animating = self.anim.is_animating();
         let progress = self.anim.progress();
@@ -1293,7 +1302,7 @@ impl AppState {
                             (cur_geo, false)
                         }
                     }
-                } else if is_animating {
+                } else if is_animating && w.anim_start_geo.is_some_and(|start| start != target) {
                     let start = w.anim_start_geo.unwrap_or(target);
                     let geo = interpolate_rect(start, target, progress);
                     if let Some((cx, cy, cw, ch)) =
@@ -1315,11 +1324,11 @@ impl AppState {
                 if is_visible {
                     w.node.set_position(render_geo.x, render_geo.y);
                 } else {
-                    w.node.set_position(-10000, -10000);
+                    w.node.set_position(hide_x, hide_y);
                 }
                 w.initial_rendered = true;
             } else {
-                w.node.set_position(-10000, -10000);
+                w.node.set_position(hide_x, hide_y);
             }
         }
 

@@ -54,17 +54,17 @@ pub fn calculate_clip_box(
     screen: Rect,
     border_width: i32,
 ) -> Option<(i32, i32, i32, i32)> {
-    let b = border_width.max(0);
+    let b = border_width.max(0) as i64;
 
-    let win_left = window.x - b;
-    let win_right = window.x + window.width as i32 + b;
-    let win_top = window.y - b;
-    let win_bottom = window.y + window.height as i32 + b;
+    let win_left = window.x as i64 - b;
+    let win_right = window.x as i64 + window.width as i64 + b;
+    let win_top = window.y as i64 - b;
+    let win_bottom = window.y as i64 + window.height as i64 + b;
 
-    let scr_left = screen.x;
-    let scr_right = screen.x + screen.width as i32;
-    let scr_top = screen.y;
-    let scr_bottom = screen.y + screen.height as i32;
+    let scr_left = screen.x as i64;
+    let scr_right = screen.x as i64 + screen.width as i64;
+    let scr_top = screen.y as i64;
+    let scr_bottom = screen.y as i64 + screen.height as i64;
 
     let inter_left = win_left.max(scr_left);
     let inter_right = win_right.min(scr_right);
@@ -75,10 +75,10 @@ pub fn calculate_clip_box(
         return None;
     }
 
-    let clip_x = inter_left - window.x;
-    let clip_y = inter_top - window.y;
-    let clip_width = inter_right - inter_left;
-    let clip_height = inter_bottom - inter_top;
+    let clip_x = (inter_left - window.x as i64).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+    let clip_y = (inter_top - window.y as i64).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+    let clip_width = (inter_right - inter_left).clamp(0, i32::MAX as i64) as i32;
+    let clip_height = (inter_bottom - inter_top).clamp(0, i32::MAX as i64) as i32;
 
     Some((clip_x, clip_y, clip_width, clip_height))
 }
@@ -240,6 +240,17 @@ mod tests {
 
         let win_touch_left = Rect::new(-800, 0, 800, 600);
         assert_eq!(calculate_clip_box(win_touch_left, screen, 0), None);
+
+        // 11. Large border width (i32::MAX) does not overflow or panic
+        let clip_large_b = calculate_clip_box(win, screen, i32::MAX);
+        assert!(clip_large_b.is_some());
+
+        // 12. Extreme coordinates near i32 limits do not overflow or panic
+        let win_extreme = Rect::new(i32::MAX - 100, i32::MAX - 100, 800, 600);
+        assert_eq!(calculate_clip_box(win_extreme, screen, 2), None);
+
+        let win_extreme_min = Rect::new(i32::MIN, i32::MIN, 800, 600);
+        assert_eq!(calculate_clip_box(win_extreme_min, screen, 2), None);
     }
 
     #[test]

@@ -943,6 +943,37 @@ fn window_completely_offscreen_during_slide_animation_is_hidden_not_leaked() {
 
     harness.render();
 
+    let (hide_x, hide_y) = harness.state.offscreen_hiding_position();
     let positions = harness.all_node_positions();
-    assert_eq!(positions.last(), Some(&(-10000, -10000)));
+    assert_eq!(positions.last(), Some(&(hide_x, hide_y)));
+}
+
+#[test]
+fn stationary_floating_window_stays_visible_during_unrelated_animation() {
+    let mut harness = Harness::new();
+    harness.state.anim.enabled = true;
+    harness.state.anim.duration = Duration::from_millis(150);
+    harness.add_output();
+
+    // Floating window
+    harness.rule(&["float"]);
+    harness.rule(&["dimensions", "400", "300"]);
+    let _win = harness.add_window();
+    harness.manage();
+    harness.render();
+
+    // Simulate window dragged onto coordinates outside output bounds (e.g. x = 2000)
+    harness.state.windows[0].x = 2000;
+    harness.state.windows[0].y = 100;
+    harness.state.windows[0].anim_start_geo = Some(crate::layout::Rect::new(2000, 100, 400, 300));
+    harness.state.windows[0].anim_target_geo = Some(crate::layout::Rect::new(2000, 100, 400, 300));
+
+    // An unrelated animation is active globally
+    harness.state.anim.start_time = Some(Instant::now());
+
+    harness.render();
+
+    // Because this window is stationary, it should NOT be hidden
+    let positions = harness.all_node_positions();
+    assert_eq!(positions.last(), Some(&(2000, 100)));
 }
