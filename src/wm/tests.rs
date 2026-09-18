@@ -926,7 +926,7 @@ fn late_bound_layer_shell_backfills_existing_seats_and_destroys_on_removal() {
 fn window_completely_offscreen_during_slide_animation_is_hidden_not_leaked() {
     let mut harness = Harness::new();
     harness.state.anim.enabled = true;
-    harness.state.anim.duration = Duration::from_millis(150);
+    harness.state.anim.duration = Duration::from_secs(10);
     harness.add_output();
 
     // Window 1 on Tag 1
@@ -938,8 +938,8 @@ fn window_completely_offscreen_during_slide_animation_is_hidden_not_leaked() {
     harness.state.tag_state.focused = 2;
     harness.state.tag_anim_old_mask = 1;
     harness.state.tag_slide_dir = Some(crate::animation::SlideDirection::Right);
-    // At progress 1.0, the window has slid completely outside the screen (x = 0 - 1920 = -1920)
-    harness.state.anim.start_time = Some(Instant::now() - Duration::from_millis(150));
+    // At progress ~0.95, the window has slid completely outside the screen (x = 0 - 1920 = -1920) while animation is actively running
+    harness.state.anim.start_time = Some(Instant::now() - Duration::from_millis(9500));
 
     harness.render();
 

@@ -1322,12 +1322,15 @@ impl AppState {
 
                 w.visual_geo = Some(render_geo);
                 if is_visible {
+                    w.proxy.show();
                     w.node.set_position(render_geo.x, render_geo.y);
                 } else {
+                    w.proxy.hide();
                     w.node.set_position(hide_x, hide_y);
                 }
                 w.initial_rendered = true;
             } else {
+                w.proxy.hide();
                 w.node.set_position(hide_x, hide_y);
             }
         }
