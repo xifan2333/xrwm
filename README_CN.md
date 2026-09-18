@@ -82,18 +82,18 @@ yay -S xrwm-bin
 ### 依赖项 (Dependencies)
 
 - **构建依赖**：Rust 工具链（`cargo`, `rustc`）、`wayland-protocols`、`libxkbcommon` 开发头文件、`pkg-config`，以及 `pandoc`（可选，用于重新生成 man 手册）。
-- **运行依赖**：`libxkbcommon`、`glibc`。
+- **运行依赖**：`libxkbcommon`、`wayland`（`libwayland-client0`）、`glibc`。
 
 Arch Linux:
 
 ```bash
-sudo pacman -S --needed base-devel rust wayland-protocols libxkbcommon
+sudo pacman -S --needed base-devel rust wayland-protocols libxkbcommon wayland
 ```
 
 Ubuntu / Debian:
 
 ```bash
-sudo apt install -y build-essential cargo rustc wayland-protocols libwayland-dev libxkbcommon-dev
+sudo apt install -y build-essential pkg-config cargo rustc wayland-protocols libwayland-dev libxkbcommon-dev
 ```
 
 ### 源码编译安装 (Makefile)
@@ -102,10 +102,13 @@ sudo apt install -y build-essential cargo rustc wayland-protocols libwayland-dev
 git clone https://github.com/xifan2333/xrwm.git
 cd xrwm
 
-# 系统全局安装（自动编译 Release 二进制，并一键安装二进制、man 手册与桌面会话）
+# 编译 Release 二进制
+make
+
+# 系统全局安装（一键安装二进制、man 手册与桌面会话）
 sudo make install
 
-# 用户家目录本地安装（无需 root 权限）
+# 或用户家目录本地安装（无需 root 权限）
 make install PREFIX=$HOME/.local
 ```
 

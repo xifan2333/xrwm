@@ -7,7 +7,7 @@ TARGET ?= $(shell [ -f xrwm ] && echo xrwm || echo target/release/xrwm)
 
 all: $(TARGET)
 
-target/release/xrwm:
+target/release/xrwm: FORCE
 	cargo build --release
 
 doc:
@@ -27,4 +27,6 @@ uninstall:
 	rm -f $(DESTDIR)$(DATADIR)/xrwm.desktop
 	rm -rf $(DESTDIR)$(DOCDIR)
 
-.PHONY: all doc install uninstall
+FORCE:
+
+.PHONY: all doc install uninstall FORCE

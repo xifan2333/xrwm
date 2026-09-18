@@ -82,18 +82,18 @@ yay -S xrwm-bin
 ### Dependencies
 
 - **Build Dependencies**: Rust toolchain (`cargo`, `rustc`), `wayland-protocols`, `libxkbcommon` development headers, `pkg-config`, and `pandoc` (optional, for regenerating man pages).
-- **Runtime Dependencies**: `libxkbcommon`, `glibc`.
+- **Runtime Dependencies**: `libxkbcommon`, `wayland` (`libwayland-client0`), `glibc`.
 
 On Arch Linux:
 
 ```bash
-sudo pacman -S --needed base-devel rust wayland-protocols libxkbcommon
+sudo pacman -S --needed base-devel rust wayland-protocols libxkbcommon wayland
 ```
 
 On Ubuntu / Debian:
 
 ```bash
-sudo apt install -y build-essential cargo rustc wayland-protocols libwayland-dev libxkbcommon-dev
+sudo apt install -y build-essential pkg-config cargo rustc wayland-protocols libwayland-dev libxkbcommon-dev
 ```
 
 ### From Source (Makefile)
@@ -102,10 +102,13 @@ sudo apt install -y build-essential cargo rustc wayland-protocols libwayland-dev
 git clone https://github.com/xifan2333/xrwm.git
 cd xrwm
 
-# System-wide installation (automatically builds release binary and installs xrwm, man xrwm, and desktop session)
+# Compile release binary
+make
+
+# System-wide installation (installs xrwm, man xrwm, and desktop session)
 sudo make install
 
-# User-local installation (no root needed)
+# Or user-local installation (no root needed)
 make install PREFIX=$HOME/.local
 ```
 
