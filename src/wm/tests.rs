@@ -977,3 +977,72 @@ fn stationary_floating_window_stays_visible_during_unrelated_animation() {
     let positions = harness.all_node_positions();
     assert_eq!(positions.last(), Some(&(2000, 100)));
 }
+
+#[test]
+fn tag_toggle_and_previous_tags_history_navigation() {
+    let mut harness = Harness::new();
+    harness.add_output();
+    let seat = harness.add_seat();
+    let window = harness.add_window();
+    harness.interact_window(&seat, &window);
+    harness.manage();
+
+    assert_eq!(harness.state.tag_state.focused, 1);
+    assert_eq!(harness.state.previous_focused_tags, 1);
+    assert_eq!(harness.state.windows[0].tags, 1);
+
+    // 1. set-focused-tags 2
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::SetFocusedTags(2))
+        .unwrap();
+    assert_eq!(harness.state.tag_state.focused, 2);
+    assert_eq!(harness.state.previous_focused_tags, 1);
+
+    // 2. toggle-focused-tags 4 -> focused becomes 6 (2 | 4)
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::ToggleFocusedTags(4))
+        .unwrap();
+    assert_eq!(harness.state.tag_state.focused, 6);
+    assert_eq!(harness.state.previous_focused_tags, 2);
+
+    // 3. send-to-previous-tags sends window to previous_focused_tags (2)
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::SendToPreviousTags)
+        .unwrap();
+    assert_eq!(harness.state.windows[0].tags, 2);
+
+    // 4. focus-previous-tags returns to 2
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::FocusPreviousTags)
+        .unwrap();
+    assert_eq!(harness.state.tag_state.focused, 2);
+    assert_eq!(harness.state.previous_focused_tags, 6);
+
+    // 5. focus-previous-tags returns back to 6
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::FocusPreviousTags)
+        .unwrap();
+    assert_eq!(harness.state.tag_state.focused, 6);
+    assert_eq!(harness.state.previous_focused_tags, 2);
+
+    // 6. No-op toggle (0) does not pollute history
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::ToggleFocusedTags(0))
+        .unwrap();
+    assert_eq!(harness.state.tag_state.focused, 6);
+    assert_eq!(harness.state.previous_focused_tags, 2);
+
+    // 7. Invalid toggle (would zero all tags) does not change focused tags and does not pollute history
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::ToggleFocusedTags(6))
+        .unwrap();
+    assert_eq!(harness.state.tag_state.focused, 6);
+    assert_eq!(harness.state.previous_focused_tags, 2);
+}
