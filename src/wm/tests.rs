@@ -138,6 +138,10 @@ impl Harness {
     }
 
     fn add_output(&mut self) {
+        let _ = self.add_output_with_id();
+    }
+
+    fn add_output_with_id(&mut self) -> ObjectId {
         let id = self.create::<output::RiverOutputV1>(wm::EVT_OUTPUT_OPCODE);
         self.event(
             &id,
@@ -148,6 +152,25 @@ impl Harness {
             &id,
             output::EVT_DIMENSIONS_OPCODE,
             vec![Argument::Int(1920), Argument::Int(1080)],
+        );
+        self.dispatch_events();
+        id
+    }
+
+    fn set_output_position(&mut self, output: &ObjectId, x: i32, y: i32) {
+        self.event(
+            output,
+            output::EVT_POSITION_OPCODE,
+            vec![Argument::Int(x), Argument::Int(y)],
+        );
+        self.dispatch_events();
+    }
+
+    fn set_output_dimensions(&mut self, output: &ObjectId, width: i32, height: i32) {
+        self.event(
+            output,
+            output::EVT_DIMENSIONS_OPCODE,
+            vec![Argument::Int(width), Argument::Int(height)],
         );
         self.dispatch_events();
     }
@@ -615,4 +638,65 @@ fn async_metadata_triggers_decoration_mode_switch_and_stays_idle() {
     assert_eq!(harness.state.windows[0].last_applied_ssd, Some(true));
     assert!(!harness.has_window_request(&window, window::REQ_USE_SSD_OPCODE));
     assert!(!harness.has_window_request(&window, window::REQ_USE_CSD_OPCODE));
+}
+
+#[test]
+fn output_usable_area_follows_geometry_changes_without_layer_shell() {
+    let mut harness = Harness::new();
+    let out = harness.add_output_with_id();
+    let client_out_id = harness.state.outputs.keys().next().unwrap().clone();
+
+    let output = &harness.state.outputs[&client_out_id];
+    assert_eq!(output.x, 0);
+    assert_eq!(output.y, 0);
+    assert_eq!(output.width, 1920);
+    assert_eq!(output.height, 1080);
+    assert_eq!(
+        output.usable_area,
+        crate::layout::Rect::new(0, 0, 1920, 1080)
+    );
+    assert!(!output.has_custom_usable_area);
+
+    // 1. Moving the output updates both output.x/y and usable_area.x/y
+    harness.server.requests.clear();
+    harness.set_output_position(&out, 1920, 100);
+    assert!(harness.has_wm_request(wm::REQ_MANAGE_DIRTY_OPCODE));
+
+    let output = &harness.state.outputs[&client_out_id];
+    assert_eq!(output.x, 1920);
+    assert_eq!(output.y, 100);
+    assert_eq!(
+        output.usable_area,
+        crate::layout::Rect::new(1920, 100, 1920, 1080)
+    );
+    assert!(!output.has_custom_usable_area);
+
+    // 2. Resizing the output updates both output.width/height and usable_area.width/height
+    harness.server.requests.clear();
+    harness.set_output_dimensions(&out, 1280, 720);
+    assert!(harness.has_wm_request(wm::REQ_MANAGE_DIRTY_OPCODE));
+
+    let output = &harness.state.outputs[&client_out_id];
+    assert_eq!(output.width, 1280);
+    assert_eq!(output.height, 720);
+    assert_eq!(
+        output.usable_area,
+        crate::layout::Rect::new(1920, 100, 1280, 720)
+    );
+    assert!(!output.has_custom_usable_area);
+
+    // 3. If custom usable area was set (e.g. by layer-shell exclusive area), geometry updates do not overwrite it
+    let output_mut = harness.state.outputs.get_mut(&client_out_id).unwrap();
+    output_mut.usable_area = crate::layout::Rect::new(1920, 132, 1280, 688);
+    output_mut.has_custom_usable_area = true;
+
+    harness.set_output_position(&out, 0, 0);
+    let output = &harness.state.outputs[&client_out_id];
+    assert_eq!(output.x, 0);
+    assert_eq!(output.y, 0);
+    assert_eq!(
+        output.usable_area,
+        crate::layout::Rect::new(1920, 132, 1280, 688)
+    );
+    assert!(output.has_custom_usable_area);
 }
