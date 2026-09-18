@@ -15,8 +15,8 @@ use super::AppState;
 use crate::ipc::IpcCommand;
 use crate::protocol::{
     river_layer_shell_seat_v1 as layer_seat, river_layer_shell_v1 as layer_shell,
-    river_output_v1 as output, river_seat_v1 as seat, river_window_manager_v1 as wm,
-    river_window_v1 as window,
+    river_node_v1 as node, river_output_v1 as output, river_seat_v1 as seat,
+    river_window_manager_v1 as wm, river_window_v1 as window,
 };
 use crate::wm::LayerShellFocus;
 
@@ -184,6 +184,18 @@ impl Harness {
             .requests
             .iter()
             .any(|msg| msg.sender_id == *id && msg.opcode == opcode)
+    }
+
+    fn all_node_positions(&self) -> Vec<(i32, i32)> {
+        self.server
+            .requests
+            .iter()
+            .filter(|msg| msg.opcode == node::REQ_SET_POSITION_OPCODE)
+            .map(|msg| match msg.args.as_slice() {
+                [Argument::Int(x), Argument::Int(y)] => (*x, *y),
+                args => panic!("unexpected set_position arguments: {args:?}"),
+            })
+            .collect()
     }
 
     fn add_output(&mut self) {
@@ -908,4 +920,60 @@ fn late_bound_layer_shell_backfills_existing_seats_and_destroys_on_removal() {
     harness.dispatch_events();
     assert!(harness.has_seat_request(&layer_seat_id, layer_seat::REQ_DESTROY_OPCODE));
     assert!(harness.state.seats.is_empty());
+}
+
+#[test]
+fn window_completely_offscreen_during_slide_animation_is_hidden_not_leaked() {
+    let mut harness = Harness::new();
+    harness.state.anim.enabled = true;
+    harness.state.anim.duration = Duration::from_secs(10);
+    harness.add_output();
+
+    // Window 1 on Tag 1
+    let _win1 = harness.add_window();
+    harness.manage();
+    harness.render();
+
+    // Simulate tag animation where window 1 is on old tag (1), focused tag is now 2
+    harness.state.tag_state.focused = 2;
+    harness.state.tag_anim_old_mask = 1;
+    harness.state.tag_slide_dir = Some(crate::animation::SlideDirection::Right);
+    // At progress ~0.95, the window has slid completely outside the screen (x = 0 - 1920 = -1920) while animation is actively running
+    harness.state.anim.start_time = Some(Instant::now() - Duration::from_millis(9500));
+
+    harness.render();
+
+    let (hide_x, hide_y) = harness.state.offscreen_hiding_position();
+    let positions = harness.all_node_positions();
+    assert_eq!(positions.last(), Some(&(hide_x, hide_y)));
+}
+
+#[test]
+fn stationary_floating_window_stays_visible_during_unrelated_animation() {
+    let mut harness = Harness::new();
+    harness.state.anim.enabled = true;
+    harness.state.anim.duration = Duration::from_millis(150);
+    harness.add_output();
+
+    // Floating window
+    harness.rule(&["float"]);
+    harness.rule(&["dimensions", "400", "300"]);
+    let _win = harness.add_window();
+    harness.manage();
+    harness.render();
+
+    // Simulate window dragged onto coordinates outside output bounds (e.g. x = 2000)
+    harness.state.windows[0].x = 2000;
+    harness.state.windows[0].y = 100;
+    harness.state.windows[0].anim_start_geo = Some(crate::layout::Rect::new(2000, 100, 400, 300));
+    harness.state.windows[0].anim_target_geo = Some(crate::layout::Rect::new(2000, 100, 400, 300));
+
+    // An unrelated animation is active globally
+    harness.state.anim.start_time = Some(Instant::now());
+
+    harness.render();
+
+    // Because this window is stationary, it should NOT be hidden
+    let positions = harness.all_node_positions();
+    assert_eq!(positions.last(), Some(&(2000, 100)));
 }

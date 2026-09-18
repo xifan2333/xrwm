@@ -428,6 +428,14 @@ impl AppState {
         }
     }
 
+    pub fn offscreen_hiding_position(&self) -> (i32, i32) {
+        let min_x = self.outputs.values().map(|o| o.x as i64).min().unwrap_or(0);
+        let min_y = self.outputs.values().map(|o| o.y as i64).min().unwrap_or(0);
+        let hide_x = (min_x - 100_000).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+        let hide_y = (min_y - 100_000).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+        (hide_x, hide_y)
+    }
+
     pub fn focused_window_id(&self) -> Option<u32> {
         let win = self.seats.values().find_map(|s| {
             if s.layer_focus == LayerShellFocus::None {
@@ -1207,6 +1215,7 @@ impl AppState {
                 None
             }
         });
+        let (hide_x, hide_y) = self.offscreen_hiding_position();
 
         let is_animating = self.anim.is_animating();
         let progress = self.anim.progress();
@@ -1258,51 +1267,71 @@ impl AppState {
                 let is_interactive = active_move_proxy.as_ref() == Some(&w.proxy);
                 let target = Rect::new(w.x, w.y, w.width, w.height);
 
-                let render_geo = if is_interactive {
+                let (render_geo, is_visible) = if is_interactive {
                     w.proxy.set_clip_box(0, 0, 0, 0);
-                    target
+                    (target, true)
                 } else if is_tag_animating {
                     let is_shared = is_in_current && (w.tags & self.tag_anim_old_mask) != 0;
                     if is_shared {
                         w.proxy.set_clip_box(0, 0, 0, 0);
-                        target
+                        (target, true)
                     } else if is_in_old && !is_in_current {
                         // Old tag window sliding out
                         let end_x = target.x - slide_offset;
                         let cur_x = crate::animation::interpolate(target.x, end_x, progress);
                         let cur_geo = Rect::new(cur_x, target.y, target.width, target.height);
-                        let (cx, cy, cw, ch) =
-                            calculate_clip_box(cur_geo, usable_area, border_width);
-                        w.proxy.set_clip_box(cx, cy, cw, ch);
-                        cur_geo
+                        if let Some((cx, cy, cw, ch)) =
+                            calculate_clip_box(cur_geo, usable_area, border_width)
+                        {
+                            w.proxy.set_clip_box(cx, cy, cw, ch);
+                            (cur_geo, true)
+                        } else {
+                            (cur_geo, false)
+                        }
                     } else {
                         // New tag window sliding in
                         let start_x = target.x + slide_offset;
                         let cur_x = crate::animation::interpolate(start_x, target.x, progress);
                         let cur_geo = Rect::new(cur_x, target.y, target.width, target.height);
-                        let (cx, cy, cw, ch) =
-                            calculate_clip_box(cur_geo, usable_area, border_width);
-                        w.proxy.set_clip_box(cx, cy, cw, ch);
-                        cur_geo
+                        if let Some((cx, cy, cw, ch)) =
+                            calculate_clip_box(cur_geo, usable_area, border_width)
+                        {
+                            w.proxy.set_clip_box(cx, cy, cw, ch);
+                            (cur_geo, true)
+                        } else {
+                            (cur_geo, false)
+                        }
                     }
-                } else if is_animating {
+                } else if is_animating && w.anim_start_geo.is_some_and(|start| start != target) {
                     let start = w.anim_start_geo.unwrap_or(target);
                     let geo = interpolate_rect(start, target, progress);
-                    let (cx, cy, cw, ch) = calculate_clip_box(geo, usable_area, border_width);
-                    w.proxy.set_clip_box(cx, cy, cw, ch);
-                    geo
+                    if let Some((cx, cy, cw, ch)) =
+                        calculate_clip_box(geo, usable_area, border_width)
+                    {
+                        w.proxy.set_clip_box(cx, cy, cw, ch);
+                        (geo, true)
+                    } else {
+                        (geo, false)
+                    }
                 } else {
                     w.proxy.set_clip_box(0, 0, 0, 0);
                     w.anim_start_geo = Some(target);
                     w.anim_target_geo = Some(target);
-                    target
+                    (target, true)
                 };
 
                 w.visual_geo = Some(render_geo);
-                w.node.set_position(render_geo.x, render_geo.y);
+                if is_visible {
+                    w.proxy.show();
+                    w.node.set_position(render_geo.x, render_geo.y);
+                } else {
+                    w.proxy.hide();
+                    w.node.set_position(hide_x, hide_y);
+                }
                 w.initial_rendered = true;
             } else {
-                w.node.set_position(-10000, -10000);
+                w.proxy.hide();
+                w.node.set_position(hide_x, hide_y);
             }
         }
 
