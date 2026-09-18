@@ -858,13 +858,25 @@ impl AppState {
         let trimmed = arg.trim();
         let new_ratio = if trimmed.starts_with('+') || trimmed.starts_with('-') {
             let delta = trimmed.parse::<f32>().map_err(|_| "Invalid ratio delta")?;
-            (self.layout_config.split_ratio + delta).clamp(0.1, 0.9)
+            if !delta.is_finite() {
+                return Err("Ratio delta must be a finite number".to_string());
+            }
+            let current = if self.layout_config.split_ratio.is_finite() {
+                self.layout_config.split_ratio
+            } else {
+                0.55
+            };
+            (current + delta).clamp(0.1, 0.9)
         } else {
-            trimmed
-                .parse::<f32>()
-                .map_err(|_| "Invalid ratio float")?
-                .clamp(0.1, 0.9)
+            let val = trimmed.parse::<f32>().map_err(|_| "Invalid ratio float")?;
+            if !val.is_finite() {
+                return Err("Ratio value must be a finite number".to_string());
+            }
+            val.clamp(0.1, 0.9)
         };
+        if !new_ratio.is_finite() {
+            return Err("Resulting ratio must be a finite number".to_string());
+        }
         self.layout_config.split_ratio = new_ratio;
         self.manage_dirty();
         Ok(format!("main ratio set to {:.2}", new_ratio))
@@ -875,13 +887,25 @@ impl AppState {
         let trimmed = arg.trim();
         let new_ratio = if trimmed.starts_with('+') || trimmed.starts_with('-') {
             let delta = trimmed.parse::<f32>().map_err(|_| "Invalid ratio delta")?;
-            (self.layout_config.stack_split_ratio + delta).clamp(0.1, 0.9)
+            if !delta.is_finite() {
+                return Err("Ratio delta must be a finite number".to_string());
+            }
+            let current = if self.layout_config.stack_split_ratio.is_finite() {
+                self.layout_config.stack_split_ratio
+            } else {
+                0.50
+            };
+            (current + delta).clamp(0.1, 0.9)
         } else {
-            trimmed
-                .parse::<f32>()
-                .map_err(|_| "Invalid ratio float")?
-                .clamp(0.1, 0.9)
+            let val = trimmed.parse::<f32>().map_err(|_| "Invalid ratio float")?;
+            if !val.is_finite() {
+                return Err("Ratio value must be a finite number".to_string());
+            }
+            val.clamp(0.1, 0.9)
         };
+        if !new_ratio.is_finite() {
+            return Err("Resulting ratio must be a finite number".to_string());
+        }
         self.layout_config.stack_split_ratio = new_ratio;
         self.manage_dirty();
         Ok(format!("stack ratio set to {:.2}", new_ratio))
@@ -903,6 +927,9 @@ impl AppState {
 
     /// Sets the layout main split ratio (clamped to 0.1 .. 0.9).
     pub fn set_main_ratio(&mut self, ratio: f32) -> Result<String, String> {
+        if !ratio.is_finite() {
+            return Err("Ratio must be a finite number".to_string());
+        }
         let clamped = ratio.clamp(0.1, 0.9);
         self.layout_config.split_ratio = clamped;
         self.manage_dirty();
@@ -911,6 +938,9 @@ impl AppState {
 
     /// Sets the layout stack split ratio (clamped to 0.1 .. 0.9).
     pub fn set_stack_ratio(&mut self, ratio: f32) -> Result<String, String> {
+        if !ratio.is_finite() {
+            return Err("Ratio must be a finite number".to_string());
+        }
         let clamped = ratio.clamp(0.1, 0.9);
         self.layout_config.stack_split_ratio = clamped;
         self.manage_dirty();
