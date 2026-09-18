@@ -282,13 +282,8 @@ impl Dispatch<RiverLayerShellOutputV1, ObjectId> for AppState {
             height,
         } = event;
         if let Some(out) = state.outputs.get_mut(data) {
-            let new_usable = Rect::new(x, y, width.max(0) as u32, height.max(0) as u32);
-            let changed = out.usable_area != new_usable || !out.has_custom_usable_area;
-            out.usable_area = new_usable;
+            out.usable_area = Rect::new(x, y, width.max(0) as u32, height.max(0) as u32);
             out.has_custom_usable_area = true;
-            if changed {
-                state.manage_dirty();
-            }
         }
     }
 }
