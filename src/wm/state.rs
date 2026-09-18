@@ -1445,6 +1445,37 @@ pub fn spawn_init_script() {
     }
 }
 
+/// Reap any dead child processes without blocking.
+///
+/// Drains all exited child processes via `waitpid(-1, WNOHANG)`, preventing
+/// zombie processes from accumulating when commands are spawned via `spawn`,
+/// `init`, or `reload`.
+pub fn reap_zombies() {
+    loop {
+        match rustix::process::waitpid(None, rustix::process::WaitOptions::NOHANG) {
+            Ok(Some(_status)) => {
+                // Reaped an exited child; continue draining.
+            }
+            Ok(None) => {
+                // No more exited children waiting to be reaped.
+                break;
+            }
+            Err(rustix::io::Errno::CHILD) => {
+                // No child processes exist.
+                break;
+            }
+            Err(rustix::io::Errno::INTR) => {
+                // Interrupted by signal; retry.
+                continue;
+            }
+            Err(_) => {
+                // Other errors; stop draining.
+                break;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

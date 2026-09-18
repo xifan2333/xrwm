@@ -22,4 +22,5 @@ pub use state::OutputItem;
 pub use state::WindowItem;
 pub use state::WindowRule;
 pub use state::hex_to_river_rgba;
+pub use state::reap_zombies;
 pub use state::spawn_init_script;
