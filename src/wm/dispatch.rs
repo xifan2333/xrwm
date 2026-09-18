@@ -227,15 +227,11 @@ impl Dispatch<RiverOutputV1, ()> for AppState {
         match event {
             Event::Position { x, y } => {
                 if let Some(out) = state.outputs.get_mut(&proxy.id()) {
-                    let changed = out.x != x || out.y != y;
                     out.x = x;
                     out.y = y;
                     if !out.has_custom_usable_area {
                         out.usable_area.x = x;
                         out.usable_area.y = y;
-                    }
-                    if changed {
-                        state.manage_dirty();
                     }
                 }
             }
@@ -243,15 +239,11 @@ impl Dispatch<RiverOutputV1, ()> for AppState {
                 let w = width as u32;
                 let h = height as u32;
                 if let Some(out) = state.outputs.get_mut(&proxy.id()) {
-                    let changed = out.width != w || out.height != h;
                     out.width = w;
                     out.height = h;
                     if !out.has_custom_usable_area {
                         out.usable_area.width = w;
                         out.usable_area.height = h;
-                    }
-                    if changed {
-                        state.manage_dirty();
                     }
                 }
             }
