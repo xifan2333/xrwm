@@ -38,7 +38,7 @@
 - **严格时序规范与单一分发入口**：
   所有窗口管理状态修改严格遵循 River 0.4 `manage_start` 协议序列。键盘映射、鼠标映射与 CLI 命令行调用共享统一分发源，杜绝行为偏差。
 - **极简克制与极低开销（Suckless Frugality）**：
-  Release 静态二进制仅 ~1.2 MB，零外部运行时依赖，零后台垃圾回收开销，并原生内建长连接 Waybar JSON 状态流推送（`xrwm status --format waybar --stream`）。
+  Release 优化二进制仅 ~1.2 MB，仅依赖基础系统运行库（`libxkbcommon`、`glibc`），零后台垃圾回收开销，并原生内建长连接 Waybar JSON 状态流推送（`xrwm status --format waybar --stream`）。
 
 ---
 
@@ -79,16 +79,36 @@ paru -S xrwm-bin
 yay -S xrwm-bin
 ```
 
+### 依赖项 (Dependencies)
+
+- **构建依赖**：Rust 工具链（`cargo`, `rustc`）、`wayland-protocols`、`libxkbcommon` 开发头文件、`pkg-config`，以及 `pandoc`（可选，用于重新生成 man 手册）。
+- **运行依赖**：`libxkbcommon`、`wayland`（`libwayland-client0`）、`glibc`。
+
+Arch Linux:
+
+```bash
+sudo pacman -S --needed base-devel rust wayland-protocols libxkbcommon wayland
+```
+
+Ubuntu / Debian:
+
+```bash
+sudo apt install -y build-essential pkg-config cargo rustc wayland-protocols libwayland-dev libxkbcommon-dev
+```
+
 ### 源码编译安装 (Makefile)
 
 ```bash
 git clone https://github.com/xifan2333/xrwm.git
 cd xrwm
 
+# 编译 Release 二进制
+make
+
 # 系统全局安装（一键安装二进制、man 手册与桌面会话）
 sudo make install
 
-# 用户家目录本地安装（无需 root 权限）
+# 或用户家目录本地安装（无需 root 权限）
 make install PREFIX=$HOME/.local
 ```
 

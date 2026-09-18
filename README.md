@@ -38,7 +38,7 @@ It bridges the modern architectural separation of River 0.4 with the beloved **3
 - **Strict Protocol Compliance & Single-Entry Dispatch**:
   All window management state modifications strictly adhere to River's `manage_start` sequence. Keyboard bindings, mouse bindings, and CLI calls share a single unified dispatch path.
 - **Suckless Frugality**:
-  Standalone stripped release binary (~1.2 MB), zero runtime dependencies, zero background garbage collection, and native streaming Waybar JSON support (`xrwm status --format waybar --stream`).
+  Lightweight stripped release binary (~1.2 MB), minimal system runtime dependencies (`libxkbcommon`, `glibc`), zero background garbage collection, and native streaming Waybar JSON support (`xrwm status --format waybar --stream`).
 
 ---
 
@@ -79,16 +79,36 @@ paru -S xrwm-bin
 yay -S xrwm-bin
 ```
 
+### Dependencies
+
+- **Build Dependencies**: Rust toolchain (`cargo`, `rustc`), `wayland-protocols`, `libxkbcommon` development headers, `pkg-config`, and `pandoc` (optional, for regenerating man pages).
+- **Runtime Dependencies**: `libxkbcommon`, `wayland` (`libwayland-client0`), `glibc`.
+
+On Arch Linux:
+
+```bash
+sudo pacman -S --needed base-devel rust wayland-protocols libxkbcommon wayland
+```
+
+On Ubuntu / Debian:
+
+```bash
+sudo apt install -y build-essential pkg-config cargo rustc wayland-protocols libwayland-dev libxkbcommon-dev
+```
+
 ### From Source (Makefile)
 
 ```bash
 git clone https://github.com/xifan2333/xrwm.git
 cd xrwm
 
+# Compile release binary
+make
+
 # System-wide installation (installs xrwm, man xrwm, and desktop session)
 sudo make install
 
-# User-local installation (no root needed)
+# Or user-local installation (no root needed)
 make install PREFIX=$HOME/.local
 ```
 

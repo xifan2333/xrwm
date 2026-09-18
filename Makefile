@@ -3,9 +3,11 @@ BINDIR ?= $(PREFIX)/bin
 MANDIR ?= $(PREFIX)/share/man/man1
 DATADIR ?= $(PREFIX)/share/wayland-sessions
 DOCDIR ?= $(PREFIX)/share/doc/xrwm
-TARGET ?= $(shell [ -f target/release/xrwm ] && echo target/release/xrwm || echo xrwm)
+TARGET ?= $(shell [ -f xrwm ] && echo xrwm || echo target/release/xrwm)
 
-all:
+all: $(TARGET)
+
+target/release/xrwm: FORCE
 	cargo build --release
 
 doc:
@@ -13,7 +15,7 @@ doc:
 	version=$$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1); \
 	pandoc -s -t man doc/xrwm.1.md -M date="$$date" -M footer="xrwm $$version" -o doc/xrwm.1
 
-install:
+install: $(TARGET)
 	install -Dm755 $(TARGET) $(DESTDIR)$(BINDIR)/xrwm
 	install -Dm644 doc/xrwm.1 $(DESTDIR)$(MANDIR)/xrwm.1
 	install -Dm644 examples/xrwm.desktop $(DESTDIR)$(DATADIR)/xrwm.desktop
@@ -25,4 +27,6 @@ uninstall:
 	rm -f $(DESTDIR)$(DATADIR)/xrwm.desktop
 	rm -rf $(DESTDIR)$(DOCDIR)
 
-.PHONY: all doc install uninstall
+FORCE:
+
+.PHONY: all doc install uninstall FORCE
