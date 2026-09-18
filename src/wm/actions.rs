@@ -1962,4 +1962,179 @@ mod tests {
             Err(rustix::io::Errno::CHILD)
         ));
     }
+
+    fn split_shell_tokens(input: &str) -> Vec<String> {
+        let mut tokens = Vec::new();
+        let mut current = String::new();
+        let mut in_single = false;
+        let mut in_double = false;
+
+        for ch in input.chars() {
+            match ch {
+                '\'' if !in_double => in_single = !in_single,
+                '"' if !in_single => in_double = !in_double,
+                ' ' | '\t' if !in_single && !in_double => {
+                    if !current.is_empty() {
+                        tokens.push(std::mem::take(&mut current));
+                    }
+                }
+                _ => current.push(ch),
+            }
+        }
+        if !current.is_empty() {
+            tokens.push(current);
+        }
+        tokens
+    }
+
+    fn validate_action_tokens(action: &[String]) {
+        assert!(!action.is_empty(), "Action tokens cannot be empty");
+        if action[0] == "spawn" {
+            assert!(
+                action.len() >= 2,
+                "spawn action requires at least 1 command argument: {:?}",
+                action
+            );
+        } else {
+            let parsed = crate::ipc::parse_cli_args(action).unwrap_or_else(|e| {
+                panic!("Invalid action tokens in map: {:?}, error: {}", action, e);
+            });
+            let mut test_state = AppState::new();
+            let _ = test_state.handle_ipc_command(&parsed);
+        }
+    }
+
+    #[test]
+    fn test_examples_init_all_commands_are_valid() {
+        let content = std::fs::read_to_string("examples/init").expect("examples/init must exist");
+        let mut state = AppState::new();
+
+        for (line_no, line) in content.lines().enumerate() {
+            let trimmed = line.trim();
+            if !trimmed.starts_with("xrwm ") {
+                continue;
+            }
+
+            // Skip template lines inside loops (e.g. "$i", "$tags") which are tested separately
+            if trimmed.contains("$i") || trimmed.contains("$tags") {
+                continue;
+            }
+
+            let cmd_str = &trimmed[5..];
+            let tokens = split_shell_tokens(cmd_str);
+            assert!(
+                !tokens.is_empty(),
+                "Empty command at line {}: {}",
+                line_no + 1,
+                line
+            );
+
+            let cmd = crate::ipc::parse_cli_args(&tokens).unwrap_or_else(|e| {
+                panic!(
+                    "Failed to parse CLI args at line {}: {}\nError: {}",
+                    line_no + 1,
+                    line,
+                    e
+                );
+            });
+
+            // If command is a key mapping, separately validate its action tokens
+            if let IpcCommand::Map { ref action, .. } = cmd {
+                validate_action_tokens(action);
+            }
+
+            state.handle_ipc_command(&cmd).unwrap_or_else(|e| {
+                panic!(
+                    "Failed to handle IPC command at line {}: {}\nError: {}",
+                    line_no + 1,
+                    line,
+                    e
+                );
+            });
+        }
+
+        // Test loop lines with concrete values
+        for i in 1..=9 {
+            let tags = 1 << (i - 1);
+            let action1 = vec!["set-focused-tags".into(), tags.to_string()];
+            validate_action_tokens(&action1);
+            let cmd1 = crate::ipc::parse_cli_args(&[
+                "map".into(),
+                "normal".into(),
+                "Super".into(),
+                i.to_string(),
+                "set-focused-tags".into(),
+                tags.to_string(),
+            ])
+            .unwrap();
+            state.handle_ipc_command(&cmd1).unwrap();
+
+            let action2 = vec!["set-view-tags".into(), tags.to_string()];
+            validate_action_tokens(&action2);
+            let cmd2 = crate::ipc::parse_cli_args(&[
+                "map".into(),
+                "normal".into(),
+                "Super+Shift".into(),
+                i.to_string(),
+                "set-view-tags".into(),
+                tags.to_string(),
+            ])
+            .unwrap();
+            state.handle_ipc_command(&cmd2).unwrap();
+        }
+    }
+
+    #[test]
+    fn test_stack_ratio_keybindings_parsing_and_handling() {
+        let mut state = AppState::new();
+        state.layout_config.stack_split_ratio = 0.50;
+
+        let cmd_left = crate::ipc::parse_cli_args(&[
+            "map".into(),
+            "normal".into(),
+            "Super".into(),
+            "bracketleft".into(),
+            "stack-ratio".into(),
+            "-0.05".into(),
+        ])
+        .unwrap();
+        assert!(state.handle_ipc_command(&cmd_left).is_ok());
+
+        // Validate and execute the action tokens for bracketleft
+        if let IpcCommand::Map { ref action, .. } = cmd_left {
+            validate_action_tokens(action);
+            state.execute_action_tokens(action);
+            assert!(
+                (state.layout_config.stack_split_ratio - 0.45).abs() < 1e-4,
+                "Expected stack-ratio to decrease to 0.45, got {}",
+                state.layout_config.stack_split_ratio
+            );
+        } else {
+            panic!("Expected IpcCommand::Map");
+        }
+
+        let cmd_right = crate::ipc::parse_cli_args(&[
+            "map".into(),
+            "normal".into(),
+            "Super".into(),
+            "bracketright".into(),
+            "stack-ratio".into(),
+            "+0.05".into(),
+        ])
+        .unwrap();
+        assert!(state.handle_ipc_command(&cmd_right).is_ok());
+
+        // Validate and execute the action tokens for bracketright
+        if let IpcCommand::Map { ref action, .. } = cmd_right {
+            validate_action_tokens(action);
+            state.execute_action_tokens(action);
+            assert!(
+                (state.layout_config.stack_split_ratio - 0.50).abs() < 1e-4,
+                "Expected stack-ratio to increase back to 0.50, got {}",
+                state.layout_config.stack_split_ratio
+            );
+        } else {
+            panic!("Expected IpcCommand::Map");
+        }
+    }
 }

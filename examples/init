@@ -97,8 +97,8 @@ xrwm map normal Super I main-ratio -0.05
 xrwm map normal Super O main-ratio +0.05
 xrwm map normal Super Left main-ratio -0.05
 xrwm map normal Super Right main-ratio +0.05
-xrwm map normal "Super+BracketLeft" stack-ratio -0.05
-xrwm map normal "Super+BracketRight" stack-ratio +0.05
+xrwm map normal Super bracketleft stack-ratio -0.05
+xrwm map normal Super bracketright stack-ratio +0.05
 
 # 15. 工作区 Tag 1 到 9 (标准 river-classic 语法)
 for i in $(seq 1 9); do
