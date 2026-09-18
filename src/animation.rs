@@ -44,45 +44,43 @@ pub fn interpolate_rect(start: Rect, end: Rect, progress: f32) -> Rect {
 /// Clips windows that slide outside the screen/usable boundary during workspace
 /// animations to prevent them from bleeding into neighboring displays or panels.
 /// River's `set_clip_box` is relative to the window content area, but also clips
-/// window borders, so `clip_x` and `clip_y` are adjusted by `border_width`.
-pub fn calculate_clip_box(window: Rect, screen: Rect, border_width: i32) -> (i32, i32, i32, i32) {
-    let win_left = window.x;
-    let win_right = window.x + window.width as i32;
-    let win_top = window.y;
-    let win_bottom = window.y + window.height as i32;
+/// window borders and decoration surfaces, so coordinates and dimensions include
+/// `border_width`.
+///
+/// Returns `None` if the window (including its borders) has no intersection with
+/// the screen/usable area.
+pub fn calculate_clip_box(
+    window: Rect,
+    screen: Rect,
+    border_width: i32,
+) -> Option<(i32, i32, i32, i32)> {
+    let b = border_width.max(0);
+
+    let win_left = window.x - b;
+    let win_right = window.x + window.width as i32 + b;
+    let win_top = window.y - b;
+    let win_bottom = window.y + window.height as i32 + b;
 
     let scr_left = screen.x;
     let scr_right = screen.x + screen.width as i32;
     let scr_top = screen.y;
     let scr_bottom = screen.y + screen.height as i32;
 
-    let mut clip_x = 0;
-    let mut clip_y = 0;
-    let mut clip_width = window.width as i32;
-    let mut clip_height = window.height as i32;
+    let inter_left = win_left.max(scr_left);
+    let inter_right = win_right.min(scr_right);
+    let inter_top = win_top.max(scr_top);
+    let inter_bottom = win_bottom.min(scr_bottom);
 
-    // Horizontal clipping
-    if scr_left > win_left && scr_left < win_right {
-        clip_x = scr_left - win_left;
-        clip_width = (win_right - scr_left).min(screen.width as i32);
-    } else if scr_right > win_left && scr_right < win_right {
-        clip_width = scr_right - win_left;
+    if inter_left >= inter_right || inter_top >= inter_bottom {
+        return None;
     }
 
-    // Vertical clipping
-    if scr_top > win_top && scr_top < win_bottom {
-        clip_y = scr_top - win_top;
-        clip_height = (win_bottom - scr_top).min(screen.height as i32);
-    } else if scr_bottom > win_top && scr_bottom < win_bottom {
-        clip_height = scr_bottom - win_top;
-    }
+    let clip_x = inter_left - window.x;
+    let clip_y = inter_top - window.y;
+    let clip_width = inter_right - inter_left;
+    let clip_height = inter_bottom - inter_top;
 
-    (
-        clip_x - border_width,
-        clip_y - border_width,
-        clip_width.max(0),
-        clip_height.max(0),
-    )
+    Some((clip_x, clip_y, clip_width, clip_height))
 }
 
 /// Animation controller managing duration and elapsed progress.
@@ -191,18 +189,57 @@ mod tests {
     fn test_calculate_clip_box() {
         let screen = Rect::new(0, 0, 1920, 1080);
 
-        // Window fully inside screen
+        // 1. Window fully inside screen (includes 4-side symmetric border)
         let win = Rect::new(100, 100, 800, 600);
-        let (cx, cy, cw, ch) = calculate_clip_box(win, screen, 2);
-        assert_eq!((cx, cy, cw, ch), (-2, -2, 800, 600));
+        let clip = calculate_clip_box(win, screen, 2);
+        assert_eq!(clip, Some((-2, -2, 804, 604)));
 
-        // Window partially off left edge
+        // 2. Window partially off left edge
         let win_left = Rect::new(-200, 100, 800, 600);
-        let (cx, cy, cw, ch) = calculate_clip_box(win_left, screen, 2);
-        assert_eq!(cx, 200 - 2);
-        assert_eq!(cy, -2);
-        assert_eq!(cw, 600);
-        assert_eq!(ch, 600);
+        let clip_left = calculate_clip_box(win_left, screen, 2);
+        assert_eq!(clip_left, Some((200, -2, 602, 604)));
+
+        // 3. Window partially off right edge
+        let win_right = Rect::new(1500, 100, 800, 600);
+        let clip_right = calculate_clip_box(win_right, screen, 2);
+        assert_eq!(clip_right, Some((-2, -2, 422, 604)));
+
+        // 4. Window partially off top edge
+        let win_top = Rect::new(100, -200, 800, 600);
+        let clip_top = calculate_clip_box(win_top, screen, 2);
+        assert_eq!(clip_top, Some((-2, 200, 804, 402)));
+
+        // 5. Window partially off bottom edge
+        let win_bottom = Rect::new(100, 800, 800, 600);
+        let clip_bottom = calculate_clip_box(win_bottom, screen, 2);
+        assert_eq!(clip_bottom, Some((-2, -2, 804, 282)));
+
+        // 6. Window covering the entire screen
+        let win_oversized = Rect::new(-100, -100, 2120, 1280);
+        let clip_oversized = calculate_clip_box(win_oversized, screen, 2);
+        assert_eq!(clip_oversized, Some((100, 100, 1920, 1080)));
+
+        // 7. Window completely outside (no intersection) - right edge
+        let win_out_right = Rect::new(1922, 0, 800, 600);
+        assert_eq!(calculate_clip_box(win_out_right, screen, 2), None);
+
+        // 8. Window completely outside (no intersection) - left edge
+        let win_out_left = Rect::new(-802, 0, 800, 600);
+        assert_eq!(calculate_clip_box(win_out_left, screen, 2), None);
+
+        // 9. Window completely outside (no intersection) - top & bottom
+        let win_out_top = Rect::new(100, -602, 800, 600);
+        assert_eq!(calculate_clip_box(win_out_top, screen, 2), None);
+
+        let win_out_bottom = Rect::new(100, 1082, 800, 600);
+        assert_eq!(calculate_clip_box(win_out_bottom, screen, 2), None);
+
+        // 10. Equal boundary (zero-width intersection touching outer edge)
+        let win_touch_right = Rect::new(1920, 0, 800, 600);
+        assert_eq!(calculate_clip_box(win_touch_right, screen, 0), None);
+
+        let win_touch_left = Rect::new(-800, 0, 800, 600);
+        assert_eq!(calculate_clip_box(win_touch_left, screen, 0), None);
     }
 
     #[test]
