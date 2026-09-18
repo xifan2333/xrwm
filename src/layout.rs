@@ -112,8 +112,9 @@ impl Layout for MasterStackLayout {
                     (inner_w, 0)
                 };
 
-                let (master_start_x, stack_start_x) = if config.main_location == MainLocation::Left
-                {
+                let (master_start_x, stack_start_x) = if !has_stack {
+                    (inner_x, inner_x)
+                } else if config.main_location == MainLocation::Left {
                     (inner_x, inner_x + main_w + vp)
                 } else {
                     (inner_x + stack_w + vp, inner_x)
@@ -184,7 +185,9 @@ impl Layout for MasterStackLayout {
                     (inner_h, 0)
                 };
 
-                let (master_start_y, stack_start_y) = if config.main_location == MainLocation::Top {
+                let (master_start_y, stack_start_y) = if !has_stack {
+                    (inner_y, inner_y)
+                } else if config.main_location == MainLocation::Top {
                     (inner_y, inner_y + main_h + vp)
                 } else {
                     (inner_y + stack_h + vp, inner_y)
@@ -515,6 +518,59 @@ mod tests {
             assert!(r.y >= area.y);
             assert!(r.x + r.width as i32 <= area.x + area.width as i32);
             assert!(r.y + r.height as i32 <= area.y + area.height as i32);
+        }
+    }
+
+    #[test]
+    fn test_right_and_bottom_no_stack_column_no_overflow() {
+        let layout = MasterStackLayout;
+        let area = Rect::new(0, 0, 1000, 1000);
+
+        // Case 1: Reproduce Issue #132 (2 windows, main_count = 2, op = 0, vp = 10)
+        for loc in [MainLocation::Right, MainLocation::Bottom] {
+            let config = LayoutConfig {
+                outer_padding: 0,
+                view_padding: 10,
+                main_count: 2,
+                main_location: loc,
+                ..Default::default()
+            };
+            let rects = layout.arrange(area, 2, &config);
+            assert_eq!(rects.len(), 2);
+            for r in &rects {
+                if loc == MainLocation::Right {
+                    assert_eq!(r.x, 0, "Window x must start at inner_x=0 for Right");
+                    assert_eq!(r.width, 1000);
+                    assert!(r.x + r.width as i32 <= 1000);
+                } else {
+                    assert_eq!(r.y, 0, "Window y must start at inner_y=0 for Bottom");
+                    assert!(r.y + r.height as i32 <= 1000);
+                }
+            }
+        }
+
+        // Case 2: main_count > window count with non-zero outer_padding and view_padding
+        for loc in [MainLocation::Right, MainLocation::Bottom] {
+            let config = LayoutConfig {
+                outer_padding: 15,
+                view_padding: 10,
+                main_count: 5,
+                main_location: loc,
+                ..Default::default()
+            };
+            let rects = layout.arrange(area, 3, &config);
+            assert_eq!(rects.len(), 3);
+            let inner_x = area.x + 15;
+            let inner_y = area.y + 15;
+            let inner_w = 1000 - 2 * 15;
+            let inner_h = 1000 - 2 * 15;
+
+            for r in &rects {
+                assert!(r.x >= inner_x);
+                assert!(r.y >= inner_y);
+                assert!(r.x + r.width as i32 <= inner_x + inner_w);
+                assert!(r.y + r.height as i32 <= inner_y + inner_h);
+            }
         }
     }
 }
