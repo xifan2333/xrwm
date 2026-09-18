@@ -429,20 +429,28 @@ impl AppState {
     }
 
     pub fn focused_window_id(&self) -> Option<u32> {
-        let any_layer_focus = self
+        let win = self.seats.values().find_map(|s| {
+            if s.layer_focus == LayerShellFocus::None {
+                s.focused.as_ref()
+            } else {
+                None
+            }
+        });
+        if let Some(proxy) = win {
+            self.windows
+                .iter()
+                .find(|w| &w.proxy == proxy)
+                .map(|w| w.id)
+        } else if self
             .seats
             .values()
-            .any(|s| s.layer_focus != LayerShellFocus::None);
-        if any_layer_focus {
-            return None;
+            .all(|s| s.layer_focus != LayerShellFocus::None)
+            && !self.seats.is_empty()
+        {
+            None
+        } else {
+            self.windows.first().map(|w| w.id)
         }
-
-        self.seats
-            .values()
-            .find_map(|s| s.focused.as_ref())
-            .and_then(|proxy| self.windows.iter().find(|w| &w.proxy == proxy))
-            .map(|w| w.id)
-            .or_else(|| self.windows.first().map(|w| w.id))
     }
 
     pub fn hovered_window_id(&self) -> Option<u32> {

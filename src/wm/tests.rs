@@ -839,7 +839,45 @@ fn layer_shell_seat_focus_lifecycle_and_window_refocus() {
     assert!(harness.has_seat_request(&seat, seat::REQ_FOCUS_WINDOW_OPCODE));
     assert_eq!(harness.state.focused_window_id(), Some(win2_id));
 
-    // 7. Layer surface receives exclusive focus (e.g. lockscreen)
+    // 7. Interacting with the already-cached window reclaims focus from non-exclusive layer surface
+    harness.event(
+        &layer_seat_id,
+        layer_seat::EVT_FOCUS_NON_EXCLUSIVE_OPCODE,
+        vec![],
+    );
+    harness.dispatch_events();
+    assert_eq!(
+        harness.state.seats.values().next().unwrap().layer_focus,
+        LayerShellFocus::NonExclusive
+    );
+
+    // User interacts with Window 2 (the same window that was cached)
+    harness.server.requests.clear();
+    harness.interact_window(&seat, &window2);
+    assert_eq!(
+        harness.state.seats.values().next().unwrap().layer_focus,
+        LayerShellFocus::None
+    );
+    harness.manage();
+    assert!(harness.has_seat_request(&seat, seat::REQ_FOCUS_WINDOW_OPCODE));
+    assert_eq!(harness.state.focused_window_id(), Some(win2_id));
+
+    // 8. Closing a window while layer surface has non-exclusive focus preserves layer focus
+    harness.event(
+        &layer_seat_id,
+        layer_seat::EVT_FOCUS_NON_EXCLUSIVE_OPCODE,
+        vec![],
+    );
+    harness.dispatch_events();
+    harness.event(&window2, window::EVT_CLOSED_OPCODE, vec![]);
+    harness.dispatch_events();
+    assert_eq!(
+        harness.state.seats.values().next().unwrap().layer_focus,
+        LayerShellFocus::NonExclusive
+    );
+    assert_eq!(harness.state.focused_window_id(), None);
+
+    // 9. Layer surface receives exclusive focus (e.g. lockscreen)
     harness.server.requests.clear();
     harness.event(
         &layer_seat_id,
@@ -850,4 +888,24 @@ fn layer_shell_seat_focus_lifecycle_and_window_refocus() {
     harness.manage();
     assert!(!harness.has_seat_request(&seat, seat::REQ_FOCUS_WINDOW_OPCODE));
     assert_eq!(harness.state.focused_window_id(), None);
+}
+
+#[test]
+fn late_bound_layer_shell_backfills_existing_seats_and_destroys_on_removal() {
+    let mut harness = Harness::new();
+    let seat = harness.add_seat();
+    assert!(harness.get_layer_shell_seat().is_none());
+
+    // Layer shell global is announced after the seat is created
+    harness.enable_layer_shell();
+    let layer_seat_id = harness
+        .get_layer_shell_seat()
+        .expect("existing seat should be backfilled with layer shell seat");
+
+    // When the seat is removed, the layer-shell seat proxy must be destroyed
+    harness.server.requests.clear();
+    harness.event(&seat, seat::EVT_REMOVED_OPCODE, vec![]);
+    harness.dispatch_events();
+    assert!(harness.has_seat_request(&layer_seat_id, layer_seat::REQ_DESTROY_OPCODE));
+    assert!(harness.state.seats.is_empty());
 }

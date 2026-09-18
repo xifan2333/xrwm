@@ -167,8 +167,9 @@ impl SeatItem {
     }
 
     pub fn set_focused_window(&mut self, proxy: Option<RiverWindowV1>) {
-        if self.layer_focus == LayerShellFocus::NonExclusive {
+        if proxy.is_some() && self.layer_focus == LayerShellFocus::NonExclusive {
             self.layer_focus = LayerShellFocus::None;
+            self.last_focused_window = None;
         }
         self.focused = proxy;
     }

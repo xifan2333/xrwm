@@ -46,6 +46,16 @@ impl Dispatch<wl_registry::WlRegistry, ()> for AppState {
                 "river_layer_shell_v1" => {
                     let layer =
                         registry.bind::<RiverLayerShellV1, _, _>(name, version.min(1), qh, ());
+                    for (seat_id, seat) in state.seats.iter_mut() {
+                        if seat.ls_seat.is_none() {
+                            seat.ls_seat = Some(layer.get_seat(&seat.proxy, qh, seat_id.clone()));
+                        }
+                    }
+                    for (out_id, out) in state.outputs.iter_mut() {
+                        if out.ls_output.is_none() {
+                            out.ls_output = Some(layer.get_output(&out.proxy, qh, out_id.clone()));
+                        }
+                    }
                     state.river_layer = Some(layer);
                 }
                 "wp_cursor_shape_manager_v1" => {
@@ -400,7 +410,11 @@ impl Dispatch<RiverSeatV1, ()> for AppState {
             }
             Event::ShellSurfaceInteraction { .. } => {}
             Event::Removed => {
-                state.seats.remove(&proxy.id());
+                if let Some(mut seat) = state.seats.remove(&proxy.id())
+                    && let Some(ls_seat) = seat.ls_seat.take()
+                {
+                    ls_seat.destroy();
+                }
             }
         }
     }
