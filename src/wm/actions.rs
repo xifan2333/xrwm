@@ -2138,4 +2138,54 @@ mod tests {
             panic!("Expected IpcCommand::Map");
         }
     }
+
+    #[test]
+    fn test_toggle_focused_tags_updates_previous_tags_history() {
+        let mut state = AppState::new();
+        assert_eq!(state.tag_state.focused, 1);
+        assert_eq!(state.previous_focused_tags, 1);
+
+        // 1. set-focused-tags 2
+        state
+            .handle_ipc_command(&IpcCommand::SetFocusedTags(2))
+            .unwrap();
+        assert_eq!(state.tag_state.focused, 2);
+        assert_eq!(state.previous_focused_tags, 1);
+
+        // 2. toggle-focused-tags 4 -> focused becomes 6 (2 | 4)
+        // previous_focused_tags must be updated to 2
+        state
+            .handle_ipc_command(&IpcCommand::ToggleFocusedTags(4))
+            .unwrap();
+        assert_eq!(state.tag_state.focused, 6);
+        assert_eq!(state.previous_focused_tags, 2);
+
+        // 3. focus-previous-tags returns to 2
+        state
+            .handle_ipc_command(&IpcCommand::FocusPreviousTags)
+            .unwrap();
+        assert_eq!(state.tag_state.focused, 2);
+        assert_eq!(state.previous_focused_tags, 6);
+
+        // 4. focus-previous-tags returns back to 6
+        state
+            .handle_ipc_command(&IpcCommand::FocusPreviousTags)
+            .unwrap();
+        assert_eq!(state.tag_state.focused, 6);
+        assert_eq!(state.previous_focused_tags, 2);
+
+        // 5. No-op toggle (0) does not pollute history
+        state
+            .handle_ipc_command(&IpcCommand::ToggleFocusedTags(0))
+            .unwrap();
+        assert_eq!(state.tag_state.focused, 6);
+        assert_eq!(state.previous_focused_tags, 2);
+
+        // 6. Invalid toggle (would zero all tags) does not change focused tags and does not pollute history
+        state
+            .handle_ipc_command(&IpcCommand::ToggleFocusedTags(6))
+            .unwrap();
+        assert_eq!(state.tag_state.focused, 6);
+        assert_eq!(state.previous_focused_tags, 2);
+    }
 }
