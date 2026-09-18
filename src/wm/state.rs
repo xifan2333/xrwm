@@ -26,7 +26,7 @@ use crate::tag::TAG_NONE;
 use crate::tag::TagMask;
 use crate::tag::TagState;
 use crate::wm::binds::{ActiveKeyBinding, PendingKeyBinding};
-use crate::wm::seat::{PointerAction, SeatItem, SeatOp};
+use crate::wm::seat::{LayerShellFocus, PointerAction, SeatItem, SeatOp};
 
 pub const MIN_WINDOW_DIMENSION: u32 = 100;
 
@@ -429,12 +429,28 @@ impl AppState {
     }
 
     pub fn focused_window_id(&self) -> Option<u32> {
-        self.seats
+        let win = self.seats.values().find_map(|s| {
+            if s.layer_focus == LayerShellFocus::None {
+                s.focused.as_ref()
+            } else {
+                None
+            }
+        });
+        if let Some(proxy) = win {
+            self.windows
+                .iter()
+                .find(|w| &w.proxy == proxy)
+                .map(|w| w.id)
+        } else if self
+            .seats
             .values()
-            .find_map(|s| s.focused.as_ref())
-            .and_then(|proxy| self.windows.iter().find(|w| &w.proxy == proxy))
-            .map(|w| w.id)
-            .or_else(|| self.windows.first().map(|w| w.id))
+            .all(|s| s.layer_focus != LayerShellFocus::None)
+            && !self.seats.is_empty()
+        {
+            None
+        } else {
+            self.windows.first().map(|w| w.id)
+        }
     }
 
     pub fn hovered_window_id(&self) -> Option<u32> {
@@ -615,7 +631,7 @@ impl AppState {
                     .as_ref()
                     .is_some_and(|f| closed.iter().any(|c| c == f))
                 {
-                    seat.focused = None;
+                    seat.set_focused_window(None);
                 }
                 if seat
                     .hovered
@@ -635,7 +651,7 @@ impl AppState {
 
         for (id, seat) in self.seats.iter_mut() {
             if let Some(win_proxy) = seat.interacted.take() {
-                seat.focused = Some(win_proxy);
+                seat.set_focused_window(Some(win_proxy));
             }
 
             let action = std::mem::replace(&mut seat.pending_action, PointerAction::None);
@@ -649,7 +665,7 @@ impl AppState {
                 PointerAction::Move => start_move.push((id.clone(), win_proxy)),
                 PointerAction::Resize => start_resize.push((id.clone(), win_proxy)),
                 PointerAction::Command(cmd) => {
-                    seat.focused = Some(win_proxy);
+                    seat.set_focused_window(Some(win_proxy));
                     pointer_commands.push(cmd);
                 }
                 PointerAction::None => {}
@@ -948,10 +964,21 @@ impl AppState {
             .map(|o| o.usable_area)
             .or_else(|| self.outputs.values().next().map(|o| o.usable_area));
 
-        // 4. Interactive pointer operations (Move / Resize)
+        // 4. Interactive pointer operations (Move / Resize) & Focus synchronization
         for seat in self.seats.values_mut() {
-            if let Some(target) = &seat.focused {
-                seat.proxy.focus_window(target);
+            if seat.layer_focus == LayerShellFocus::None {
+                if let Some(target) = &seat.focused {
+                    let target_id = target.id();
+                    if seat.last_focused_window.as_ref() != Some(&target_id) {
+                        seat.proxy.focus_window(target);
+                        seat.last_focused_window = Some(target_id);
+                    }
+                } else if seat.last_focused_window.is_some() {
+                    seat.proxy.clear_focus();
+                    seat.last_focused_window = None;
+                }
+            } else {
+                seat.last_focused_window = None;
             }
             match &seat.op {
                 SeatOp::Move {
@@ -1173,7 +1200,13 @@ impl AppState {
         let border_width = (self.border_width.min(i32::MAX as u32)) as i32;
         let (fr, fg, fb, fa) = hex_to_river_rgba(&self.border_color_focused);
         let (ur, ug, ub, ua) = hex_to_river_rgba(&self.border_color_unfocused);
-        let focused_proxy = self.seats.values().find_map(|s| s.focused.clone());
+        let focused_proxy = self.seats.values().find_map(|s| {
+            if s.layer_focus == LayerShellFocus::None {
+                s.focused.clone()
+            } else {
+                None
+            }
+        });
 
         let is_animating = self.anim.is_animating();
         let progress = self.anim.progress();

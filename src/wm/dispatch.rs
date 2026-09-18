@@ -6,7 +6,8 @@ use wayland_client::{Connection, Dispatch, Proxy, QueueHandle};
 
 use crate::layout::Rect;
 use crate::protocol::{
-    river_layer_shell_output_v1::RiverLayerShellOutputV1, river_layer_shell_v1::RiverLayerShellV1,
+    river_layer_shell_output_v1::RiverLayerShellOutputV1,
+    river_layer_shell_seat_v1::RiverLayerShellSeatV1, river_layer_shell_v1::RiverLayerShellV1,
     river_node_v1::RiverNodeV1, river_output_v1::RiverOutputV1,
     river_pointer_binding_v1::RiverPointerBindingV1, river_seat_v1::RiverSeatV1,
     river_window_manager_v1::RiverWindowManagerV1, river_window_v1::RiverWindowV1,
@@ -45,6 +46,16 @@ impl Dispatch<wl_registry::WlRegistry, ()> for AppState {
                 "river_layer_shell_v1" => {
                     let layer =
                         registry.bind::<RiverLayerShellV1, _, _>(name, version.min(1), qh, ());
+                    for (seat_id, seat) in state.seats.iter_mut() {
+                        if seat.ls_seat.is_none() {
+                            seat.ls_seat = Some(layer.get_seat(&seat.proxy, qh, seat_id.clone()));
+                        }
+                    }
+                    for (out_id, out) in state.outputs.iter_mut() {
+                        if out.ls_output.is_none() {
+                            out.ls_output = Some(layer.get_output(&out.proxy, qh, out_id.clone()));
+                        }
+                    }
                     state.river_layer = Some(layer);
                 }
                 "wp_cursor_shape_manager_v1" => {
@@ -155,7 +166,12 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                 }
             }
             Event::Seat { id } => {
-                let seat = SeatItem::new(id.clone());
+                let ls_seat = state
+                    .river_layer
+                    .as_ref()
+                    .map(|ls| ls.get_seat(&id, qh, id.id()));
+                let mut seat = SeatItem::new(id.clone());
+                seat.ls_seat = ls_seat;
                 state.seats.insert(id.id(), seat);
                 state.manage_dirty();
             }
@@ -288,6 +304,32 @@ impl Dispatch<RiverLayerShellOutputV1, ObjectId> for AppState {
     }
 }
 
+impl Dispatch<RiverLayerShellSeatV1, ObjectId> for AppState {
+    fn event(
+        state: &mut Self,
+        _proxy: &RiverLayerShellSeatV1,
+        event: <RiverLayerShellSeatV1 as Proxy>::Event,
+        data: &ObjectId,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+        use crate::protocol::river_layer_shell_seat_v1::Event;
+        if let Some(seat) = state.seats.get_mut(data) {
+            match event {
+                Event::FocusExclusive => {
+                    seat.layer_focus = crate::wm::seat::LayerShellFocus::Exclusive;
+                }
+                Event::FocusNonExclusive => {
+                    seat.layer_focus = crate::wm::seat::LayerShellFocus::NonExclusive;
+                }
+                Event::FocusNone => {
+                    seat.layer_focus = crate::wm::seat::LayerShellFocus::None;
+                }
+            }
+        }
+    }
+}
+
 impl Dispatch<RiverSeatV1, ()> for AppState {
     fn event(
         state: &mut Self,
@@ -304,7 +346,7 @@ impl Dispatch<RiverSeatV1, ()> for AppState {
                 if let Some(seat) = state.seats.get_mut(&proxy.id()) {
                     seat.hovered = Some(window.clone());
                     if state.focus_follows_cursor != crate::wm::FocusFollowsCursor::Disabled {
-                        seat.focused = Some(window.clone());
+                        seat.set_focused_window(Some(window.clone()));
                         if let Some(win) = state.windows.iter().find(|w| w.proxy == window)
                             && let Some(ref out_id) = win.output
                         {
@@ -323,7 +365,7 @@ impl Dispatch<RiverSeatV1, ()> for AppState {
             Event::WindowInteraction { window } => {
                 if let Some(seat) = state.seats.get_mut(&proxy.id()) {
                     seat.interacted = Some(window.clone());
-                    seat.focused = Some(window.clone());
+                    seat.set_focused_window(Some(window.clone()));
                     if let Some(win) = state.windows.iter().find(|w| w.proxy == window)
                         && let Some(ref out_id) = win.output
                     {
@@ -368,7 +410,11 @@ impl Dispatch<RiverSeatV1, ()> for AppState {
             }
             Event::ShellSurfaceInteraction { .. } => {}
             Event::Removed => {
-                state.seats.remove(&proxy.id());
+                if let Some(mut seat) = state.seats.remove(&proxy.id())
+                    && let Some(ls_seat) = seat.ls_seat.take()
+                {
+                    ls_seat.destroy();
+                }
             }
         }
     }
