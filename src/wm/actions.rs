@@ -157,7 +157,7 @@ impl AppState {
 
             let proxy = w.proxy.clone();
             for seat in self.seats.values_mut() {
-                seat.focused = Some(proxy.clone());
+                seat.set_focused_window(Some(proxy.clone()));
             }
 
             self.manage_dirty();
@@ -428,7 +428,7 @@ impl AppState {
         if let Some(w) = dest_win {
             let proxy = w.proxy.clone();
             for seat in self.seats.values_mut() {
-                seat.focused = Some(proxy.clone());
+                seat.set_focused_window(Some(proxy.clone()));
             }
         }
 
@@ -532,7 +532,7 @@ impl AppState {
             let (cx, cy) = (win.x + win.width as i32 / 2, win.y + win.height as i32 / 2);
             let out_id = win.output.clone();
             for seat in self.seats.values_mut() {
-                seat.focused = Some(proxy.clone());
+                seat.set_focused_window(Some(proxy.clone()));
                 if self.cursor_warp == crate::wm::CursorWarp::OnFocusChange {
                     seat.pending_warp = Some((cx, cy));
                 }

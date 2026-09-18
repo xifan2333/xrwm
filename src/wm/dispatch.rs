@@ -336,7 +336,7 @@ impl Dispatch<RiverSeatV1, ()> for AppState {
                 if let Some(seat) = state.seats.get_mut(&proxy.id()) {
                     seat.hovered = Some(window.clone());
                     if state.focus_follows_cursor != crate::wm::FocusFollowsCursor::Disabled {
-                        seat.focused = Some(window.clone());
+                        seat.set_focused_window(Some(window.clone()));
                         if let Some(win) = state.windows.iter().find(|w| w.proxy == window)
                             && let Some(ref out_id) = win.output
                         {
@@ -355,7 +355,7 @@ impl Dispatch<RiverSeatV1, ()> for AppState {
             Event::WindowInteraction { window } => {
                 if let Some(seat) = state.seats.get_mut(&proxy.id()) {
                     seat.interacted = Some(window.clone());
-                    seat.focused = Some(window.clone());
+                    seat.set_focused_window(Some(window.clone()));
                     if let Some(win) = state.windows.iter().find(|w| w.proxy == window)
                         && let Some(ref out_id) = win.output
                     {

@@ -165,6 +165,13 @@ impl SeatItem {
             pointer_bindings: HashMap::new(),
         }
     }
+
+    pub fn set_focused_window(&mut self, proxy: Option<RiverWindowV1>) {
+        if self.layer_focus == LayerShellFocus::NonExclusive {
+            self.layer_focus = LayerShellFocus::None;
+        }
+        self.focused = proxy;
+    }
 }
 
 #[cfg(test)]
