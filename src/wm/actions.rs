@@ -681,8 +681,9 @@ impl AppState {
     /// Toggles the focused tags mask on the WM.
     pub fn toggle_focused_tags(&mut self, mask: TagMask) -> Result<String, String> {
         let old_mask = self.tag_state.focused;
-        let new_mask = self.tag_state.focused ^ mask;
+        let new_mask = old_mask ^ mask;
         if new_mask != TAG_NONE && new_mask != old_mask {
+            self.previous_focused_tags = old_mask;
             let dir = if new_mask > old_mask {
                 crate::animation::SlideDirection::Right
             } else {
