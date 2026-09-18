@@ -191,6 +191,7 @@ pub struct OutputItem {
     pub ls_output: Option<RiverLayerShellOutputV1>,
     pub removed: bool,
     pub usable_area: Rect,
+    pub has_custom_usable_area: bool,
     pub x: i32,
     pub y: i32,
     pub width: u32,

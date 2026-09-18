@@ -143,6 +143,7 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                         ls_output: ls_out,
                         removed: false,
                         usable_area: Rect::default(),
+                        has_custom_usable_area: false,
                         x: 0,
                         y: 0,
                         width: 0,
@@ -280,6 +281,7 @@ impl Dispatch<RiverLayerShellOutputV1, ObjectId> for AppState {
         } = event;
         if let Some(out) = state.outputs.get_mut(data) {
             out.usable_area = Rect::new(x, y, width.max(0) as u32, height.max(0) as u32);
+            out.has_custom_usable_area = true;
         }
     }
 }
