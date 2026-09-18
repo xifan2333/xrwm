@@ -112,8 +112,9 @@ impl Layout for MasterStackLayout {
                     (inner_w, 0)
                 };
 
-                let (master_start_x, stack_start_x) = if config.main_location == MainLocation::Left
-                {
+                let (master_start_x, stack_start_x) = if !has_stack {
+                    (inner_x, inner_x)
+                } else if config.main_location == MainLocation::Left {
                     (inner_x, inner_x + main_w + vp)
                 } else {
                     (inner_x + stack_w + vp, inner_x)
@@ -184,7 +185,9 @@ impl Layout for MasterStackLayout {
                     (inner_h, 0)
                 };
 
-                let (master_start_y, stack_start_y) = if config.main_location == MainLocation::Top {
+                let (master_start_y, stack_start_y) = if !has_stack {
+                    (inner_y, inner_y)
+                } else if config.main_location == MainLocation::Top {
                     (inner_y, inner_y + main_h + vp)
                 } else {
                     (inner_y + stack_h + vp, inner_y)
