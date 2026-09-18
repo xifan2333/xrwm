@@ -8,6 +8,7 @@ use crate::tag::TagMask;
 use crate::wm::state::AppState;
 use crate::wm::state::AttachMode;
 use crate::wm::state::WindowRule;
+use crate::wm::state::reap_zombies;
 use crate::wm::state::spawn_init_script;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1331,6 +1332,7 @@ impl AppState {
                 }
             }
             IpcCommand::Reload => {
+                reap_zombies();
                 spawn_init_script();
                 Ok("reloaded init script".to_string())
             }
@@ -1349,6 +1351,7 @@ impl AppState {
 
         if action[0] == "spawn" {
             if action.len() > 1 {
+                reap_zombies();
                 let cmd = &action[1];
                 let args = &action[2..];
                 tracing::info!("Binding spawn: {cmd} {args:?}");
@@ -1861,5 +1864,102 @@ mod tests {
         });
         assert!(res_valid.is_ok());
         assert_eq!(state.rules.len(), orig_rules_len + 1);
+    }
+
+    fn wait_for_process_exit(pid: u32) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while std::time::Instant::now() < deadline {
+            if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+                if stat.contains(") Z") || stat.contains(") X") {
+                    return;
+                }
+            } else {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    #[allow(clippy::zombie_processes)]
+    fn test_reap_zombies_cleans_exited_children() {
+        let child1 = std::process::Command::new("true").spawn().unwrap();
+        let child2 = std::process::Command::new("true").spawn().unwrap();
+        let child3 = std::process::Command::new("true").spawn().unwrap();
+
+        wait_for_process_exit(child1.id());
+        wait_for_process_exit(child2.id());
+        wait_for_process_exit(child3.id());
+
+        // Reaping must drain all dead child processes
+        reap_zombies();
+
+        // Verifying with waitpid for child1 should yield ECHILD because it's already reaped
+        let pid = rustix::process::Pid::from_raw(child1.id() as i32).unwrap();
+        let res = rustix::process::waitpid(Some(pid), rustix::process::WaitOptions::NOHANG);
+        assert!(matches!(res, Err(rustix::io::Errno::CHILD)));
+
+        let pid2 = rustix::process::Pid::from_raw(child2.id() as i32).unwrap();
+        let res2 = rustix::process::waitpid(Some(pid2), rustix::process::WaitOptions::NOHANG);
+        assert!(matches!(res2, Err(rustix::io::Errno::CHILD)));
+
+        let pid3 = rustix::process::Pid::from_raw(child3.id() as i32).unwrap();
+        let res3 = rustix::process::waitpid(Some(pid3), rustix::process::WaitOptions::NOHANG);
+        assert!(matches!(res3, Err(rustix::io::Errno::CHILD)));
+    }
+
+    #[test]
+    fn test_reap_zombies_does_not_block_on_running_child() {
+        // Spawn a long-running process
+        let mut child = std::process::Command::new("sleep")
+            .arg("10")
+            .spawn()
+            .unwrap();
+
+        // reap_zombies must return immediately without blocking
+        let start = std::time::Instant::now();
+        reap_zombies();
+        assert!(start.elapsed() < std::time::Duration::from_secs(1));
+
+        // Child process should still be running
+        assert!(child.try_wait().unwrap().is_none());
+
+        // Cleanup
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[test]
+    #[allow(clippy::zombie_processes)]
+    fn test_spawn_and_reload_actions_reap_children() {
+        let mut state = AppState::new();
+
+        // Spawn a child and wait for it to exit
+        let child1 = std::process::Command::new("true").spawn().unwrap();
+        let pid1 = child1.id();
+        wait_for_process_exit(pid1);
+
+        // Subsequent spawn action automatically reaps previous dead children
+        state.execute_action_tokens(&["spawn".into(), "true".into()]);
+        let rustix_pid1 = rustix::process::Pid::from_raw(pid1 as i32).unwrap();
+        assert!(matches!(
+            rustix::process::waitpid(Some(rustix_pid1), rustix::process::WaitOptions::NOHANG),
+            Err(rustix::io::Errno::CHILD)
+        ));
+
+        // Spawn another child and wait for it to exit
+        let child2 = std::process::Command::new("true").spawn().unwrap();
+        let pid2 = child2.id();
+        wait_for_process_exit(pid2);
+
+        // Reload command also reaps dead children
+        let res = state.handle_ipc_command(&IpcCommand::Reload);
+        assert!(res.is_ok());
+
+        let rustix_pid2 = rustix::process::Pid::from_raw(pid2 as i32).unwrap();
+        assert!(matches!(
+            rustix::process::waitpid(Some(rustix_pid2), rustix::process::WaitOptions::NOHANG),
+            Err(rustix::io::Errno::CHILD)
+        ));
     }
 }
