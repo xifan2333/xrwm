@@ -227,21 +227,31 @@ impl Dispatch<RiverOutputV1, ()> for AppState {
         match event {
             Event::Position { x, y } => {
                 if let Some(out) = state.outputs.get_mut(&proxy.id()) {
+                    let changed = out.x != x || out.y != y;
                     out.x = x;
                     out.y = y;
-                    if out.usable_area.width == 0 {
+                    if !out.has_custom_usable_area {
                         out.usable_area.x = x;
                         out.usable_area.y = y;
+                    }
+                    if changed {
+                        state.manage_dirty();
                     }
                 }
             }
             Event::Dimensions { width, height } => {
+                let w = width as u32;
+                let h = height as u32;
                 if let Some(out) = state.outputs.get_mut(&proxy.id()) {
-                    out.width = width as u32;
-                    out.height = height as u32;
-                    if out.usable_area.width == 0 {
-                        out.usable_area.width = width as u32;
-                        out.usable_area.height = height as u32;
+                    let changed = out.width != w || out.height != h;
+                    out.width = w;
+                    out.height = h;
+                    if !out.has_custom_usable_area {
+                        out.usable_area.width = w;
+                        out.usable_area.height = h;
+                    }
+                    if changed {
+                        state.manage_dirty();
                     }
                 }
             }
@@ -280,8 +290,13 @@ impl Dispatch<RiverLayerShellOutputV1, ObjectId> for AppState {
             height,
         } = event;
         if let Some(out) = state.outputs.get_mut(data) {
-            out.usable_area = Rect::new(x, y, width.max(0) as u32, height.max(0) as u32);
+            let new_usable = Rect::new(x, y, width.max(0) as u32, height.max(0) as u32);
+            let changed = out.usable_area != new_usable || !out.has_custom_usable_area;
+            out.usable_area = new_usable;
             out.has_custom_usable_area = true;
+            if changed {
+                state.manage_dirty();
+            }
         }
     }
 }
