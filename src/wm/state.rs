@@ -1491,6 +1491,16 @@ impl AppState {
     }
 }
 
+/// Spawns an init script located at `init_script` directly as a file parameter
+/// to bash (or via its shebang), avoiding `bash -c` string re-tokenization.
+pub fn spawn_init_script_at(init_script: &std::path::Path) -> std::io::Result<std::process::Child> {
+    reap_zombies();
+    std::process::Command::new("bash")
+        .arg(init_script)
+        .spawn()
+        .or_else(|_| std::process::Command::new(init_script).spawn())
+}
+
 pub fn spawn_init_script() {
     reap_zombies();
     // In unit tests, avoid executing the host environment's personal init script
@@ -1506,10 +1516,9 @@ pub fn spawn_init_script() {
 
     if init_script.is_file() {
         tracing::info!("Spawning xrwm init script: {:?}", init_script);
-        let _ = std::process::Command::new("bash")
-            .arg("-c")
-            .arg(&init_script)
-            .spawn();
+        if let Err(e) = spawn_init_script_at(&init_script) {
+            tracing::error!("Failed to spawn xrwm init script {:?}: {e}", init_script);
+        }
     }
 }
 
