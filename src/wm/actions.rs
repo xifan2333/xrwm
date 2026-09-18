@@ -2218,4 +2218,43 @@ mod tests {
         assert_eq!(state.tag_state.focused, 6);
         assert_eq!(state.previous_focused_tags, 2);
     }
+
+    #[test]
+    fn test_set_ratio_rejects_nan_and_preserves_previous_ratio() {
+        let mut state = AppState::new();
+        state.layout_config.split_ratio = 0.55;
+        state.layout_config.stack_split_ratio = 0.50;
+
+        // 1. main-ratio rejects non-finite values and preserves previous ratio
+        for bad in ["NaN", "+NaN", "-NaN", "inf", "+inf", "-inf", "infinity"] {
+            let res = state.handle_ipc_command(&IpcCommand::MainRatio(bad.into()));
+            assert!(res.is_err(), "Expected error for main-ratio {}", bad);
+            assert_eq!(state.layout_config.split_ratio, 0.55);
+        }
+
+        // Relative adjustment still functions properly
+        state
+            .handle_ipc_command(&IpcCommand::MainRatio("+0.05".into()))
+            .unwrap();
+        assert!((state.layout_config.split_ratio - 0.60).abs() < 1e-4);
+
+        // 2. stack-ratio rejects non-finite values and preserves previous ratio
+        for bad in ["NaN", "+NaN", "-NaN", "inf", "+inf", "-inf", "infinity"] {
+            let res = state.handle_ipc_command(&IpcCommand::StackRatio(bad.into()));
+            assert!(res.is_err(), "Expected error for stack-ratio {}", bad);
+            assert_eq!(state.layout_config.stack_split_ratio, 0.50);
+        }
+
+        // Relative adjustment still functions properly
+        state
+            .handle_ipc_command(&IpcCommand::StackRatio("-0.05".into()))
+            .unwrap();
+        assert!((state.layout_config.stack_split_ratio - 0.45).abs() < 1e-4);
+
+        // Direct f32 setters also reject non-finite values
+        assert!(state.set_main_ratio(f32::NAN).is_err());
+        assert!(state.set_main_ratio(f32::INFINITY).is_err());
+        assert!(state.set_stack_ratio(f32::NAN).is_err());
+        assert!(state.set_stack_ratio(f32::NEG_INFINITY).is_err());
+    }
 }

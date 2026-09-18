@@ -1545,4 +1545,24 @@ mod tests {
         drop(listener);
         let _ = std::fs::remove_file(&socket_path1);
     }
+
+    #[test]
+    fn test_parse_cli_args_ratio_nan_validation() {
+        for cmd in ["main-ratio", "stack-ratio"] {
+            // Rejects NaN, inf, and empty
+            assert!(parse_cli_args(&[cmd.into(), "NaN".into()]).is_err());
+            assert!(parse_cli_args(&[cmd.into(), "+NaN".into()]).is_err());
+            assert!(parse_cli_args(&[cmd.into(), "-NaN".into()]).is_err());
+            assert!(parse_cli_args(&[cmd.into(), "inf".into()]).is_err());
+            assert!(parse_cli_args(&[cmd.into(), "+inf".into()]).is_err());
+            assert!(parse_cli_args(&[cmd.into(), "-inf".into()]).is_err());
+            assert!(parse_cli_args(&[cmd.into(), "infinity".into()]).is_err());
+            assert!(parse_cli_args(&[cmd.into(), "".into()]).is_err());
+
+            // Accepts valid finite floats
+            assert!(parse_cli_args(&[cmd.into(), "0.55".into()]).is_ok());
+            assert!(parse_cli_args(&[cmd.into(), "+0.05".into()]).is_ok());
+            assert!(parse_cli_args(&[cmd.into(), "-0.05".into()]).is_ok());
+        }
+    }
 }

@@ -580,4 +580,25 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_layout_defensive_against_nan_ratio() {
+        let layout = MasterStackLayout;
+        let area = Rect::new(0, 0, 1000, 1000);
+        let config = LayoutConfig {
+            split_ratio: f32::NAN,
+            stack_split_ratio: f32::NAN,
+            view_padding: 0,
+            outer_padding: 0,
+            ..Default::default()
+        };
+        let rects = layout.arrange(area, 3, &config);
+        assert_eq!(rects.len(), 3);
+        for r in &rects {
+            assert!(r.width > 0);
+            assert!(r.height > 0);
+            assert!(r.x + r.width as i32 <= 1000);
+            assert!(r.y + r.height as i32 <= 1000);
+        }
+    }
 }
