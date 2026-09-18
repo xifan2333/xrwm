@@ -14,8 +14,11 @@ use wayland_client::{Connection, EventQueue, Proxy};
 use super::AppState;
 use crate::ipc::IpcCommand;
 use crate::protocol::{
-    river_output_v1 as output, river_window_manager_v1 as wm, river_window_v1 as window,
+    river_layer_shell_seat_v1 as layer_seat, river_layer_shell_v1 as layer_shell,
+    river_output_v1 as output, river_seat_v1 as seat, river_window_manager_v1 as wm,
+    river_window_v1 as window,
 };
+use crate::wm::LayerShellFocus;
 
 #[derive(Default)]
 struct ServerState {
@@ -34,7 +37,9 @@ impl GlobalHandler<ServerState> for Recorder {
         _global: GlobalId,
         object: ObjectId,
     ) -> Arc<dyn ObjectData<ServerState>> {
-        state.manager = Some(object);
+        if state.manager.is_none() {
+            state.manager = Some(object);
+        }
         self
     }
 }
@@ -135,6 +140,50 @@ impl Harness {
             .unwrap();
         self.event(manager, opcode, vec![Argument::NewId(id.clone())]);
         id
+    }
+
+    fn add_seat(&mut self) -> ObjectId {
+        let id = self.create::<seat::RiverSeatV1>(wm::EVT_SEAT_OPCODE);
+        self.dispatch_events();
+        id
+    }
+
+    fn enable_layer_shell(&mut self) {
+        self.backend.handle().create_global::<ServerState>(
+            layer_shell::RiverLayerShellV1::interface(),
+            1,
+            Arc::new(Recorder),
+        );
+        self.dispatch_events();
+    }
+
+    fn get_layer_shell_seat(&self) -> Option<ObjectId> {
+        self.server
+            .requests
+            .iter()
+            .find(|msg| msg.opcode == layer_shell::REQ_GET_SEAT_OPCODE)
+            .and_then(|msg| {
+                msg.args.iter().find_map(|arg| match arg {
+                    Argument::NewId(id) => Some(id.clone()),
+                    _ => None,
+                })
+            })
+    }
+
+    fn interact_window(&mut self, seat: &ObjectId, window: &ObjectId) {
+        self.event(
+            seat,
+            seat::EVT_WINDOW_INTERACTION_OPCODE,
+            vec![Argument::Object(window.clone())],
+        );
+        self.dispatch_events();
+    }
+
+    fn has_seat_request(&self, id: &ObjectId, opcode: u16) -> bool {
+        self.server
+            .requests
+            .iter()
+            .any(|msg| msg.sender_id == *id && msg.opcode == opcode)
     }
 
     fn add_output(&mut self) {
@@ -699,4 +748,106 @@ fn output_usable_area_follows_geometry_changes_without_layer_shell() {
         crate::layout::Rect::new(1920, 132, 1280, 688)
     );
     assert!(output.has_custom_usable_area);
+}
+
+#[test]
+fn layer_shell_seat_focus_lifecycle_and_window_refocus() {
+    let mut harness = Harness::new();
+    harness.enable_layer_shell();
+    harness.add_output();
+    let seat = harness.add_seat();
+    let layer_seat_id = harness
+        .get_layer_shell_seat()
+        .expect("layer shell seat should be bound");
+
+    let window1 = harness.add_window();
+    let win1_id = harness.state.windows[0].id;
+    let window2 = harness.add_window();
+    let win2_id = harness.state.windows[0].id;
+
+    // 1. Initial interaction focuses Window 1 on the seat
+    harness.interact_window(&seat, &window1);
+    harness.manage();
+    assert!(harness.has_seat_request(&seat, seat::REQ_FOCUS_WINDOW_OPCODE));
+    assert_eq!(harness.state.focused_window_id(), Some(win1_id));
+
+    // 2. Subsequent idle manage does not spam redundant focus_window
+    harness.manage();
+    assert!(!harness.has_seat_request(&seat, seat::REQ_FOCUS_WINDOW_OPCODE));
+
+    // 3. Layer surface requests non-exclusive focus (e.g. wofi/fuzzel)
+    harness.server.requests.clear();
+    harness.event(
+        &layer_seat_id,
+        layer_seat::EVT_FOCUS_NON_EXCLUSIVE_OPCODE,
+        vec![],
+    );
+    harness.dispatch_events();
+    assert_eq!(
+        harness.state.seats.values().next().unwrap().layer_focus,
+        LayerShellFocus::NonExclusive
+    );
+
+    // During manage, WM must NOT call focus_window, respecting the layer surface's focus
+    harness.manage();
+    assert!(!harness.has_seat_request(&seat, seat::REQ_FOCUS_WINDOW_OPCODE));
+    assert_eq!(harness.state.focused_window_id(), None);
+
+    // Subsequent manage cycles while non-exclusive layer surface is open remain idle
+    for _ in 0..2 {
+        harness.manage();
+        assert!(!harness.has_seat_request(&seat, seat::REQ_FOCUS_WINDOW_OPCODE));
+        assert_eq!(harness.state.focused_window_id(), None);
+    }
+
+    // 4. Layer surface closes (focus_none arrives)
+    harness.server.requests.clear();
+    harness.event(&layer_seat_id, layer_seat::EVT_FOCUS_NONE_OPCODE, vec![]);
+    harness.dispatch_events();
+    assert_eq!(
+        harness.state.seats.values().next().unwrap().layer_focus,
+        LayerShellFocus::None
+    );
+
+    // WM restores focus to Window 1
+    harness.manage();
+    assert!(harness.has_seat_request(&seat, seat::REQ_FOCUS_WINDOW_OPCODE));
+    assert_eq!(harness.state.focused_window_id(), Some(win1_id));
+
+    // 5. Subsequent manage is idle again
+    harness.manage();
+    assert!(!harness.has_seat_request(&seat, seat::REQ_FOCUS_WINDOW_OPCODE));
+
+    // 6. User switches focus to Window 2 while layer surface opens
+    harness.event(
+        &layer_seat_id,
+        layer_seat::EVT_FOCUS_NON_EXCLUSIVE_OPCODE,
+        vec![],
+    );
+    harness.dispatch_events();
+    harness.manage();
+    assert!(!harness.has_seat_request(&seat, seat::REQ_FOCUS_WINDOW_OPCODE));
+
+    // User interacts with Window 2
+    harness.server.requests.clear();
+    harness.interact_window(&seat, &window2);
+    assert_eq!(
+        harness.state.seats.values().next().unwrap().layer_focus,
+        LayerShellFocus::None
+    );
+    harness.manage();
+    assert!(harness.has_seat_request(&seat, seat::REQ_FOCUS_WINDOW_OPCODE));
+    assert_eq!(harness.state.focused_window_id(), Some(win2_id));
+
+    // 7. Layer surface receives exclusive focus (e.g. lockscreen)
+    harness.server.requests.clear();
+    harness.event(
+        &layer_seat_id,
+        layer_seat::EVT_FOCUS_EXCLUSIVE_OPCODE,
+        vec![],
+    );
+    harness.dispatch_events();
+    harness.manage();
+    assert!(!harness.has_seat_request(&seat, seat::REQ_FOCUS_WINDOW_OPCODE));
+    assert_eq!(harness.state.focused_window_id(), None);
 }
