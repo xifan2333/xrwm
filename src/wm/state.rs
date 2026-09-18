@@ -1429,6 +1429,7 @@ impl AppState {
 }
 
 pub fn spawn_init_script() {
+    reap_zombies();
     let config_dir = std::env::var("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {

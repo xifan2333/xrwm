@@ -89,6 +89,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 4. Solid single-threaded event loop with poll(2)
     while !state.should_exit {
+        // Non-blocking child process reaping for spawned commands and init/reload scripts
+        wm::reap_zombies();
+
         // Dispatch pending events in the queue
         if let Err(e) = event_queue.dispatch_pending(&mut state) {
             tracing::error!("Dispatch error: {:?}", e);
@@ -109,7 +112,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             PollFd::from_borrowed_fd(ipc_fd, PollFlags::IN),
         ];
 
-        // Animation and cursor hide timeout clock
+        // Animation, cursor hide, and child process reaping timeout clock
         let timeout = if state.anim.is_animating() {
             16
         } else if state.cursor_hide_timeout > 0 && !state.cursor_hidden {
@@ -120,7 +123,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 (state.cursor_hide_timeout - elapsed).min(100) as i32
             }
         } else {
-            -1
+            1000
         };
 
         let timeout_spec = if timeout < 0 {
@@ -140,6 +143,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         if ret == 0 {
             drop(guard);
+            wm::reap_zombies();
             if state.anim.is_animating() {
                 state.manage_dirty();
             }
@@ -248,6 +252,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
+            wm::reap_zombies();
         } else {
             drop(guard);
         }

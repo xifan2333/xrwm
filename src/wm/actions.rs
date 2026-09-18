@@ -8,6 +8,7 @@ use crate::tag::TagMask;
 use crate::wm::state::AppState;
 use crate::wm::state::AttachMode;
 use crate::wm::state::WindowRule;
+use crate::wm::state::reap_zombies;
 use crate::wm::state::spawn_init_script;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1331,6 +1332,7 @@ impl AppState {
                 }
             }
             IpcCommand::Reload => {
+                reap_zombies();
                 spawn_init_script();
                 Ok("reloaded init script".to_string())
             }
@@ -1349,6 +1351,7 @@ impl AppState {
 
         if action[0] == "spawn" {
             if action.len() > 1 {
+                reap_zombies();
                 let cmd = &action[1];
                 let args = &action[2..];
                 tracing::info!("Binding spawn: {cmd} {args:?}");
