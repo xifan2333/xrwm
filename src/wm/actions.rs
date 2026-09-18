@@ -1962,4 +1962,126 @@ mod tests {
             Err(rustix::io::Errno::CHILD)
         ));
     }
+
+    fn split_shell_tokens(input: &str) -> Vec<String> {
+        let mut tokens = Vec::new();
+        let mut current = String::new();
+        let mut in_single = false;
+        let mut in_double = false;
+
+        for ch in input.chars() {
+            match ch {
+                '\'' if !in_double => in_single = !in_single,
+                '"' if !in_single => in_double = !in_double,
+                ' ' | '\t' if !in_single && !in_double => {
+                    if !current.is_empty() {
+                        tokens.push(std::mem::take(&mut current));
+                    }
+                }
+                _ => current.push(ch),
+            }
+        }
+        if !current.is_empty() {
+            tokens.push(current);
+        }
+        tokens
+    }
+
+    #[test]
+    fn test_examples_init_all_commands_are_valid() {
+        let content = std::fs::read_to_string("examples/init").expect("examples/init must exist");
+        let mut state = AppState::new();
+
+        for (line_no, line) in content.lines().enumerate() {
+            let trimmed = line.trim();
+            if !trimmed.starts_with("xrwm ") {
+                continue;
+            }
+
+            // Skip template lines inside loops (e.g. "$i", "$tags") which are tested separately
+            if trimmed.contains("$i") || trimmed.contains("$tags") {
+                continue;
+            }
+
+            let cmd_str = &trimmed[5..];
+            let tokens = split_shell_tokens(cmd_str);
+            assert!(
+                !tokens.is_empty(),
+                "Empty command at line {}: {}",
+                line_no + 1,
+                line
+            );
+
+            let cmd = crate::ipc::parse_cli_args(&tokens).unwrap_or_else(|e| {
+                panic!(
+                    "Failed to parse CLI args at line {}: {}\nError: {}",
+                    line_no + 1,
+                    line,
+                    e
+                );
+            });
+
+            state.handle_ipc_command(&cmd).unwrap_or_else(|e| {
+                panic!(
+                    "Failed to handle IPC command at line {}: {}\nError: {}",
+                    line_no + 1,
+                    line,
+                    e
+                );
+            });
+        }
+
+        // Test loop lines with concrete values
+        for i in 1..=9 {
+            let tags = 1 << (i - 1);
+            let cmd1 = crate::ipc::parse_cli_args(&[
+                "map".into(),
+                "normal".into(),
+                "Super".into(),
+                i.to_string(),
+                "set-focused-tags".into(),
+                tags.to_string(),
+            ])
+            .unwrap();
+            state.handle_ipc_command(&cmd1).unwrap();
+
+            let cmd2 = crate::ipc::parse_cli_args(&[
+                "map".into(),
+                "normal".into(),
+                "Super+Shift".into(),
+                i.to_string(),
+                "set-view-tags".into(),
+                tags.to_string(),
+            ])
+            .unwrap();
+            state.handle_ipc_command(&cmd2).unwrap();
+        }
+    }
+
+    #[test]
+    fn test_stack_ratio_keybindings_parsing_and_handling() {
+        let mut state = AppState::new();
+
+        let cmd_left = crate::ipc::parse_cli_args(&[
+            "map".into(),
+            "normal".into(),
+            "Super".into(),
+            "bracketleft".into(),
+            "stack-ratio".into(),
+            "-0.05".into(),
+        ])
+        .unwrap();
+        assert!(state.handle_ipc_command(&cmd_left).is_ok());
+
+        let cmd_right = crate::ipc::parse_cli_args(&[
+            "map".into(),
+            "normal".into(),
+            "Super".into(),
+            "bracketright".into(),
+            "stack-ratio".into(),
+            "+0.05".into(),
+        ])
+        .unwrap();
+        assert!(state.handle_ipc_command(&cmd_right).is_ok());
+    }
 }
