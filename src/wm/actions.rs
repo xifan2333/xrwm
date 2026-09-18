@@ -1987,6 +1987,23 @@ mod tests {
         tokens
     }
 
+    fn validate_action_tokens(action: &[String]) {
+        assert!(!action.is_empty(), "Action tokens cannot be empty");
+        if action[0] == "spawn" {
+            assert!(
+                action.len() >= 2,
+                "spawn action requires at least 1 command argument: {:?}",
+                action
+            );
+        } else {
+            let parsed = crate::ipc::parse_cli_args(action).unwrap_or_else(|e| {
+                panic!("Invalid action tokens in map: {:?}, error: {}", action, e);
+            });
+            let mut test_state = AppState::new();
+            let _ = test_state.handle_ipc_command(&parsed);
+        }
+    }
+
     #[test]
     fn test_examples_init_all_commands_are_valid() {
         let content = std::fs::read_to_string("examples/init").expect("examples/init must exist");
@@ -2021,6 +2038,11 @@ mod tests {
                 );
             });
 
+            // If command is a key mapping, separately validate its action tokens
+            if let IpcCommand::Map { ref action, .. } = cmd {
+                validate_action_tokens(action);
+            }
+
             state.handle_ipc_command(&cmd).unwrap_or_else(|e| {
                 panic!(
                     "Failed to handle IPC command at line {}: {}\nError: {}",
@@ -2034,6 +2056,8 @@ mod tests {
         // Test loop lines with concrete values
         for i in 1..=9 {
             let tags = 1 << (i - 1);
+            let action1 = vec!["set-focused-tags".into(), tags.to_string()];
+            validate_action_tokens(&action1);
             let cmd1 = crate::ipc::parse_cli_args(&[
                 "map".into(),
                 "normal".into(),
@@ -2045,6 +2069,8 @@ mod tests {
             .unwrap();
             state.handle_ipc_command(&cmd1).unwrap();
 
+            let action2 = vec!["set-view-tags".into(), tags.to_string()];
+            validate_action_tokens(&action2);
             let cmd2 = crate::ipc::parse_cli_args(&[
                 "map".into(),
                 "normal".into(),
@@ -2061,6 +2087,7 @@ mod tests {
     #[test]
     fn test_stack_ratio_keybindings_parsing_and_handling() {
         let mut state = AppState::new();
+        state.layout_config.stack_split_ratio = 0.50;
 
         let cmd_left = crate::ipc::parse_cli_args(&[
             "map".into(),
@@ -2073,6 +2100,19 @@ mod tests {
         .unwrap();
         assert!(state.handle_ipc_command(&cmd_left).is_ok());
 
+        // Validate and execute the action tokens for bracketleft
+        if let IpcCommand::Map { ref action, .. } = cmd_left {
+            validate_action_tokens(action);
+            state.execute_action_tokens(action);
+            assert!(
+                (state.layout_config.stack_split_ratio - 0.45).abs() < 1e-4,
+                "Expected stack-ratio to decrease to 0.45, got {}",
+                state.layout_config.stack_split_ratio
+            );
+        } else {
+            panic!("Expected IpcCommand::Map");
+        }
+
         let cmd_right = crate::ipc::parse_cli_args(&[
             "map".into(),
             "normal".into(),
@@ -2083,5 +2123,18 @@ mod tests {
         ])
         .unwrap();
         assert!(state.handle_ipc_command(&cmd_right).is_ok());
+
+        // Validate and execute the action tokens for bracketright
+        if let IpcCommand::Map { ref action, .. } = cmd_right {
+            validate_action_tokens(action);
+            state.execute_action_tokens(action);
+            assert!(
+                (state.layout_config.stack_split_ratio - 0.50).abs() < 1e-4,
+                "Expected stack-ratio to increase back to 0.50, got {}",
+                state.layout_config.stack_split_ratio
+            );
+        } else {
+            panic!("Expected IpcCommand::Map");
+        }
     }
 }
