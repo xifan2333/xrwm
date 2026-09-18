@@ -657,10 +657,10 @@ fn output_usable_area_follows_geometry_changes_without_layer_shell() {
     );
     assert!(!output.has_custom_usable_area);
 
-    // 1. Moving the output updates both output.x/y and usable_area.x/y
+    // 1. Moving the output updates both output.x/y and usable_area.x/y without redundant manage_dirty
     harness.server.requests.clear();
     harness.set_output_position(&out, 1920, 100);
-    assert!(harness.has_wm_request(wm::REQ_MANAGE_DIRTY_OPCODE));
+    assert!(!harness.has_wm_request(wm::REQ_MANAGE_DIRTY_OPCODE));
 
     let output = &harness.state.outputs[&client_out_id];
     assert_eq!(output.x, 1920);
@@ -671,10 +671,10 @@ fn output_usable_area_follows_geometry_changes_without_layer_shell() {
     );
     assert!(!output.has_custom_usable_area);
 
-    // 2. Resizing the output updates both output.width/height and usable_area.width/height
+    // 2. Resizing the output updates both output.width/height and usable_area.width/height without redundant manage_dirty
     harness.server.requests.clear();
     harness.set_output_dimensions(&out, 1280, 720);
-    assert!(harness.has_wm_request(wm::REQ_MANAGE_DIRTY_OPCODE));
+    assert!(!harness.has_wm_request(wm::REQ_MANAGE_DIRTY_OPCODE));
 
     let output = &harness.state.outputs[&client_out_id];
     assert_eq!(output.width, 1280);
