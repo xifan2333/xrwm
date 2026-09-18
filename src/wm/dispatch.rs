@@ -6,7 +6,8 @@ use wayland_client::{Connection, Dispatch, Proxy, QueueHandle};
 
 use crate::layout::Rect;
 use crate::protocol::{
-    river_layer_shell_output_v1::RiverLayerShellOutputV1, river_layer_shell_v1::RiverLayerShellV1,
+    river_layer_shell_output_v1::RiverLayerShellOutputV1,
+    river_layer_shell_seat_v1::RiverLayerShellSeatV1, river_layer_shell_v1::RiverLayerShellV1,
     river_node_v1::RiverNodeV1, river_output_v1::RiverOutputV1,
     river_pointer_binding_v1::RiverPointerBindingV1, river_seat_v1::RiverSeatV1,
     river_window_manager_v1::RiverWindowManagerV1, river_window_v1::RiverWindowV1,
@@ -155,7 +156,12 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                 }
             }
             Event::Seat { id } => {
-                let seat = SeatItem::new(id.clone());
+                let ls_seat = state
+                    .river_layer
+                    .as_ref()
+                    .map(|ls| ls.get_seat(&id, qh, id.id()));
+                let mut seat = SeatItem::new(id.clone());
+                seat.ls_seat = ls_seat;
                 state.seats.insert(id.id(), seat);
                 state.manage_dirty();
             }
@@ -284,6 +290,32 @@ impl Dispatch<RiverLayerShellOutputV1, ObjectId> for AppState {
         if let Some(out) = state.outputs.get_mut(data) {
             out.usable_area = Rect::new(x, y, width.max(0) as u32, height.max(0) as u32);
             out.has_custom_usable_area = true;
+        }
+    }
+}
+
+impl Dispatch<RiverLayerShellSeatV1, ObjectId> for AppState {
+    fn event(
+        state: &mut Self,
+        _proxy: &RiverLayerShellSeatV1,
+        event: <RiverLayerShellSeatV1 as Proxy>::Event,
+        data: &ObjectId,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+        use crate::protocol::river_layer_shell_seat_v1::Event;
+        if let Some(seat) = state.seats.get_mut(data) {
+            match event {
+                Event::FocusExclusive => {
+                    seat.layer_focus = crate::wm::seat::LayerShellFocus::Exclusive;
+                }
+                Event::FocusNonExclusive => {
+                    seat.layer_focus = crate::wm::seat::LayerShellFocus::NonExclusive;
+                }
+                Event::FocusNone => {
+                    seat.layer_focus = crate::wm::seat::LayerShellFocus::None;
+                }
+            }
         }
     }
 }

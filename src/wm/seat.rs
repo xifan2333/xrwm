@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use wayland_backend::client::ObjectId;
 
 use crate::protocol::{
+    river_layer_shell_seat_v1::RiverLayerShellSeatV1,
     river_pointer_binding_v1::RiverPointerBindingV1,
     river_seat_v1::RiverSeatV1,
     river_window_v1::{Edges, RiverWindowV1},
@@ -52,6 +53,14 @@ impl FocusFollowsCursor {
             )),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LayerShellFocus {
+    #[default]
+    None,
+    NonExclusive,
+    Exclusive,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -116,8 +125,11 @@ pub enum SeatOp {
 #[derive(Debug)]
 pub struct SeatItem {
     pub proxy: RiverSeatV1,
+    pub ls_seat: Option<RiverLayerShellSeatV1>,
     pub removed: bool,
     pub focused: Option<RiverWindowV1>,
+    pub last_focused_window: Option<ObjectId>,
+    pub layer_focus: LayerShellFocus,
     pub hovered: Option<RiverWindowV1>,
     pub interacted: Option<RiverWindowV1>,
     pub pending_action: PointerAction,
@@ -135,8 +147,11 @@ impl SeatItem {
     pub fn new(proxy: RiverSeatV1) -> Self {
         Self {
             proxy,
+            ls_seat: None,
             removed: false,
             focused: None,
+            last_focused_window: None,
+            layer_focus: LayerShellFocus::None,
             hovered: None,
             interacted: None,
             pending_action: PointerAction::None,
