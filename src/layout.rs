@@ -101,11 +101,22 @@ impl Layout for MasterStackLayout {
         let max_vp = max_vp_w.min(max_vp_h);
         let vp = (config.view_padding as i32).clamp(0, max_vp);
 
+        let split_ratio = if config.split_ratio.is_finite() {
+            config.split_ratio.clamp(0.1, 0.9)
+        } else {
+            0.55
+        };
+        let stack_split_ratio = if config.stack_split_ratio.is_finite() {
+            config.stack_split_ratio.clamp(0.1, 0.9)
+        } else {
+            0.50
+        };
+
         match config.main_location {
             MainLocation::Left | MainLocation::Right => {
                 let (main_w, stack_w) = if has_stack {
                     let total_available = inner_w - vp;
-                    let mw = ((total_available as f32) * config.split_ratio).round() as i32;
+                    let mw = ((total_available as f32) * split_ratio).round() as i32;
                     let sw = total_available - mw;
                     (mw.max(1), sw.max(1))
                 } else {
@@ -145,9 +156,7 @@ impl Layout for MasterStackLayout {
                         rects.push(Rect::new(stack_start_x, inner_y, stack_w as u32, h));
                     } else {
                         let rem_count = (stack_count - 1) as i32;
-                        let first_h = ((total_stack_h as f32)
-                            * config.stack_split_ratio.clamp(0.1, 0.9))
-                        .round() as i32;
+                        let first_h = ((total_stack_h as f32) * stack_split_ratio).round() as i32;
                         let max_first_h = (total_stack_h - rem_count).max(1);
                         let first_h = first_h.clamp(1, max_first_h);
 
@@ -178,7 +187,7 @@ impl Layout for MasterStackLayout {
             MainLocation::Top | MainLocation::Bottom => {
                 let (main_h, stack_h) = if has_stack {
                     let total_available = inner_h - vp;
-                    let mh = ((total_available as f32) * config.split_ratio).round() as i32;
+                    let mh = ((total_available as f32) * split_ratio).round() as i32;
                     let sh = total_available - mh;
                     (mh.max(1), sh.max(1))
                 } else {
@@ -218,9 +227,7 @@ impl Layout for MasterStackLayout {
                         rects.push(Rect::new(inner_x, stack_start_y, w, stack_h as u32));
                     } else {
                         let rem_count = (stack_count - 1) as i32;
-                        let first_w = ((total_stack_w as f32)
-                            * config.stack_split_ratio.clamp(0.1, 0.9))
-                        .round() as i32;
+                        let first_w = ((total_stack_w as f32) * stack_split_ratio).round() as i32;
                         let max_first_w = (total_stack_w - rem_count).max(1);
                         let first_w = first_w.clamp(1, max_first_w);
 
@@ -571,6 +578,27 @@ mod tests {
                 assert!(r.x + r.width as i32 <= inner_x + inner_w);
                 assert!(r.y + r.height as i32 <= inner_y + inner_h);
             }
+        }
+    }
+
+    #[test]
+    fn test_layout_defensive_against_nan_ratio() {
+        let layout = MasterStackLayout;
+        let area = Rect::new(0, 0, 1000, 1000);
+        let config = LayoutConfig {
+            split_ratio: f32::NAN,
+            stack_split_ratio: f32::NAN,
+            view_padding: 0,
+            outer_padding: 0,
+            ..Default::default()
+        };
+        let rects = layout.arrange(area, 3, &config);
+        assert_eq!(rects.len(), 3);
+        for r in &rects {
+            assert!(r.width > 0);
+            assert!(r.height > 0);
+            assert!(r.x + r.width as i32 <= 1000);
+            assert!(r.y + r.height as i32 <= 1000);
         }
     }
 }

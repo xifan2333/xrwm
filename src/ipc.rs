@@ -464,6 +464,20 @@ pub fn send_ipc_command(cmd: &IpcCommand) -> Result<IpcResponse, String> {
         .map_err(|e| format!("Invalid response from xrwm: {e}"))
 }
 
+fn validate_ratio_arg(arg: &str) -> Result<(), String> {
+    let trimmed = arg.trim();
+    if trimmed.is_empty() {
+        return Err("Ratio value cannot be empty".to_string());
+    }
+    let val = trimmed
+        .parse::<f32>()
+        .map_err(|_| "Ratio must be a valid float (e.g. 0.55, +0.05, -0.05)")?;
+    if !val.is_finite() {
+        return Err("Ratio must be a finite number".to_string());
+    }
+    Ok(())
+}
+
 pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
     if args.is_empty() {
         return Err("No arguments provided".to_string());
@@ -712,10 +726,12 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
         }
         "main-ratio" => {
             let ratio = args.get(1).ok_or("Missing ratio value")?.clone();
+            validate_ratio_arg(&ratio)?;
             Ok(IpcCommand::MainRatio(ratio))
         }
         "stack-ratio" => {
             let ratio = args.get(1).ok_or("Missing ratio value")?.clone();
+            validate_ratio_arg(&ratio)?;
             Ok(IpcCommand::StackRatio(ratio))
         }
         "main-count" => {
@@ -1528,5 +1544,25 @@ mod tests {
         drop(client);
         drop(listener);
         let _ = std::fs::remove_file(&socket_path1);
+    }
+
+    #[test]
+    fn test_parse_cli_args_ratio_nan_validation() {
+        for cmd in ["main-ratio", "stack-ratio"] {
+            // Rejects NaN, inf, and empty
+            assert!(parse_cli_args(&[cmd.into(), "NaN".into()]).is_err());
+            assert!(parse_cli_args(&[cmd.into(), "+NaN".into()]).is_err());
+            assert!(parse_cli_args(&[cmd.into(), "-NaN".into()]).is_err());
+            assert!(parse_cli_args(&[cmd.into(), "inf".into()]).is_err());
+            assert!(parse_cli_args(&[cmd.into(), "+inf".into()]).is_err());
+            assert!(parse_cli_args(&[cmd.into(), "-inf".into()]).is_err());
+            assert!(parse_cli_args(&[cmd.into(), "infinity".into()]).is_err());
+            assert!(parse_cli_args(&[cmd.into(), "".into()]).is_err());
+
+            // Accepts valid finite floats
+            assert!(parse_cli_args(&[cmd.into(), "0.55".into()]).is_ok());
+            assert!(parse_cli_args(&[cmd.into(), "+0.05".into()]).is_ok());
+            assert!(parse_cli_args(&[cmd.into(), "-0.05".into()]).is_ok());
+        }
     }
 }
