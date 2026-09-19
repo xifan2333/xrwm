@@ -1491,6 +1491,40 @@ impl AppState {
     }
 }
 
+/// Spawns an init script located at `init_script` directly as a file parameter
+/// to bash (or via its shebang), avoiding `bash -c` string re-tokenization.
+pub fn spawn_init_script_at(init_script: &std::path::Path) -> std::io::Result<std::process::Child> {
+    reap_zombies();
+    std::process::Command::new("bash")
+        .arg(init_script)
+        .spawn()
+        .or_else(|_| std::process::Command::new(init_script).spawn())
+}
+
+/// Spawns the xrwm init script from a configuration directory (`<config_dir>/xrwm/init`).
+///
+/// Returns `Some(Ok(child))` if spawned, `Some(Err(err))` if spawning failed,
+/// or `None` if the init script file does not exist.
+pub fn spawn_init_script_from_config(
+    config_dir: &std::path::Path,
+) -> Option<std::io::Result<std::process::Child>> {
+    let init_script = config_dir.join("xrwm").join("init");
+    if init_script.is_file() {
+        tracing::info!("Spawning xrwm init script: {:?}", init_script);
+        let res = spawn_init_script_at(&init_script);
+        if let Err(ref e) = res {
+            tracing::error!("Failed to spawn xrwm init script {:?}: {e}", init_script);
+        }
+        Some(res)
+    } else {
+        None
+    }
+}
+
+/// Spawns the xrwm init script from `$XDG_CONFIG_HOME/xrwm/init` (or `~/.config/xrwm/init`).
+///
+/// Reaps zombie processes before spawning, logs errors on failure, and avoids
+/// `bash -c` string re-tokenization so directories with spaces are supported.
 pub fn spawn_init_script() {
     reap_zombies();
     // In unit tests, avoid executing the host environment's personal init script
@@ -1502,15 +1536,7 @@ pub fn spawn_init_script() {
         .unwrap_or_else(|_| {
             PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".config")
         });
-    let init_script = config_dir.join("xrwm").join("init");
-
-    if init_script.is_file() {
-        tracing::info!("Spawning xrwm init script: {:?}", init_script);
-        let _ = std::process::Command::new("bash")
-            .arg("-c")
-            .arg(&init_script)
-            .spawn();
-    }
+    let _ = spawn_init_script_from_config(&config_dir);
 }
 
 /// Reap any dead child processes without blocking.
@@ -1543,6 +1569,9 @@ pub fn reap_zombies() {
         }
     }
 }
+
+#[cfg(test)]
+pub(crate) static PROCESS_TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[cfg(test)]
 mod tests {
@@ -1662,5 +1691,97 @@ mod tests {
         // Too long
         assert!(parse_hex_color("#1234567").is_err());
         assert!(parse_hex_color("#123456789").is_err());
+    }
+
+    #[test]
+    #[allow(clippy::zombie_processes)]
+    fn test_spawn_init_script_at_supports_spaces_and_special_characters() {
+        let _guard = PROCESS_TEST_MUTEX.lock().unwrap();
+        let temp_dir = std::env::temp_dir().join(format!(
+            "xrwm test config spaces & $special_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let script_path = temp_dir.join("init");
+        let marker_path = temp_dir.join("marker.txt");
+
+        // Write an executable bash script that outputs to marker.txt
+        let script_content = format!(
+            "#!/usr/bin/env bash\necho 'init_executed_successfully' > '{}'\n",
+            marker_path.display()
+        );
+        std::fs::write(&script_path, script_content).unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&script_path).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&script_path, perms).unwrap();
+        }
+
+        let mut child = spawn_init_script_at(&script_path).expect("should spawn script directly");
+        let status = child.wait().expect("child should complete");
+        assert!(status.success());
+
+        let marker = std::fs::read_to_string(&marker_path).unwrap();
+        assert_eq!(marker.trim(), "init_executed_successfully");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_spawn_init_script_at_handles_non_existent_path() {
+        let _guard = PROCESS_TEST_MUTEX.lock().unwrap();
+        let non_existent = std::path::Path::new("/tmp/non_existent_xrwm_init_path_99999999/init");
+        // bash reports error and exits with non-zero status
+        if let Ok(mut child) = spawn_init_script_at(non_existent) {
+            let status = child.wait().unwrap();
+            assert!(!status.success());
+        }
+    }
+
+    #[test]
+    #[allow(clippy::zombie_processes)]
+    fn test_spawn_init_script_from_config_spaces_and_non_existent() {
+        let _guard = PROCESS_TEST_MUTEX.lock().unwrap();
+        let temp_dir = std::env::temp_dir().join(format!(
+            "xrwm config dir with spaces & $metachars_{}",
+            std::process::id()
+        ));
+        let xrwm_dir = temp_dir.join("xrwm");
+        std::fs::create_dir_all(&xrwm_dir).unwrap();
+
+        // 1. When init script does not exist, returns None
+        assert!(spawn_init_script_from_config(&temp_dir).is_none());
+
+        // 2. When init script exists in path with spaces and special characters
+        let script_path = xrwm_dir.join("init");
+        let marker_path = temp_dir.join("marker.txt");
+        let script_content = format!(
+            "#!/usr/bin/env bash\necho 'from_config_success' > '{}'\n",
+            marker_path.display()
+        );
+        std::fs::write(&script_path, script_content).unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&script_path).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&script_path, perms).unwrap();
+        }
+
+        let child_res = spawn_init_script_from_config(&temp_dir);
+        assert!(child_res.is_some());
+        let mut child = child_res.unwrap().expect("child should spawn successfully");
+        let status = child.wait().expect("child should complete");
+        assert!(status.success());
+
+        let marker = std::fs::read_to_string(&marker_path).unwrap();
+        assert_eq!(marker.trim(), "from_config_success");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
