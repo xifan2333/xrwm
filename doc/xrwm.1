@@ -216,13 +216,14 @@ focused window or screen.
 Configures pointer hover focus policy:
 .IP \(bu 2
 \f[B]normal\f[R]: Automatically focuses views when the pointer crosses
-over borders.
+over borders into a view.
 .IP \(bu 2
 \f[B]disabled\f[R]: Pointer movement does not alter keyboard focus; only
 clicks or key bindings change focus.
 .IP \(bu 2
-\f[B]always\f[R]: The view under the pointer is always focused on any
-movement.
+\f[B]always\f[R]: Focuses the view under the pointer on pointer motion
+reported by the compositor, including movement within an already entered
+view.
 .TP
 \f[B]hide\-cursor\f[R] \f[B]timeout\f[R] \f[I]milliseconds\f[R]
 Automatically hides the cursor after \f[I]milliseconds\f[R] of

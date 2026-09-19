@@ -389,6 +389,19 @@ impl Dispatch<RiverSeatV1, ()> for AppState {
             Event::PointerPosition { x, y } => {
                 state.unhide_cursor();
                 state.pointer = (x, y);
+                if state.focus_follows_cursor == crate::wm::FocusFollowsCursor::Always
+                    && let Some(seat) = state.seats.get_mut(&proxy.id())
+                    && let Some(window) = seat.hovered.clone()
+                    && seat.focused.as_ref() != Some(&window)
+                {
+                    seat.set_focused_window(Some(window.clone()));
+                    if let Some(win) = state.windows.iter().find(|w| w.proxy == window)
+                        && let Some(ref out_id) = win.output
+                    {
+                        state.focused_output = Some(out_id.clone());
+                    }
+                    state.manage_dirty();
+                }
             }
             Event::WlSeat { name } => {
                 if let Some(ref reg) = state.wl_registry {
