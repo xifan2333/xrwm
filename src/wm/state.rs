@@ -1571,6 +1571,9 @@ pub fn reap_zombies() {
 }
 
 #[cfg(test)]
+pub(crate) static PROCESS_TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -1693,6 +1696,7 @@ mod tests {
     #[test]
     #[allow(clippy::zombie_processes)]
     fn test_spawn_init_script_at_supports_spaces_and_special_characters() {
+        let _guard = PROCESS_TEST_MUTEX.lock().unwrap();
         let temp_dir = std::env::temp_dir().join(format!(
             "xrwm test config spaces & $special_{}",
             std::process::id()
@@ -1729,6 +1733,7 @@ mod tests {
 
     #[test]
     fn test_spawn_init_script_at_handles_non_existent_path() {
+        let _guard = PROCESS_TEST_MUTEX.lock().unwrap();
         let non_existent = std::path::Path::new("/tmp/non_existent_xrwm_init_path_99999999/init");
         // bash reports error and exits with non-zero status
         if let Ok(mut child) = spawn_init_script_at(non_existent) {
@@ -1740,6 +1745,7 @@ mod tests {
     #[test]
     #[allow(clippy::zombie_processes)]
     fn test_spawn_init_script_from_config_spaces_and_non_existent() {
+        let _guard = PROCESS_TEST_MUTEX.lock().unwrap();
         let temp_dir = std::env::temp_dir().join(format!(
             "xrwm config dir with spaces & $metachars_{}",
             std::process::id()

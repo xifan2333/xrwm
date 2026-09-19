@@ -1914,6 +1914,7 @@ mod tests {
     #[test]
     #[allow(clippy::zombie_processes)]
     fn test_reap_zombies_cleans_exited_children() {
+        let _guard = crate::wm::state::PROCESS_TEST_MUTEX.lock().unwrap();
         let child1 = std::process::Command::new("true").spawn().unwrap();
         let child2 = std::process::Command::new("true").spawn().unwrap();
         let child3 = std::process::Command::new("true").spawn().unwrap();
@@ -1941,6 +1942,7 @@ mod tests {
 
     #[test]
     fn test_reap_zombies_does_not_block_on_running_child() {
+        let _guard = crate::wm::state::PROCESS_TEST_MUTEX.lock().unwrap();
         // Spawn a long-running process
         let mut child = std::process::Command::new("sleep")
             .arg("10")
@@ -1963,6 +1965,7 @@ mod tests {
     #[test]
     #[allow(clippy::zombie_processes)]
     fn test_spawn_and_reload_actions_reap_children() {
+        let _guard = crate::wm::state::PROCESS_TEST_MUTEX.lock().unwrap();
         let mut state = AppState::new();
 
         // Spawn a child and wait for it to exit
