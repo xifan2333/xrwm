@@ -179,6 +179,24 @@ impl Harness {
         self.dispatch_events();
     }
 
+    fn pointer_enter(&mut self, seat: &ObjectId, window: &ObjectId) {
+        self.event(
+            seat,
+            seat::EVT_POINTER_ENTER_OPCODE,
+            vec![Argument::Object(window.clone())],
+        );
+        self.dispatch_events();
+    }
+
+    fn pointer_position(&mut self, seat: &ObjectId, x: i32, y: i32) {
+        self.event(
+            seat,
+            seat::EVT_POINTER_POSITION_OPCODE,
+            vec![Argument::Int(x), Argument::Int(y)],
+        );
+        self.dispatch_events();
+    }
+
     fn has_seat_request(&self, id: &ObjectId, opcode: u16) -> bool {
         self.server
             .requests
@@ -1045,4 +1063,64 @@ fn tag_toggle_and_previous_tags_history_navigation() {
         .unwrap();
     assert_eq!(harness.state.tag_state.focused, 6);
     assert_eq!(harness.state.previous_focused_tags, 2);
+}
+
+#[test]
+fn focus_follows_cursor_normal_vs_always_pointer_movement_in_same_window() {
+    let mut harness = Harness::new();
+    let seat = harness.add_seat();
+    let window1 = harness.add_window();
+    let win1_id = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == window1.protocol_id())
+        .unwrap()
+        .id;
+    let window2 = harness.add_window();
+    let win2_id = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == window2.protocol_id())
+        .unwrap()
+        .id;
+    harness.manage();
+
+    // Focus window1 via pointer enter in Normal mode
+    harness.state.focus_follows_cursor = crate::wm::FocusFollowsCursor::Normal;
+    harness.pointer_enter(&seat, &window1);
+    assert_eq!(harness.state.focused_window_id(), Some(win1_id));
+
+    // Move keyboard focus to window2
+    harness
+        .state
+        .execute_action_tokens(&["focus-view".into(), "next".into()]);
+    assert_eq!(harness.state.focused_window_id(), Some(win2_id));
+    // Pointer is still hovering window1
+    let seat_item = harness.state.seats.values().next().unwrap();
+    assert_eq!(
+        seat_item.hovered.as_ref().map(|p| p.id().protocol_id()),
+        Some(window1.protocol_id())
+    );
+
+    // In Normal mode: moving pointer within window1 does NOT refocus window1
+    harness.pointer_position(&seat, 10, 10);
+    assert_eq!(harness.state.focused_window_id(), Some(win2_id));
+
+    // Switch to Always mode: moving pointer within window1 DOES refocus window1
+    harness.state.focus_follows_cursor = crate::wm::FocusFollowsCursor::Always;
+    harness.pointer_position(&seat, 12, 12);
+    assert_eq!(harness.state.focused_window_id(), Some(win1_id));
+
+    // Move keyboard focus back to window2
+    harness
+        .state
+        .execute_action_tokens(&["focus-view".into(), "next".into()]);
+    assert_eq!(harness.state.focused_window_id(), Some(win2_id));
+
+    // In Disabled mode: moving pointer within window1 does NOT refocus window1
+    harness.state.focus_follows_cursor = crate::wm::FocusFollowsCursor::Disabled;
+    harness.pointer_position(&seat, 15, 15);
+    assert_eq!(harness.state.focused_window_id(), Some(win2_id));
 }
