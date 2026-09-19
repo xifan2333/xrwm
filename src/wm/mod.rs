@@ -26,3 +26,4 @@ pub use state::hex_to_river_rgba;
 pub use state::reap_zombies;
 pub use state::spawn_init_script;
 pub use state::spawn_init_script_at;
+pub use state::spawn_init_script_from_config;
