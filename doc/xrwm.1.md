@@ -186,9 +186,9 @@ Can be absolute (e.g. `0.65`) or relative (e.g. `+0.05`, `-0.05`). Defaults to `
 **focus-follows-cursor** **disabled**|**normal**|**always**
 : Configures pointer hover focus policy:
 
-- **normal**: Automatically focuses views when the pointer crosses over borders.
+- **normal**: Automatically focuses views when the pointer crosses over borders into a view.
 - **disabled**: Pointer movement does not alter keyboard focus; only clicks or key bindings change focus.
-- **always**: The view under the pointer is always focused on any movement.
+- **always**: Focuses the view under the pointer on pointer motion reported by the compositor, including movement within an already entered view.
 
 **hide-cursor** **timeout** _milliseconds_
 : Automatically hides the cursor after _milliseconds_ of inactivity. Set to `0` to disable.
