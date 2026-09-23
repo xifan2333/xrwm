@@ -228,11 +228,19 @@ view.
 \f[B]hide\-cursor\f[R] \f[B]timeout\f[R] \f[I]milliseconds\f[R]
 Automatically hides the cursor after \f[I]milliseconds\f[R] of
 inactivity.
-Set to \f[CR]0\f[R] to disable.
+Note: The River window management protocol does not report continuous
+pointer activity within client surfaces or allow hiding
+client\-controlled cursors; configuring a non\-zero timeout is
+unsupported and returns an error.
+Only \f[CR]0\f[R] (disabled) is accepted.
 .TP
 \f[B]hide\-cursor\f[R] \f[B]when\-typing\f[R] \f[B]enabled\f[R]|\f[B]disabled\f[R]
 Automatically hides the cursor when typing on the keyboard.
-Moving the pointer immediately restores visibility.
+Note: The River window management protocol does not route normal
+application keyboard input to the window manager or permit overriding
+client cursors; enabling this feature is unsupported and returns an
+error.
+Only \f[CR]disabled\f[R] is accepted.
 .TP
 \f[B]animation\f[R] \f[B]true\f[R]|\f[B]false\f[R]
 Enables or disables window geometry and workspace slide transition
