@@ -2466,4 +2466,60 @@ mod tests {
         state.handle_ipc_command(&unmap_ptr_cmd).unwrap();
         assert_eq!(state.configured_pointer_bindings.len(), 1);
     }
+
+    #[test]
+    fn test_unknown_modifiers_rejected_without_state_mutation() {
+        let mut state = AppState::new();
+
+        // 1. Map command with unknown modifier must return Err
+        let bad_map = IpcCommand::Map {
+            mode: "normal".into(),
+            modifiers: "Supr".into(),
+            key: "q".into(),
+            action: vec!["close".into()],
+        };
+        let res = state.handle_ipc_command(&bad_map);
+        assert!(res.is_err());
+        let err = res.unwrap_err();
+        assert!(err.contains("Unknown modifier: Supr"));
+        assert!(state.configured_key_bindings.is_empty());
+        assert!(state.pending_key_bindings.is_empty());
+
+        // 2. MapPointer command with unknown modifier must return Err
+        let bad_map_ptr = IpcCommand::MapPointer {
+            mode: "normal".into(),
+            modifiers: "Super+Unknown".into(),
+            button: "BTN_LEFT".into(),
+            action: vec!["move-view".into()],
+        };
+        let res_ptr = state.handle_ipc_command(&bad_map_ptr);
+        assert!(res_ptr.is_err());
+        assert!(state.configured_pointer_bindings.is_empty());
+        assert!(state.pending_pointer_bindings.is_empty());
+
+        // 3. Unmap commands with unknown modifier must return Err
+        let bad_unmap = IpcCommand::Unmap {
+            mode: "normal".into(),
+            modifiers: "BadMod".into(),
+            key: "q".into(),
+        };
+        assert!(state.handle_ipc_command(&bad_unmap).is_err());
+
+        let bad_unmap_ptr = IpcCommand::UnmapPointer {
+            mode: "normal".into(),
+            modifiers: "BadMod".into(),
+            button: "BTN_LEFT".into(),
+        };
+        assert!(state.handle_ipc_command(&bad_unmap_ptr).is_err());
+
+        // 4. Action tokens execution with unknown modifier fails safely
+        state.execute_action_tokens(&[
+            "map".into(),
+            "normal".into(),
+            "Supr".into(),
+            "q".into(),
+            "close".into(),
+        ]);
+        assert!(state.configured_key_bindings.is_empty());
+    }
 }

@@ -1231,6 +1231,75 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_cli_args_modifier_validation() {
+        // Unknown modifiers should fail in CLI argument parsing
+        assert!(
+            parse_cli_args(&[
+                "map".into(),
+                "normal".into(),
+                "Supr".into(),
+                "q".into(),
+                "close".into()
+            ])
+            .is_err()
+        );
+        assert!(
+            parse_cli_args(&[
+                "unmap".into(),
+                "normal".into(),
+                "InvalidMod".into(),
+                "q".into()
+            ])
+            .is_err()
+        );
+        assert!(
+            parse_cli_args(&[
+                "map-pointer".into(),
+                "normal".into(),
+                "BadMod".into(),
+                "BTN_LEFT".into(),
+                "move-view".into()
+            ])
+            .is_err()
+        );
+        assert!(
+            parse_cli_args(&[
+                "unmap-pointer".into(),
+                "normal".into(),
+                "Super+Unknown".into(),
+                "BTN_LEFT".into()
+            ])
+            .is_err()
+        );
+
+        // Valid aliases should succeed
+        for valid in [
+            "Super",
+            "Mod4",
+            "logo",
+            "win",
+            "Ctrl",
+            "control",
+            "Alt",
+            "mod1",
+            "Shift",
+            "None",
+            "None+Super",
+        ] {
+            assert!(
+                parse_cli_args(&[
+                    "map".into(),
+                    "normal".into(),
+                    valid.into(),
+                    "q".into(),
+                    "close".into()
+                ])
+                .is_ok()
+            );
+        }
+    }
+
+    #[test]
     fn test_read_ipc_request_success() {
         let (mut server, mut client) = UnixStream::pair().unwrap();
         server.set_nonblocking(true).unwrap();
