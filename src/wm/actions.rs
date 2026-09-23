@@ -970,7 +970,7 @@ impl AppState {
 
     /// Unmaps a key binding in the specified mode.
     pub fn unmap_key(&mut self, mode: &str, modifiers: &str, key: &str) -> Result<String, String> {
-        let mods = crate::wm::binds::parse_modifiers(modifiers);
+        let mods = crate::wm::binds::parse_modifiers(modifiers)?;
         let Some(keysym) = crate::wm::binds::resolve_keysym(key, mods) else {
             return Err(format!("Unknown keysym: {key}"));
         };
@@ -1003,7 +1003,7 @@ impl AppState {
         modifiers: &str,
         button: &str,
     ) -> Result<String, String> {
-        let mods = crate::wm::binds::parse_modifiers(modifiers);
+        let mods = crate::wm::binds::parse_modifiers(modifiers)?;
         let Some(btn_code) = crate::wm::binds::parse_button(button) else {
             return Err(format!("Unknown pointer button: {button}"));
         };
@@ -1325,7 +1325,7 @@ impl AppState {
                 key,
                 action,
             } => {
-                let mods = crate::wm::binds::parse_modifiers(modifiers);
+                let mods = crate::wm::binds::parse_modifiers(modifiers)?;
                 let Some(keysym) = crate::wm::binds::resolve_keysym(key, mods) else {
                     return Err(format!("Unknown keysym: {key}"));
                 };
@@ -1353,7 +1353,7 @@ impl AppState {
                 button,
                 action,
             } => {
-                let mods = crate::wm::binds::parse_modifiers(modifiers);
+                let mods = crate::wm::binds::parse_modifiers(modifiers)?;
                 let Some(btn_code) = crate::wm::binds::parse_button(button) else {
                     return Err(format!("Unknown pointer button: {button}"));
                 };

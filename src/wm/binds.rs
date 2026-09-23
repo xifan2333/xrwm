@@ -8,10 +8,10 @@ use crate::protocol::{river_seat_v1::Modifiers, river_xkb_binding_v1::RiverXkbBi
 ///
 /// Supports combinations like `"Super"`, `"Mod4"`, `"Super+Shift"`,
 /// `"Ctrl+Alt"`, `"Control_Alt"`, or `"None"`.
-pub fn parse_modifiers(s: &str) -> Modifiers {
+pub fn parse_modifiers(s: &str) -> Result<Modifiers, String> {
     let trimmed = s.trim();
     if trimmed.eq_ignore_ascii_case("none") || trimmed.is_empty() {
-        return Modifiers::empty();
+        return Ok(Modifiers::empty());
     }
 
     let mut mods = Modifiers::empty();
@@ -23,17 +23,18 @@ pub fn parse_modifiers(s: &str) -> Modifiers {
             continue;
         }
         match p.to_ascii_lowercase().as_str() {
+            "none" => {}
             "shift" => mods |= Modifiers::Shift,
             "ctrl" | "control" => mods |= Modifiers::Ctrl,
             "alt" | "mod1" => mods |= Modifiers::Mod1,
             "mod3" => mods |= Modifiers::Mod3,
             "super" | "mod4" | "logo" | "win" => mods |= Modifiers::Mod4,
             "mod5" => mods |= Modifiers::Mod5,
-            _ => tracing::warn!("Unknown modifier: {p}"),
+            _ => return Err(format!("Unknown modifier: {p}")),
         }
     }
 
-    mods
+    Ok(mods)
 }
 
 /// Resolves an XKB keysym name and modifier context to its 32-bit keysym value.
@@ -162,24 +163,27 @@ mod tests {
 
     #[test]
     fn test_parse_modifiers() {
-        assert_eq!(parse_modifiers("None"), Modifiers::empty());
-        assert_eq!(parse_modifiers("none"), Modifiers::empty());
-        assert_eq!(parse_modifiers(""), Modifiers::empty());
+        assert_eq!(parse_modifiers("None").unwrap(), Modifiers::empty());
+        assert_eq!(parse_modifiers("none").unwrap(), Modifiers::empty());
+        assert_eq!(parse_modifiers("").unwrap(), Modifiers::empty());
 
-        assert_eq!(parse_modifiers("Super"), Modifiers::Mod4);
-        assert_eq!(parse_modifiers("Mod4"), Modifiers::Mod4);
+        assert_eq!(parse_modifiers("Super").unwrap(), Modifiers::Mod4);
+        assert_eq!(parse_modifiers("Mod4").unwrap(), Modifiers::Mod4);
         assert_eq!(
-            parse_modifiers("Super+Shift"),
+            parse_modifiers("Super+Shift").unwrap(),
             Modifiers::Mod4 | Modifiers::Shift
         );
         assert_eq!(
-            parse_modifiers("Ctrl+Alt"),
+            parse_modifiers("Ctrl+Alt").unwrap(),
             Modifiers::Ctrl | Modifiers::Mod1
         );
         assert_eq!(
-            parse_modifiers("Super+Ctrl+Alt+Shift"),
+            parse_modifiers("Super+Ctrl+Alt+Shift").unwrap(),
             Modifiers::Mod4 | Modifiers::Ctrl | Modifiers::Mod1 | Modifiers::Shift
         );
+
+        assert!(parse_modifiers("Supr").is_err());
+        assert!(parse_modifiers("Super+InvalidMod").is_err());
     }
 
     #[test]
