@@ -975,6 +975,8 @@ impl AppState {
             return Err(format!("Unknown keysym: {key}"));
         };
 
+        self.configured_key_bindings
+            .retain(|b| !(b.mode == mode && b.modifiers == mods && b.keysym == keysym));
         self.pending_key_bindings
             .retain(|b| !(b.mode == mode && b.modifiers == mods && b.keysym == keysym));
 
@@ -1006,6 +1008,8 @@ impl AppState {
             return Err(format!("Unknown pointer button: {button}"));
         };
 
+        self.configured_pointer_bindings
+            .retain(|b| !(b.mode == mode && b.modifiers == mods && b.button == btn_code));
         self.pending_pointer_bindings
             .retain(|b| !(b.mode == mode && b.modifiers == mods && b.button == btn_code));
 
@@ -1325,13 +1329,16 @@ impl AppState {
                 let Some(keysym) = crate::wm::binds::resolve_keysym(key, mods) else {
                     return Err(format!("Unknown keysym: {key}"));
                 };
-                self.pending_key_bindings
-                    .push(crate::wm::binds::PendingKeyBinding {
-                        mode: mode.clone(),
-                        modifiers: mods,
-                        keysym,
-                        action: action.clone(),
-                    });
+                let pending = crate::wm::binds::PendingKeyBinding {
+                    mode: mode.clone(),
+                    modifiers: mods,
+                    keysym,
+                    action: action.clone(),
+                };
+                self.configured_key_bindings
+                    .retain(|b| !(b.mode == *mode && b.modifiers == mods && b.keysym == keysym));
+                self.configured_key_bindings.push(pending.clone());
+                self.pending_key_bindings.push(pending);
                 self.manage_dirty();
                 Ok(format!("mapped [{mode}] {modifiers}+{key} -> {action:?}"))
             }
@@ -1351,13 +1358,16 @@ impl AppState {
                     return Err(format!("Unknown pointer button: {button}"));
                 };
                 let ptr_action = crate::wm::seat::PointerAction::from_tokens(action);
-                self.pending_pointer_bindings
-                    .push(crate::wm::binds::PendingPointerBinding {
-                        mode: mode.clone(),
-                        modifiers: mods,
-                        button: btn_code,
-                        action: ptr_action,
-                    });
+                let pending = crate::wm::binds::PendingPointerBinding {
+                    mode: mode.clone(),
+                    modifiers: mods,
+                    button: btn_code,
+                    action: ptr_action,
+                };
+                self.configured_pointer_bindings
+                    .retain(|b| !(b.mode == *mode && b.modifiers == mods && b.button == btn_code));
+                self.configured_pointer_bindings.push(pending.clone());
+                self.pending_pointer_bindings.push(pending);
                 self.manage_dirty();
                 Ok(format!(
                     "mapped-pointer [{mode}] {modifiers}+{button} -> {action:?}"
