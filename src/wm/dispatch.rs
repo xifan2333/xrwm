@@ -268,7 +268,12 @@ impl Dispatch<RiverOutputV1, ()> for AppState {
                 }
             }
             Event::Removed => {
-                state.outputs.remove(&proxy.id());
+                if let Some(mut out) = state.outputs.remove(&proxy.id())
+                    && let Some(ls_out) = out.ls_output.take()
+                {
+                    ls_out.destroy();
+                }
+                proxy.destroy();
                 let fallback = state.outputs.keys().next().cloned();
                 for w in &mut state.windows {
                     if w.output == Some(proxy.id()) {
@@ -432,6 +437,17 @@ impl Dispatch<RiverSeatV1, ()> for AppState {
                     if let Some(ls_seat) = seat.ls_seat.take() {
                         ls_seat.destroy();
                     }
+                    if let Some(shape_dev) = seat.cursor_shape_device.take() {
+                        shape_dev.destroy();
+                    }
+                    if let Some(pointer) = seat.wl_pointer.take()
+                        && pointer.version() >= 3
+                    {
+                        pointer.release();
+                    }
+                    for pb in seat.pointer_bindings.values() {
+                        pb.proxy.destroy();
+                    }
                     let to_remove: Vec<wayland_backend::client::ObjectId> = state
                         .key_bindings
                         .iter()
@@ -444,6 +460,7 @@ impl Dispatch<RiverSeatV1, ()> for AppState {
                         }
                     }
                 }
+                proxy.destroy();
             }
         }
     }
