@@ -191,10 +191,10 @@ Can be absolute (e.g. `0.65`) or relative (e.g. `+0.05`, `-0.05`). Defaults to `
 - **always**: Focuses the view under the pointer on pointer motion reported by the compositor, including movement within an already entered view.
 
 **hide-cursor** **timeout** _milliseconds_
-: Automatically hides the cursor after _milliseconds_ of inactivity. Set to `0` to disable.
+: Automatically hides the cursor after _milliseconds_ of inactivity. Note: The River window management protocol does not report continuous pointer activity within client surfaces or allow hiding client-controlled cursors; configuring a non-zero timeout is unsupported and returns an error. Only `0` (disabled) is accepted.
 
 **hide-cursor** **when-typing** **enabled**|**disabled**
-: Automatically hides the cursor when typing on the keyboard. Moving the pointer immediately restores visibility.
+: Automatically hides the cursor when typing on the keyboard. Note: The River window management protocol does not route normal application keyboard input to the window manager or permit overriding client cursors; enabling this feature is unsupported and returns an error. Only `disabled` is accepted.
 
 **animation** **true**|**false**
 : Enables or disables window geometry and workspace slide transition animations. Defaults to `true`.

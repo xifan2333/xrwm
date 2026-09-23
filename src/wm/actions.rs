@@ -668,14 +668,24 @@ impl AppState {
 
     /// Sets cursor hide timeout in milliseconds.
     pub fn set_hide_cursor_timeout(&mut self, timeout: u64) -> Result<String, String> {
-        self.cursor_hide_timeout = timeout;
-        Ok(format!("hide cursor timeout set to {timeout}ms"))
+        if timeout > 0 {
+            return Err(
+                "hide-cursor timeout is not supported: River protocol does not report continuous pointer activity or permit hiding client cursors".to_string(),
+            );
+        }
+        self.cursor_hide_timeout = 0;
+        Ok("hide cursor timeout disabled".to_string())
     }
 
     /// Sets whether cursor is hidden when typing.
     pub fn set_hide_cursor_when_typing(&mut self, enabled: bool) -> Result<String, String> {
-        self.cursor_hide_when_typing = enabled;
-        Ok(format!("hide cursor when typing set to {enabled}"))
+        if enabled {
+            return Err(
+                "hide-cursor when-typing is not supported: River protocol does not expose non-binding keystrokes or permit hiding client cursors".to_string(),
+            );
+        }
+        self.cursor_hide_when_typing = false;
+        Ok("hide cursor when typing disabled".to_string())
     }
 
     /// Toggles the focused tags mask on the WM.
@@ -1713,19 +1723,14 @@ mod tests {
         );
 
         // Hide cursor tests
-        state.execute_action_tokens(&["hide-cursor".into(), "timeout".into(), "3000".into()]);
-        assert_eq!(state.cursor_hide_timeout, 3000);
-        state.execute_action_tokens(&[
-            "hide-cursor".into(),
-            "when-typing".into(),
-            "enabled".into(),
-        ]);
-        assert!(state.cursor_hide_when_typing);
-        state.execute_action_tokens(&[
-            "hide-cursor".into(),
-            "when-typing".into(),
-            "disabled".into(),
-        ]);
+        assert!(state.set_hide_cursor_timeout(3000).is_err());
+        assert_eq!(state.cursor_hide_timeout, 0);
+        assert!(state.set_hide_cursor_timeout(0).is_ok());
+        assert_eq!(state.cursor_hide_timeout, 0);
+
+        assert!(state.set_hide_cursor_when_typing(true).is_err());
+        assert!(!state.cursor_hide_when_typing);
+        assert!(state.set_hide_cursor_when_typing(false).is_ok());
         assert!(!state.cursor_hide_when_typing);
 
         // Relative count adjustment
@@ -2259,5 +2264,55 @@ mod tests {
         assert!(state.set_main_ratio(f32::INFINITY).is_err());
         assert!(state.set_stack_ratio(f32::NAN).is_err());
         assert!(state.set_stack_ratio(f32::NEG_INFINITY).is_err());
+    }
+
+    #[test]
+    fn test_hide_cursor_unsupported_rejection_and_disable_acceptance() {
+        let mut state = AppState::new();
+
+        // 1. hide-cursor timeout with timeout > 0 must be rejected with informative error
+        let res = state.handle_ipc_command(&IpcCommand::HideCursorTimeout(1000));
+        assert!(res.is_err());
+        let err = res.unwrap_err();
+        assert!(err.contains("not supported"));
+        assert!(err.contains("River protocol"));
+        assert_eq!(state.cursor_hide_timeout, 0);
+
+        // Action token execution with positive timeout should also fail safely
+        state.execute_action_tokens(&["hide-cursor".into(), "timeout".into(), "5000".into()]);
+        assert_eq!(state.cursor_hide_timeout, 0);
+
+        // hide-cursor timeout 0 (disable) is accepted
+        let res_disable = state.handle_ipc_command(&IpcCommand::HideCursorTimeout(0));
+        assert!(res_disable.is_ok());
+        assert_eq!(state.cursor_hide_timeout, 0);
+
+        // 2. hide-cursor when-typing enabled must be rejected with informative error
+        let res_typing = state.handle_ipc_command(&IpcCommand::HideCursorWhenTyping(true));
+        assert!(res_typing.is_err());
+        let err_typing = res_typing.unwrap_err();
+        assert!(err_typing.contains("not supported"));
+        assert!(err_typing.contains("River protocol"));
+        assert!(!state.cursor_hide_when_typing);
+
+        // Action token execution with enabled should also fail safely
+        state.execute_action_tokens(&[
+            "hide-cursor".into(),
+            "when-typing".into(),
+            "enabled".into(),
+        ]);
+        assert!(!state.cursor_hide_when_typing);
+
+        // hide-cursor when-typing disabled is accepted
+        let res_disable_typing = state.handle_ipc_command(&IpcCommand::HideCursorWhenTyping(false));
+        assert!(res_disable_typing.is_ok());
+        assert!(!state.cursor_hide_when_typing);
+
+        // 3. cursor hidden/unhidden toggle transitions
+        assert!(!state.cursor_hidden);
+        state.hide_cursor();
+        assert!(state.cursor_hidden);
+        state.unhide_cursor();
+        assert!(!state.cursor_hidden);
     }
 }
