@@ -1365,7 +1365,29 @@ impl AppState {
                         && b.keysym == keysym)
                 });
                 self.configured_key_bindings.push(pending.clone());
+                self.pending_key_bindings.retain(|b| {
+                    !(b.mode.eq_ignore_ascii_case(&mode_norm)
+                        && b.modifiers == mods
+                        && b.keysym == keysym)
+                });
                 self.pending_key_bindings.push(pending);
+
+                let to_remove: Vec<wayland_backend::client::ObjectId> = self
+                    .key_bindings
+                    .iter()
+                    .filter(|(_, b)| {
+                        b.mode.eq_ignore_ascii_case(&mode_norm)
+                            && b.modifiers == mods
+                            && b.keysym == keysym
+                    })
+                    .map(|(id, _)| id.clone())
+                    .collect();
+
+                for id in to_remove {
+                    if let Some(b) = self.key_bindings.remove(&id) {
+                        b.proxy.destroy();
+                    }
+                }
                 self.manage_dirty();
                 Ok(format!(
                     "mapped [{mode_norm}] {modifiers}+{key} -> {action:?}"
