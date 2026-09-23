@@ -773,6 +773,9 @@ impl AppState {
         if !self.modes.iter().any(|m| m.eq_ignore_ascii_case(name)) {
             return Err(format!("unknown mode '{name}', declare it first"));
         }
+        if self.session_locked && !name.eq_ignore_ascii_case("locked") {
+            return Err("cannot switch mode while session is locked".to_string());
+        }
         if self.active_mode != name {
             self.active_mode = name.to_string();
             self.mode_dirty = true;
