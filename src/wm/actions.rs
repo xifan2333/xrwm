@@ -761,27 +761,31 @@ impl AppState {
         if name.is_empty() {
             return Err("mode name cannot be empty".to_string());
         }
-        if !self.modes.iter().any(|m| m.eq_ignore_ascii_case(name)) {
-            self.modes.push(name.to_string());
+        let canonical = name.to_ascii_lowercase();
+        if !self.modes.iter().any(|m| m == &canonical) {
+            self.modes.push(canonical.clone());
         }
-        Ok(format!("declared mode {name}"))
+        Ok(format!("declared mode {canonical}"))
     }
 
     /// Enters a declared modal keybinding mode.
     pub fn enter_mode(&mut self, mode: &str) -> Result<String, String> {
         let name = mode.trim();
-        if !self.modes.iter().any(|m| m.eq_ignore_ascii_case(name)) {
-            return Err(format!("unknown mode '{name}', declare it first"));
-        }
-        if self.session_locked && !name.eq_ignore_ascii_case("locked") {
+        let canonical = self
+            .modes
+            .iter()
+            .find(|m| m.eq_ignore_ascii_case(name))
+            .cloned()
+            .ok_or_else(|| format!("unknown mode '{name}', declare it first"))?;
+        if self.session_locked && canonical != "locked" {
             return Err("cannot switch mode while session is locked".to_string());
         }
-        if self.active_mode != name {
-            self.active_mode = name.to_string();
+        if self.active_mode != canonical {
+            self.active_mode = canonical.clone();
             self.mode_dirty = true;
             self.manage_dirty();
         }
-        Ok(format!("entered mode {name}"))
+        Ok(format!("entered mode {canonical}"))
     }
 
     /// Moves a floating window by delta pixels in the given direction.
