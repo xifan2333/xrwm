@@ -2384,4 +2384,86 @@ mod tests {
         state.handle_session_unlocked();
         assert_eq!(state.active_mode, "normal");
     }
+
+    #[test]
+    fn test_configured_bindings_retention_and_seat_inheritance() {
+        let mut state = AppState::new();
+
+        // 1. Initial state has zero configured or pending bindings
+        assert!(state.configured_key_bindings.is_empty());
+        assert!(state.pending_key_bindings.is_empty());
+        assert!(state.configured_pointer_bindings.is_empty());
+        assert!(state.pending_pointer_bindings.is_empty());
+
+        // 2. Configure keybindings before any seat exists
+        let map_cmd1 = IpcCommand::Map {
+            mode: "normal".into(),
+            modifiers: "Super".into(),
+            key: "Return".into(),
+            action: vec!["spawn".into(), "foot".into()],
+        };
+        state.handle_ipc_command(&map_cmd1).unwrap();
+
+        let map_cmd2 = IpcCommand::Map {
+            mode: "normal".into(),
+            modifiers: "Super+Shift".into(),
+            key: "Q".into(),
+            action: vec!["close".into()],
+        };
+        state.handle_ipc_command(&map_cmd2).unwrap();
+
+        assert_eq!(state.configured_key_bindings.len(), 2);
+        assert_eq!(state.pending_key_bindings.len(), 2);
+
+        // Re-mapping Super+Return with a new action replaces it in configured_key_bindings
+        let map_cmd1_update = IpcCommand::Map {
+            mode: "normal".into(),
+            modifiers: "Super".into(),
+            key: "Return".into(),
+            action: vec!["spawn".into(), "alacritty".into()],
+        };
+        state.handle_ipc_command(&map_cmd1_update).unwrap();
+        assert_eq!(state.configured_key_bindings.len(), 2);
+        assert_eq!(
+            state.configured_key_bindings[1].action,
+            vec!["spawn".to_string(), "alacritty".to_string()]
+        );
+
+        // 3. Configure pointer bindings before any seat exists
+        let ptr_cmd1 = IpcCommand::MapPointer {
+            mode: "normal".into(),
+            modifiers: "Super".into(),
+            button: "BTN_LEFT".into(),
+            action: vec!["move-view".into()],
+        };
+        state.handle_ipc_command(&ptr_cmd1).unwrap();
+
+        let ptr_cmd2 = IpcCommand::MapPointer {
+            mode: "normal".into(),
+            modifiers: "Super".into(),
+            button: "BTN_RIGHT".into(),
+            action: vec!["resize-view".into()],
+        };
+        state.handle_ipc_command(&ptr_cmd2).unwrap();
+
+        assert_eq!(state.configured_pointer_bindings.len(), 2);
+        assert_eq!(state.pending_pointer_bindings.len(), 2);
+
+        // 4. Unmapping removes from configured_key_bindings and configured_pointer_bindings
+        let unmap_key_cmd = IpcCommand::Unmap {
+            mode: "normal".into(),
+            modifiers: "Super+Shift".into(),
+            key: "Q".into(),
+        };
+        state.handle_ipc_command(&unmap_key_cmd).unwrap();
+        assert_eq!(state.configured_key_bindings.len(), 1);
+
+        let unmap_ptr_cmd = IpcCommand::UnmapPointer {
+            mode: "normal".into(),
+            modifiers: "Super".into(),
+            button: "BTN_RIGHT".into(),
+        };
+        state.handle_ipc_command(&unmap_ptr_cmd).unwrap();
+        assert_eq!(state.configured_pointer_bindings.len(), 1);
+    }
 }
