@@ -2265,4 +2265,54 @@ mod tests {
         assert!(state.set_stack_ratio(f32::NAN).is_err());
         assert!(state.set_stack_ratio(f32::NEG_INFINITY).is_err());
     }
+
+    #[test]
+    fn test_hide_cursor_unsupported_rejection_and_disable_acceptance() {
+        let mut state = AppState::new();
+
+        // 1. hide-cursor timeout with timeout > 0 must be rejected with informative error
+        let res = state.handle_ipc_command(&IpcCommand::HideCursorTimeout(1000));
+        assert!(res.is_err());
+        let err = res.unwrap_err();
+        assert!(err.contains("not supported"));
+        assert!(err.contains("River protocol"));
+        assert_eq!(state.cursor_hide_timeout, 0);
+
+        // Action token execution with positive timeout should also fail safely
+        state.execute_action_tokens(&["hide-cursor".into(), "timeout".into(), "5000".into()]);
+        assert_eq!(state.cursor_hide_timeout, 0);
+
+        // hide-cursor timeout 0 (disable) is accepted
+        let res_disable = state.handle_ipc_command(&IpcCommand::HideCursorTimeout(0));
+        assert!(res_disable.is_ok());
+        assert_eq!(state.cursor_hide_timeout, 0);
+
+        // 2. hide-cursor when-typing enabled must be rejected with informative error
+        let res_typing = state.handle_ipc_command(&IpcCommand::HideCursorWhenTyping(true));
+        assert!(res_typing.is_err());
+        let err_typing = res_typing.unwrap_err();
+        assert!(err_typing.contains("not supported"));
+        assert!(err_typing.contains("River protocol"));
+        assert!(!state.cursor_hide_when_typing);
+
+        // Action token execution with enabled should also fail safely
+        state.execute_action_tokens(&[
+            "hide-cursor".into(),
+            "when-typing".into(),
+            "enabled".into(),
+        ]);
+        assert!(!state.cursor_hide_when_typing);
+
+        // hide-cursor when-typing disabled is accepted
+        let res_disable_typing = state.handle_ipc_command(&IpcCommand::HideCursorWhenTyping(false));
+        assert!(res_disable_typing.is_ok());
+        assert!(!state.cursor_hide_when_typing);
+
+        // 3. cursor hidden/unhidden toggle transitions
+        assert!(!state.cursor_hidden);
+        state.hide_cursor();
+        assert!(state.cursor_hidden);
+        state.unhide_cursor();
+        assert!(!state.cursor_hidden);
+    }
 }
