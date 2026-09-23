@@ -978,16 +978,21 @@ impl AppState {
         let Some(keysym) = crate::wm::binds::resolve_keysym(key, mods) else {
             return Err(format!("Unknown keysym: {key}"));
         };
+        let mode_norm = mode.trim();
 
-        self.configured_key_bindings
-            .retain(|b| !(b.mode == mode && b.modifiers == mods && b.keysym == keysym));
-        self.pending_key_bindings
-            .retain(|b| !(b.mode == mode && b.modifiers == mods && b.keysym == keysym));
+        self.configured_key_bindings.retain(|b| {
+            !(b.mode.eq_ignore_ascii_case(mode_norm) && b.modifiers == mods && b.keysym == keysym)
+        });
+        self.pending_key_bindings.retain(|b| {
+            !(b.mode.eq_ignore_ascii_case(mode_norm) && b.modifiers == mods && b.keysym == keysym)
+        });
 
         let to_remove: Vec<wayland_backend::client::ObjectId> = self
             .key_bindings
             .iter()
-            .filter(|(_, b)| b.mode == mode && b.modifiers == mods && b.keysym == keysym)
+            .filter(|(_, b)| {
+                b.mode.eq_ignore_ascii_case(mode_norm) && b.modifiers == mods && b.keysym == keysym
+            })
             .map(|(id, _)| id.clone())
             .collect();
 
@@ -997,7 +1002,7 @@ impl AppState {
             }
         }
         self.manage_dirty();
-        Ok(format!("unmapped [{mode}] {modifiers}+{key}"))
+        Ok(format!("unmapped [{mode_norm}] {modifiers}+{key}"))
     }
 
     /// Unmaps a pointer binding in the specified mode.
@@ -1011,17 +1016,24 @@ impl AppState {
         let Some(btn_code) = crate::wm::binds::parse_button(button) else {
             return Err(format!("Unknown pointer button: {button}"));
         };
+        let mode_norm = mode.trim();
 
-        self.configured_pointer_bindings
-            .retain(|b| !(b.mode == mode && b.modifiers == mods && b.button == btn_code));
-        self.pending_pointer_bindings
-            .retain(|b| !(b.mode == mode && b.modifiers == mods && b.button == btn_code));
+        self.configured_pointer_bindings.retain(|b| {
+            !(b.mode.eq_ignore_ascii_case(mode_norm) && b.modifiers == mods && b.button == btn_code)
+        });
+        self.pending_pointer_bindings.retain(|b| {
+            !(b.mode.eq_ignore_ascii_case(mode_norm) && b.modifiers == mods && b.button == btn_code)
+        });
 
         for seat in self.seats.values_mut() {
             let to_remove: Vec<wayland_backend::client::ObjectId> = seat
                 .pointer_bindings
                 .iter()
-                .filter(|(_, b)| b.mode == mode && b.modifiers == mods && b.button == btn_code)
+                .filter(|(_, b)| {
+                    b.mode.eq_ignore_ascii_case(mode_norm)
+                        && b.modifiers == mods
+                        && b.button == btn_code
+                })
                 .map(|(id, _)| id.clone())
                 .collect();
 
@@ -1032,7 +1044,9 @@ impl AppState {
             }
         }
         self.manage_dirty();
-        Ok(format!("unmapped pointer [{mode}] {modifiers}+{button}"))
+        Ok(format!(
+            "unmapped pointer [{mode_norm}] {modifiers}+{button}"
+        ))
     }
 
     /// Lists active window rules, optionally filtered by action.
@@ -1333,18 +1347,29 @@ impl AppState {
                 let Some(keysym) = crate::wm::binds::resolve_keysym(key, mods) else {
                     return Err(format!("Unknown keysym: {key}"));
                 };
+                let mode_norm = self
+                    .modes
+                    .iter()
+                    .find(|m| m.eq_ignore_ascii_case(mode.trim()))
+                    .cloned()
+                    .unwrap_or_else(|| mode.trim().to_ascii_lowercase());
                 let pending = crate::wm::binds::PendingKeyBinding {
-                    mode: mode.clone(),
+                    mode: mode_norm.clone(),
                     modifiers: mods,
                     keysym,
                     action: action.clone(),
                 };
-                self.configured_key_bindings
-                    .retain(|b| !(b.mode == *mode && b.modifiers == mods && b.keysym == keysym));
+                self.configured_key_bindings.retain(|b| {
+                    !(b.mode.eq_ignore_ascii_case(&mode_norm)
+                        && b.modifiers == mods
+                        && b.keysym == keysym)
+                });
                 self.configured_key_bindings.push(pending.clone());
                 self.pending_key_bindings.push(pending);
                 self.manage_dirty();
-                Ok(format!("mapped [{mode}] {modifiers}+{key} -> {action:?}"))
+                Ok(format!(
+                    "mapped [{mode_norm}] {modifiers}+{key} -> {action:?}"
+                ))
             }
             IpcCommand::Unmap {
                 mode,
@@ -1361,20 +1386,29 @@ impl AppState {
                 let Some(btn_code) = crate::wm::binds::parse_button(button) else {
                     return Err(format!("Unknown pointer button: {button}"));
                 };
+                let mode_norm = self
+                    .modes
+                    .iter()
+                    .find(|m| m.eq_ignore_ascii_case(mode.trim()))
+                    .cloned()
+                    .unwrap_or_else(|| mode.trim().to_ascii_lowercase());
                 let ptr_action = crate::wm::seat::PointerAction::from_tokens(action);
                 let pending = crate::wm::binds::PendingPointerBinding {
-                    mode: mode.clone(),
+                    mode: mode_norm.clone(),
                     modifiers: mods,
                     button: btn_code,
                     action: ptr_action,
                 };
-                self.configured_pointer_bindings
-                    .retain(|b| !(b.mode == *mode && b.modifiers == mods && b.button == btn_code));
+                self.configured_pointer_bindings.retain(|b| {
+                    !(b.mode.eq_ignore_ascii_case(&mode_norm)
+                        && b.modifiers == mods
+                        && b.button == btn_code)
+                });
                 self.configured_pointer_bindings.push(pending.clone());
                 self.pending_pointer_bindings.push(pending);
                 self.manage_dirty();
                 Ok(format!(
-                    "mapped-pointer [{mode}] {modifiers}+{button} -> {action:?}"
+                    "mapped-pointer [{mode_norm}] {modifiers}+{button} -> {action:?}"
                 ))
             }
             IpcCommand::UnmapPointer {
