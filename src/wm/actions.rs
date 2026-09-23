@@ -668,14 +668,24 @@ impl AppState {
 
     /// Sets cursor hide timeout in milliseconds.
     pub fn set_hide_cursor_timeout(&mut self, timeout: u64) -> Result<String, String> {
-        self.cursor_hide_timeout = timeout;
-        Ok(format!("hide cursor timeout set to {timeout}ms"))
+        if timeout > 0 {
+            return Err(
+                "hide-cursor timeout is not supported: River protocol does not report continuous pointer activity or permit hiding client cursors".to_string(),
+            );
+        }
+        self.cursor_hide_timeout = 0;
+        Ok("hide cursor timeout disabled".to_string())
     }
 
     /// Sets whether cursor is hidden when typing.
     pub fn set_hide_cursor_when_typing(&mut self, enabled: bool) -> Result<String, String> {
-        self.cursor_hide_when_typing = enabled;
-        Ok(format!("hide cursor when typing set to {enabled}"))
+        if enabled {
+            return Err(
+                "hide-cursor when-typing is not supported: River protocol does not expose non-binding keystrokes or permit hiding client cursors".to_string(),
+            );
+        }
+        self.cursor_hide_when_typing = false;
+        Ok("hide cursor when typing disabled".to_string())
     }
 
     /// Toggles the focused tags mask on the WM.
@@ -1713,19 +1723,14 @@ mod tests {
         );
 
         // Hide cursor tests
-        state.execute_action_tokens(&["hide-cursor".into(), "timeout".into(), "3000".into()]);
-        assert_eq!(state.cursor_hide_timeout, 3000);
-        state.execute_action_tokens(&[
-            "hide-cursor".into(),
-            "when-typing".into(),
-            "enabled".into(),
-        ]);
-        assert!(state.cursor_hide_when_typing);
-        state.execute_action_tokens(&[
-            "hide-cursor".into(),
-            "when-typing".into(),
-            "disabled".into(),
-        ]);
+        assert!(state.set_hide_cursor_timeout(3000).is_err());
+        assert_eq!(state.cursor_hide_timeout, 0);
+        assert!(state.set_hide_cursor_timeout(0).is_ok());
+        assert_eq!(state.cursor_hide_timeout, 0);
+
+        assert!(state.set_hide_cursor_when_typing(true).is_err());
+        assert!(!state.cursor_hide_when_typing);
+        assert!(state.set_hide_cursor_when_typing(false).is_ok());
         assert!(!state.cursor_hide_when_typing);
 
         // Relative count adjustment
