@@ -1214,3 +1214,78 @@ fn tiled_drag_resize_and_swap_applies_immediately_on_release_without_extra_event
     assert_eq!(harness.state.windows[0].visual_geo.unwrap().x, initial_x1);
     assert!(harness.has_wm_request(wm::REQ_MANAGE_DIRTY_OPCODE));
 }
+
+#[test]
+fn pointer_commands_execute_on_empty_desktop_and_focus_hovered_window() {
+    let mut harness = Harness::new();
+    let _out = harness.add_output_with_id();
+    let _seat = harness.add_seat();
+    harness.manage();
+    harness.render();
+
+    // 1. Empty desktop: pointer command executes without any hovered window
+    assert_eq!(harness.state.tag_state.focused, 1);
+    let seat_item = harness.state.seats.values_mut().next().unwrap();
+    assert!(seat_item.hovered.is_none());
+    seat_item.pending_action =
+        crate::wm::seat::PointerAction::Command(vec!["set-focused-tags".into(), "2".into()]);
+
+    harness.manage();
+    assert_eq!(harness.state.tag_state.focused, 2);
+
+    // Switch tags back to 1
+    harness
+        .state
+        .execute_action_tokens(&["set-focused-tags".into(), "1".into()]);
+    assert_eq!(harness.state.tag_state.focused, 1);
+
+    // 2. Over window: pointer command focuses the hovered window and applies window command
+    let win1 = harness.add_window();
+    let win2 = harness.add_window();
+    harness.manage();
+    harness.render();
+
+    assert_eq!(harness.state.windows.len(), 2);
+    let win1_id = harness.state.windows[1].id;
+    let win2_id = harness.state.windows[0].id;
+    let win1_proxy = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.id == win1_id)
+        .unwrap()
+        .proxy
+        .clone();
+    let win2_proxy = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.id == win2_id)
+        .unwrap()
+        .proxy
+        .clone();
+
+    // Focus is initially win1
+    let seat_item = harness.state.seats.values_mut().next().unwrap();
+    seat_item.set_focused_window(Some(win1_proxy));
+
+    // Pointer hovers win2 and triggers "close"
+    let seat_item = harness.state.seats.values_mut().next().unwrap();
+    seat_item.hovered = Some(win2_proxy);
+    seat_item.pending_action = crate::wm::seat::PointerAction::Command(vec!["close".into()]);
+
+    harness.manage();
+    assert_eq!(harness.state.focused_window_id(), Some(win2_id));
+
+    harness.manage();
+    assert!(harness.has_window_request(&win2, window::REQ_CLOSE_OPCODE));
+    assert!(!harness.has_window_request(&win1, window::REQ_CLOSE_OPCODE));
+
+    // When win2 confirms closure, it is removed and win1 remains
+    harness.event(&win2, window::EVT_CLOSED_OPCODE, vec![]);
+    harness.dispatch_events();
+    harness.manage();
+
+    assert_eq!(harness.state.windows.len(), 1);
+    assert_eq!(harness.state.windows[0].id, win1_id);
+}
