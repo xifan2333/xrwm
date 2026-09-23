@@ -2560,4 +2560,64 @@ mod tests {
         ]);
         assert!(state.configured_key_bindings.is_empty());
     }
+
+    #[test]
+    fn test_mode_case_insensitivity_and_binding_retention() {
+        let mut state = AppState::new();
+
+        // 1. Enter built-in normal mode with uppercase NORMAL
+        assert_eq!(state.active_mode, "normal");
+        state.enter_mode("NORMAL").unwrap();
+        assert_eq!(state.active_mode, "normal");
+
+        // 2. Map keys with mixed case mode "Normal"
+        let map_cmd = IpcCommand::Map {
+            mode: "Normal".into(),
+            modifiers: "Super".into(),
+            key: "Return".into(),
+            action: vec!["spawn".into(), "foot".into()],
+        };
+        state.handle_ipc_command(&map_cmd).unwrap();
+        assert_eq!(state.configured_key_bindings.len(), 1);
+        assert_eq!(state.configured_key_bindings[0].mode, "normal");
+
+        // 3. Declare custom mode with mixed case and leading/trailing whitespace
+        state.declare_mode("  ReSize  ").unwrap();
+        assert!(state.modes.contains(&"resize".to_string()));
+
+        // Enter custom mode using all caps
+        state.enter_mode("RESIZE").unwrap();
+        assert_eq!(state.active_mode, "resize");
+
+        // Map pointer using all caps mode "RESIZE"
+        let ptr_cmd = IpcCommand::MapPointer {
+            mode: "RESIZE".into(),
+            modifiers: "Super".into(),
+            button: "BTN_LEFT".into(),
+            action: vec!["move-view".into()],
+        };
+        state.handle_ipc_command(&ptr_cmd).unwrap();
+        assert_eq!(state.configured_pointer_bindings.len(), 1);
+        assert_eq!(state.configured_pointer_bindings[0].mode, "resize");
+
+        // 4. Unmap using mixed case
+        let unmap_ptr = IpcCommand::UnmapPointer {
+            mode: "ReSiZe".into(),
+            modifiers: "Super".into(),
+            button: "BTN_LEFT".into(),
+        };
+        state.handle_ipc_command(&unmap_ptr).unwrap();
+        assert!(state.configured_pointer_bindings.is_empty());
+
+        let unmap_key = IpcCommand::Unmap {
+            mode: "NORMAL".into(),
+            modifiers: "Super".into(),
+            key: "Return".into(),
+        };
+        state.handle_ipc_command(&unmap_key).unwrap();
+        assert!(state.configured_key_bindings.is_empty());
+
+        // 5. Undeclared mode fails
+        assert!(state.enter_mode("NonExistentMode").is_err());
+    }
 }
