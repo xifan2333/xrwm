@@ -2665,4 +2665,80 @@ mod tests {
         // 5. Undeclared mode fails
         assert!(state.enter_mode("NonExistentMode").is_err());
     }
+
+    #[test]
+    fn test_remapping_replaces_duplicate_bindings_without_accumulation() {
+        let mut state = AppState::new();
+
+        // 1. Initial key mapping
+        let map_cmd1 = IpcCommand::Map {
+            mode: "normal".into(),
+            modifiers: "Super".into(),
+            key: "q".into(),
+            action: vec!["close".into()],
+        };
+        state.handle_ipc_command(&map_cmd1).unwrap();
+        assert_eq!(state.configured_key_bindings.len(), 1);
+        assert_eq!(state.pending_key_bindings.len(), 1);
+        assert_eq!(state.configured_key_bindings[0].action, vec!["close"]);
+
+        // Re-map with different action replaces the binding
+        let map_cmd2 = IpcCommand::Map {
+            mode: "normal".into(),
+            modifiers: "Super".into(),
+            key: "q".into(),
+            action: vec!["toggle-float".into()],
+        };
+        state.handle_ipc_command(&map_cmd2).unwrap();
+        assert_eq!(state.configured_key_bindings.len(), 1);
+        assert_eq!(state.pending_key_bindings.len(), 1);
+        assert_eq!(
+            state.configured_key_bindings[0].action,
+            vec!["toggle-float"]
+        );
+
+        // Multiple reloads (re-applying the exact same map) do not accumulate bindings
+        for _ in 0..3 {
+            state.handle_ipc_command(&map_cmd2).unwrap();
+        }
+        assert_eq!(state.configured_key_bindings.len(), 1);
+        assert_eq!(state.pending_key_bindings.len(), 1);
+
+        // 2. Initial pointer mapping
+        let ptr_cmd1 = IpcCommand::MapPointer {
+            mode: "normal".into(),
+            modifiers: "Super".into(),
+            button: "BTN_LEFT".into(),
+            action: vec!["move-view".into()],
+        };
+        state.handle_ipc_command(&ptr_cmd1).unwrap();
+        assert_eq!(state.configured_pointer_bindings.len(), 1);
+        assert_eq!(state.pending_pointer_bindings.len(), 1);
+        assert_eq!(
+            state.configured_pointer_bindings[0].action,
+            crate::wm::seat::PointerAction::Move
+        );
+
+        // Re-map with different action replaces the pointer binding
+        let ptr_cmd2 = IpcCommand::MapPointer {
+            mode: "normal".into(),
+            modifiers: "Super".into(),
+            button: "BTN_LEFT".into(),
+            action: vec!["resize-view".into()],
+        };
+        state.handle_ipc_command(&ptr_cmd2).unwrap();
+        assert_eq!(state.configured_pointer_bindings.len(), 1);
+        assert_eq!(state.pending_pointer_bindings.len(), 1);
+        assert_eq!(
+            state.configured_pointer_bindings[0].action,
+            crate::wm::seat::PointerAction::Resize
+        );
+
+        // Multiple reloads do not accumulate pointer bindings
+        for _ in 0..3 {
+            state.handle_ipc_command(&ptr_cmd2).unwrap();
+        }
+        assert_eq!(state.configured_pointer_bindings.len(), 1);
+        assert_eq!(state.pending_pointer_bindings.len(), 1);
+    }
 }
