@@ -224,6 +224,8 @@ pub struct AppState {
     pub active_mode: String,
     pub modes: Vec<String>,
     pub mode_dirty: bool,
+    pub session_locked: bool,
+    pub pre_lock_mode: Option<String>,
     pub next_view_id: u32,
     pub attach_mode: AttachMode,
     pub cursor_warp: crate::wm::seat::CursorWarp,
@@ -274,6 +276,8 @@ impl AppState {
             active_mode: "normal".to_string(),
             modes: vec!["normal".to_string(), "locked".to_string()],
             mode_dirty: false,
+            session_locked: false,
+            pre_lock_mode: None,
             next_view_id: 1,
             attach_mode: AttachMode::default(),
             cursor_warp: crate::wm::seat::CursorWarp::default(),
@@ -295,6 +299,36 @@ impl AppState {
     pub fn manage_dirty(&self) {
         if let Some(wm) = &self.river_wm {
             wm.manage_dirty();
+        }
+    }
+
+    /// Handles session_locked event from the compositor.
+    pub fn handle_session_locked(&mut self) {
+        self.session_locked = true;
+        if self.active_mode != "locked" {
+            self.pre_lock_mode = Some(self.active_mode.clone());
+            self.active_mode = "locked".to_string();
+            self.mode_dirty = true;
+            self.manage_dirty();
+        }
+    }
+
+    /// Handles session_unlocked event from the compositor.
+    pub fn handle_session_unlocked(&mut self) {
+        self.session_locked = false;
+        let target_mode = self
+            .pre_lock_mode
+            .take()
+            .filter(|m| {
+                self.modes
+                    .iter()
+                    .any(|existing| existing.eq_ignore_ascii_case(m))
+            })
+            .unwrap_or_else(|| "normal".to_string());
+        if self.active_mode != target_mode {
+            self.active_mode = target_mode;
+            self.mode_dirty = true;
+            self.manage_dirty();
         }
     }
 
