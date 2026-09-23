@@ -427,10 +427,22 @@ impl Dispatch<RiverSeatV1, ()> for AppState {
             }
             Event::ShellSurfaceInteraction { .. } => {}
             Event::Removed => {
-                if let Some(mut seat) = state.seats.remove(&proxy.id())
-                    && let Some(ls_seat) = seat.ls_seat.take()
-                {
-                    ls_seat.destroy();
+                let seat_id = proxy.id();
+                if let Some(mut seat) = state.seats.remove(&seat_id) {
+                    if let Some(ls_seat) = seat.ls_seat.take() {
+                        ls_seat.destroy();
+                    }
+                    let to_remove: Vec<wayland_backend::client::ObjectId> = state
+                        .key_bindings
+                        .iter()
+                        .filter(|(_, b)| b.seat_id == seat_id)
+                        .map(|(id, _)| id.clone())
+                        .collect();
+                    for id in to_remove {
+                        if let Some(b) = state.key_bindings.remove(&id) {
+                            b.proxy.destroy();
+                        }
+                    }
                 }
             }
         }

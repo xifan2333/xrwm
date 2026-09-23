@@ -532,63 +532,91 @@ impl AppState {
     }
 
     pub fn handle_manage_start(&mut self, _proxy: &RiverWindowManagerV1, qh: &QueueHandle<Self>) {
-        // Register any pending keybindings during the manage sequence
-        if !self.pending_key_bindings.is_empty()
-            && let Some(ref xkb_mgr) = self.river_xkb
-        {
-            for pending in self.pending_key_bindings.drain(..) {
-                for seat in self.seats.values() {
-                    let binding = xkb_mgr.get_xkb_binding(
-                        &seat.proxy,
-                        pending.keysym,
-                        pending.modifiers,
-                        qh,
-                        (),
-                    );
-                    if pending.mode == self.active_mode {
-                        binding.enable();
-                    } else {
-                        binding.disable();
+        // Register keybindings during the manage sequence
+        if let Some(ref xkb_mgr) = self.river_xkb {
+            for seat in self.seats.values_mut() {
+                if seat.needs_key_binding_sync {
+                    for def in &self.configured_key_bindings {
+                        let binding =
+                            xkb_mgr.get_xkb_binding(&seat.proxy, def.keysym, def.modifiers, qh, ());
+                        if def.mode == self.active_mode {
+                            binding.enable();
+                        } else {
+                            binding.disable();
+                        }
+                        self.key_bindings.insert(
+                            binding.id(),
+                            ActiveKeyBinding {
+                                proxy: binding,
+                                seat_id: seat.proxy.id(),
+                                mode: def.mode.clone(),
+                                modifiers: def.modifiers,
+                                keysym: def.keysym,
+                                action: def.action.clone(),
+                            },
+                        );
                     }
-                    self.key_bindings.insert(
-                        binding.id(),
-                        ActiveKeyBinding {
-                            proxy: binding,
-                            mode: pending.mode.clone(),
-                            modifiers: pending.modifiers,
-                            keysym: pending.keysym,
-                            action: pending.action.clone(),
+                    seat.needs_key_binding_sync = false;
+                } else if !self.pending_key_bindings.is_empty() {
+                    for pending in &self.pending_key_bindings {
+                        let binding = xkb_mgr.get_xkb_binding(
+                            &seat.proxy,
+                            pending.keysym,
+                            pending.modifiers,
+                            qh,
+                            (),
+                        );
+                        if pending.mode == self.active_mode {
+                            binding.enable();
+                        } else {
+                            binding.disable();
+                        }
+                        self.key_bindings.insert(
+                            binding.id(),
+                            ActiveKeyBinding {
+                                proxy: binding,
+                                seat_id: seat.proxy.id(),
+                                mode: pending.mode.clone(),
+                                modifiers: pending.modifiers,
+                                keysym: pending.keysym,
+                                action: pending.action.clone(),
+                            },
+                        );
+                    }
+                }
+            }
+            self.pending_key_bindings.clear();
+        }
+
+        // Register pointer bindings during the manage sequence
+        for (seat_id, seat) in self.seats.iter_mut() {
+            if seat.needs_pointer_binding_sync {
+                for def in &self.configured_pointer_bindings {
+                    let pb = seat.proxy.get_pointer_binding(
+                        def.button,
+                        def.modifiers,
+                        qh,
+                        seat_id.clone(),
+                    );
+                    if def.mode == self.active_mode {
+                        pb.enable();
+                    } else {
+                        pb.disable();
+                    }
+                    seat.pointer_bindings.insert(
+                        pb.id(),
+                        crate::wm::seat::PointerBinding {
+                            proxy: pb,
+                            mode: def.mode.clone(),
+                            modifiers: def.modifiers,
+                            button: def.button,
+                            action: def.action.clone(),
                         },
                     );
                 }
-            }
-        }
-
-        // Sync mode activation (enable active mode bindings, disable others)
-        if self.mode_dirty {
-            for kb in self.key_bindings.values() {
-                if kb.mode == self.active_mode {
-                    kb.proxy.enable();
-                } else {
-                    kb.proxy.disable();
-                }
-            }
-            for seat in self.seats.values() {
-                for pb in seat.pointer_bindings.values() {
-                    if pb.mode == self.active_mode {
-                        pb.proxy.enable();
-                    } else {
-                        pb.proxy.disable();
-                    }
-                }
-            }
-            self.mode_dirty = false;
-        }
-
-        // Register any pending pointer bindings during the manage sequence
-        if !self.pending_pointer_bindings.is_empty() {
-            for pending in self.pending_pointer_bindings.drain(..) {
-                for (seat_id, seat) in self.seats.iter_mut() {
+                seat.needs_pointer_binding_sync = false;
+            } else if !self.pending_pointer_bindings.is_empty() {
+                for pending in &self.pending_pointer_bindings {
                     let pb = seat.proxy.get_pointer_binding(
                         pending.button,
                         pending.modifiers,
@@ -612,6 +640,28 @@ impl AppState {
                     );
                 }
             }
+        }
+        self.pending_pointer_bindings.clear();
+
+        // Sync mode activation (enable active mode bindings, disable others)
+        if self.mode_dirty {
+            for kb in self.key_bindings.values() {
+                if kb.mode == self.active_mode {
+                    kb.proxy.enable();
+                } else {
+                    kb.proxy.disable();
+                }
+            }
+            for seat in self.seats.values() {
+                for pb in seat.pointer_bindings.values() {
+                    if pb.mode == self.active_mode {
+                        pb.proxy.enable();
+                    } else {
+                        pb.proxy.disable();
+                    }
+                }
+            }
+            self.mode_dirty = false;
         }
 
         // 0. Process any pending close requests inside the manage sequence
