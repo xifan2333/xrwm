@@ -1427,7 +1427,30 @@ impl AppState {
                         && b.button == btn_code)
                 });
                 self.configured_pointer_bindings.push(pending.clone());
+                self.pending_pointer_bindings.retain(|b| {
+                    !(b.mode.eq_ignore_ascii_case(&mode_norm)
+                        && b.modifiers == mods
+                        && b.button == btn_code)
+                });
                 self.pending_pointer_bindings.push(pending);
+
+                for seat in self.seats.values_mut() {
+                    let to_remove: Vec<wayland_backend::client::ObjectId> = seat
+                        .pointer_bindings
+                        .iter()
+                        .filter(|(_, b)| {
+                            b.mode.eq_ignore_ascii_case(&mode_norm)
+                                && b.modifiers == mods
+                                && b.button == btn_code
+                        })
+                        .map(|(id, _)| id.clone())
+                        .collect();
+                    for id in to_remove {
+                        if let Some(b) = seat.pointer_bindings.remove(&id) {
+                            b.proxy.destroy();
+                        }
+                    }
+                }
                 self.manage_dirty();
                 Ok(format!(
                     "mapped-pointer [{mode_norm}] {modifiers}+{button} -> {action:?}"
