@@ -149,6 +149,7 @@ pub struct PendingPointerBinding {
 #[derive(Debug)]
 pub struct ActiveKeyBinding {
     pub proxy: RiverXkbBindingV1,
+    pub seat_id: wayland_backend::client::ObjectId,
     pub mode: String,
     pub modifiers: Modifiers,
     pub keysym: u32,

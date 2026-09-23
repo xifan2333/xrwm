@@ -141,6 +141,8 @@ pub struct SeatItem {
     pub wl_pointer: Option<WlPointer>,
     pub pending_warp: Option<(i32, i32)>,
     pub pointer_bindings: HashMap<ObjectId, PointerBinding>,
+    pub needs_key_binding_sync: bool,
+    pub needs_pointer_binding_sync: bool,
 }
 
 impl SeatItem {
@@ -163,6 +165,8 @@ impl SeatItem {
             wl_pointer: None,
             pending_warp: None,
             pointer_bindings: HashMap::new(),
+            needs_key_binding_sync: true,
+            needs_pointer_binding_sync: true,
         }
     }
 
