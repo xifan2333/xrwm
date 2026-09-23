@@ -539,7 +539,7 @@ impl AppState {
                     for def in &self.configured_key_bindings {
                         let binding =
                             xkb_mgr.get_xkb_binding(&seat.proxy, def.keysym, def.modifiers, qh, ());
-                        if def.mode == self.active_mode {
+                        if def.mode.eq_ignore_ascii_case(&self.active_mode) {
                             binding.enable();
                         } else {
                             binding.disable();
@@ -566,7 +566,7 @@ impl AppState {
                             qh,
                             (),
                         );
-                        if pending.mode == self.active_mode {
+                        if pending.mode.eq_ignore_ascii_case(&self.active_mode) {
                             binding.enable();
                         } else {
                             binding.disable();
@@ -598,7 +598,7 @@ impl AppState {
                         qh,
                         seat_id.clone(),
                     );
-                    if def.mode == self.active_mode {
+                    if def.mode.eq_ignore_ascii_case(&self.active_mode) {
                         pb.enable();
                     } else {
                         pb.disable();
@@ -623,7 +623,7 @@ impl AppState {
                         qh,
                         seat_id.clone(),
                     );
-                    if pending.mode == self.active_mode {
+                    if pending.mode.eq_ignore_ascii_case(&self.active_mode) {
                         pb.enable();
                     } else {
                         pb.disable();
@@ -646,7 +646,7 @@ impl AppState {
         // Sync mode activation (enable active mode bindings, disable others)
         if self.mode_dirty {
             for kb in self.key_bindings.values() {
-                if kb.mode == self.active_mode {
+                if kb.mode.eq_ignore_ascii_case(&self.active_mode) {
                     kb.proxy.enable();
                 } else {
                     kb.proxy.disable();
@@ -654,7 +654,7 @@ impl AppState {
             }
             for seat in self.seats.values() {
                 for pb in seat.pointer_bindings.values() {
-                    if pb.mode == self.active_mode {
+                    if pb.mode.eq_ignore_ascii_case(&self.active_mode) {
                         pb.proxy.enable();
                     } else {
                         pb.proxy.disable();

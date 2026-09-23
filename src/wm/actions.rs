@@ -761,27 +761,31 @@ impl AppState {
         if name.is_empty() {
             return Err("mode name cannot be empty".to_string());
         }
-        if !self.modes.iter().any(|m| m.eq_ignore_ascii_case(name)) {
-            self.modes.push(name.to_string());
+        let canonical = name.to_ascii_lowercase();
+        if !self.modes.iter().any(|m| m == &canonical) {
+            self.modes.push(canonical.clone());
         }
-        Ok(format!("declared mode {name}"))
+        Ok(format!("declared mode {canonical}"))
     }
 
     /// Enters a declared modal keybinding mode.
     pub fn enter_mode(&mut self, mode: &str) -> Result<String, String> {
         let name = mode.trim();
-        if !self.modes.iter().any(|m| m.eq_ignore_ascii_case(name)) {
-            return Err(format!("unknown mode '{name}', declare it first"));
-        }
-        if self.session_locked && !name.eq_ignore_ascii_case("locked") {
+        let canonical = self
+            .modes
+            .iter()
+            .find(|m| m.eq_ignore_ascii_case(name))
+            .cloned()
+            .ok_or_else(|| format!("unknown mode '{name}', declare it first"))?;
+        if self.session_locked && canonical != "locked" {
             return Err("cannot switch mode while session is locked".to_string());
         }
-        if self.active_mode != name {
-            self.active_mode = name.to_string();
+        if self.active_mode != canonical {
+            self.active_mode = canonical.clone();
             self.mode_dirty = true;
             self.manage_dirty();
         }
-        Ok(format!("entered mode {name}"))
+        Ok(format!("entered mode {canonical}"))
     }
 
     /// Moves a floating window by delta pixels in the given direction.
@@ -974,16 +978,21 @@ impl AppState {
         let Some(keysym) = crate::wm::binds::resolve_keysym(key, mods) else {
             return Err(format!("Unknown keysym: {key}"));
         };
+        let mode_norm = mode.trim();
 
-        self.configured_key_bindings
-            .retain(|b| !(b.mode == mode && b.modifiers == mods && b.keysym == keysym));
-        self.pending_key_bindings
-            .retain(|b| !(b.mode == mode && b.modifiers == mods && b.keysym == keysym));
+        self.configured_key_bindings.retain(|b| {
+            !(b.mode.eq_ignore_ascii_case(mode_norm) && b.modifiers == mods && b.keysym == keysym)
+        });
+        self.pending_key_bindings.retain(|b| {
+            !(b.mode.eq_ignore_ascii_case(mode_norm) && b.modifiers == mods && b.keysym == keysym)
+        });
 
         let to_remove: Vec<wayland_backend::client::ObjectId> = self
             .key_bindings
             .iter()
-            .filter(|(_, b)| b.mode == mode && b.modifiers == mods && b.keysym == keysym)
+            .filter(|(_, b)| {
+                b.mode.eq_ignore_ascii_case(mode_norm) && b.modifiers == mods && b.keysym == keysym
+            })
             .map(|(id, _)| id.clone())
             .collect();
 
@@ -993,7 +1002,7 @@ impl AppState {
             }
         }
         self.manage_dirty();
-        Ok(format!("unmapped [{mode}] {modifiers}+{key}"))
+        Ok(format!("unmapped [{mode_norm}] {modifiers}+{key}"))
     }
 
     /// Unmaps a pointer binding in the specified mode.
@@ -1007,17 +1016,24 @@ impl AppState {
         let Some(btn_code) = crate::wm::binds::parse_button(button) else {
             return Err(format!("Unknown pointer button: {button}"));
         };
+        let mode_norm = mode.trim();
 
-        self.configured_pointer_bindings
-            .retain(|b| !(b.mode == mode && b.modifiers == mods && b.button == btn_code));
-        self.pending_pointer_bindings
-            .retain(|b| !(b.mode == mode && b.modifiers == mods && b.button == btn_code));
+        self.configured_pointer_bindings.retain(|b| {
+            !(b.mode.eq_ignore_ascii_case(mode_norm) && b.modifiers == mods && b.button == btn_code)
+        });
+        self.pending_pointer_bindings.retain(|b| {
+            !(b.mode.eq_ignore_ascii_case(mode_norm) && b.modifiers == mods && b.button == btn_code)
+        });
 
         for seat in self.seats.values_mut() {
             let to_remove: Vec<wayland_backend::client::ObjectId> = seat
                 .pointer_bindings
                 .iter()
-                .filter(|(_, b)| b.mode == mode && b.modifiers == mods && b.button == btn_code)
+                .filter(|(_, b)| {
+                    b.mode.eq_ignore_ascii_case(mode_norm)
+                        && b.modifiers == mods
+                        && b.button == btn_code
+                })
                 .map(|(id, _)| id.clone())
                 .collect();
 
@@ -1028,7 +1044,9 @@ impl AppState {
             }
         }
         self.manage_dirty();
-        Ok(format!("unmapped pointer [{mode}] {modifiers}+{button}"))
+        Ok(format!(
+            "unmapped pointer [{mode_norm}] {modifiers}+{button}"
+        ))
     }
 
     /// Lists active window rules, optionally filtered by action.
@@ -1329,18 +1347,29 @@ impl AppState {
                 let Some(keysym) = crate::wm::binds::resolve_keysym(key, mods) else {
                     return Err(format!("Unknown keysym: {key}"));
                 };
+                let mode_norm = self
+                    .modes
+                    .iter()
+                    .find(|m| m.eq_ignore_ascii_case(mode.trim()))
+                    .cloned()
+                    .unwrap_or_else(|| mode.trim().to_ascii_lowercase());
                 let pending = crate::wm::binds::PendingKeyBinding {
-                    mode: mode.clone(),
+                    mode: mode_norm.clone(),
                     modifiers: mods,
                     keysym,
                     action: action.clone(),
                 };
-                self.configured_key_bindings
-                    .retain(|b| !(b.mode == *mode && b.modifiers == mods && b.keysym == keysym));
+                self.configured_key_bindings.retain(|b| {
+                    !(b.mode.eq_ignore_ascii_case(&mode_norm)
+                        && b.modifiers == mods
+                        && b.keysym == keysym)
+                });
                 self.configured_key_bindings.push(pending.clone());
                 self.pending_key_bindings.push(pending);
                 self.manage_dirty();
-                Ok(format!("mapped [{mode}] {modifiers}+{key} -> {action:?}"))
+                Ok(format!(
+                    "mapped [{mode_norm}] {modifiers}+{key} -> {action:?}"
+                ))
             }
             IpcCommand::Unmap {
                 mode,
@@ -1357,20 +1386,29 @@ impl AppState {
                 let Some(btn_code) = crate::wm::binds::parse_button(button) else {
                     return Err(format!("Unknown pointer button: {button}"));
                 };
+                let mode_norm = self
+                    .modes
+                    .iter()
+                    .find(|m| m.eq_ignore_ascii_case(mode.trim()))
+                    .cloned()
+                    .unwrap_or_else(|| mode.trim().to_ascii_lowercase());
                 let ptr_action = crate::wm::seat::PointerAction::from_tokens(action);
                 let pending = crate::wm::binds::PendingPointerBinding {
-                    mode: mode.clone(),
+                    mode: mode_norm.clone(),
                     modifiers: mods,
                     button: btn_code,
                     action: ptr_action,
                 };
-                self.configured_pointer_bindings
-                    .retain(|b| !(b.mode == *mode && b.modifiers == mods && b.button == btn_code));
+                self.configured_pointer_bindings.retain(|b| {
+                    !(b.mode.eq_ignore_ascii_case(&mode_norm)
+                        && b.modifiers == mods
+                        && b.button == btn_code)
+                });
                 self.configured_pointer_bindings.push(pending.clone());
                 self.pending_pointer_bindings.push(pending);
                 self.manage_dirty();
                 Ok(format!(
-                    "mapped-pointer [{mode}] {modifiers}+{button} -> {action:?}"
+                    "mapped-pointer [{mode_norm}] {modifiers}+{button} -> {action:?}"
                 ))
             }
             IpcCommand::UnmapPointer {
@@ -2521,5 +2559,65 @@ mod tests {
             "close".into(),
         ]);
         assert!(state.configured_key_bindings.is_empty());
+    }
+
+    #[test]
+    fn test_mode_case_insensitivity_and_binding_retention() {
+        let mut state = AppState::new();
+
+        // 1. Enter built-in normal mode with uppercase NORMAL
+        assert_eq!(state.active_mode, "normal");
+        state.enter_mode("NORMAL").unwrap();
+        assert_eq!(state.active_mode, "normal");
+
+        // 2. Map keys with mixed case mode "Normal"
+        let map_cmd = IpcCommand::Map {
+            mode: "Normal".into(),
+            modifiers: "Super".into(),
+            key: "Return".into(),
+            action: vec!["spawn".into(), "foot".into()],
+        };
+        state.handle_ipc_command(&map_cmd).unwrap();
+        assert_eq!(state.configured_key_bindings.len(), 1);
+        assert_eq!(state.configured_key_bindings[0].mode, "normal");
+
+        // 3. Declare custom mode with mixed case and leading/trailing whitespace
+        state.declare_mode("  ReSize  ").unwrap();
+        assert!(state.modes.contains(&"resize".to_string()));
+
+        // Enter custom mode using all caps
+        state.enter_mode("RESIZE").unwrap();
+        assert_eq!(state.active_mode, "resize");
+
+        // Map pointer using all caps mode "RESIZE"
+        let ptr_cmd = IpcCommand::MapPointer {
+            mode: "RESIZE".into(),
+            modifiers: "Super".into(),
+            button: "BTN_LEFT".into(),
+            action: vec!["move-view".into()],
+        };
+        state.handle_ipc_command(&ptr_cmd).unwrap();
+        assert_eq!(state.configured_pointer_bindings.len(), 1);
+        assert_eq!(state.configured_pointer_bindings[0].mode, "resize");
+
+        // 4. Unmap using mixed case
+        let unmap_ptr = IpcCommand::UnmapPointer {
+            mode: "ReSiZe".into(),
+            modifiers: "Super".into(),
+            button: "BTN_LEFT".into(),
+        };
+        state.handle_ipc_command(&unmap_ptr).unwrap();
+        assert!(state.configured_pointer_bindings.is_empty());
+
+        let unmap_key = IpcCommand::Unmap {
+            mode: "NORMAL".into(),
+            modifiers: "Super".into(),
+            key: "Return".into(),
+        };
+        state.handle_ipc_command(&unmap_key).unwrap();
+        assert!(state.configured_key_bindings.is_empty());
+
+        // 5. Undeclared mode fails
+        assert!(state.enter_mode("NonExistentMode").is_err());
     }
 }
