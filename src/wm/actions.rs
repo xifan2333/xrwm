@@ -1365,7 +1365,29 @@ impl AppState {
                         && b.keysym == keysym)
                 });
                 self.configured_key_bindings.push(pending.clone());
+                self.pending_key_bindings.retain(|b| {
+                    !(b.mode.eq_ignore_ascii_case(&mode_norm)
+                        && b.modifiers == mods
+                        && b.keysym == keysym)
+                });
                 self.pending_key_bindings.push(pending);
+
+                let to_remove: Vec<wayland_backend::client::ObjectId> = self
+                    .key_bindings
+                    .iter()
+                    .filter(|(_, b)| {
+                        b.mode.eq_ignore_ascii_case(&mode_norm)
+                            && b.modifiers == mods
+                            && b.keysym == keysym
+                    })
+                    .map(|(id, _)| id.clone())
+                    .collect();
+
+                for id in to_remove {
+                    if let Some(b) = self.key_bindings.remove(&id) {
+                        b.proxy.destroy();
+                    }
+                }
                 self.manage_dirty();
                 Ok(format!(
                     "mapped [{mode_norm}] {modifiers}+{key} -> {action:?}"
@@ -1405,7 +1427,30 @@ impl AppState {
                         && b.button == btn_code)
                 });
                 self.configured_pointer_bindings.push(pending.clone());
+                self.pending_pointer_bindings.retain(|b| {
+                    !(b.mode.eq_ignore_ascii_case(&mode_norm)
+                        && b.modifiers == mods
+                        && b.button == btn_code)
+                });
                 self.pending_pointer_bindings.push(pending);
+
+                for seat in self.seats.values_mut() {
+                    let to_remove: Vec<wayland_backend::client::ObjectId> = seat
+                        .pointer_bindings
+                        .iter()
+                        .filter(|(_, b)| {
+                            b.mode.eq_ignore_ascii_case(&mode_norm)
+                                && b.modifiers == mods
+                                && b.button == btn_code
+                        })
+                        .map(|(id, _)| id.clone())
+                        .collect();
+                    for id in to_remove {
+                        if let Some(b) = seat.pointer_bindings.remove(&id) {
+                            b.proxy.destroy();
+                        }
+                    }
+                }
                 self.manage_dirty();
                 Ok(format!(
                     "mapped-pointer [{mode_norm}] {modifiers}+{button} -> {action:?}"
@@ -2619,5 +2664,81 @@ mod tests {
 
         // 5. Undeclared mode fails
         assert!(state.enter_mode("NonExistentMode").is_err());
+    }
+
+    #[test]
+    fn test_remapping_replaces_duplicate_bindings_without_accumulation() {
+        let mut state = AppState::new();
+
+        // 1. Initial key mapping
+        let map_cmd1 = IpcCommand::Map {
+            mode: "normal".into(),
+            modifiers: "Super".into(),
+            key: "q".into(),
+            action: vec!["close".into()],
+        };
+        state.handle_ipc_command(&map_cmd1).unwrap();
+        assert_eq!(state.configured_key_bindings.len(), 1);
+        assert_eq!(state.pending_key_bindings.len(), 1);
+        assert_eq!(state.configured_key_bindings[0].action, vec!["close"]);
+
+        // Re-map with different action replaces the binding
+        let map_cmd2 = IpcCommand::Map {
+            mode: "normal".into(),
+            modifiers: "Super".into(),
+            key: "q".into(),
+            action: vec!["toggle-float".into()],
+        };
+        state.handle_ipc_command(&map_cmd2).unwrap();
+        assert_eq!(state.configured_key_bindings.len(), 1);
+        assert_eq!(state.pending_key_bindings.len(), 1);
+        assert_eq!(
+            state.configured_key_bindings[0].action,
+            vec!["toggle-float"]
+        );
+
+        // Multiple reloads (re-applying the exact same map) do not accumulate bindings
+        for _ in 0..3 {
+            state.handle_ipc_command(&map_cmd2).unwrap();
+        }
+        assert_eq!(state.configured_key_bindings.len(), 1);
+        assert_eq!(state.pending_key_bindings.len(), 1);
+
+        // 2. Initial pointer mapping
+        let ptr_cmd1 = IpcCommand::MapPointer {
+            mode: "normal".into(),
+            modifiers: "Super".into(),
+            button: "BTN_LEFT".into(),
+            action: vec!["move-view".into()],
+        };
+        state.handle_ipc_command(&ptr_cmd1).unwrap();
+        assert_eq!(state.configured_pointer_bindings.len(), 1);
+        assert_eq!(state.pending_pointer_bindings.len(), 1);
+        assert_eq!(
+            state.configured_pointer_bindings[0].action,
+            crate::wm::seat::PointerAction::Move
+        );
+
+        // Re-map with different action replaces the pointer binding
+        let ptr_cmd2 = IpcCommand::MapPointer {
+            mode: "normal".into(),
+            modifiers: "Super".into(),
+            button: "BTN_LEFT".into(),
+            action: vec!["resize-view".into()],
+        };
+        state.handle_ipc_command(&ptr_cmd2).unwrap();
+        assert_eq!(state.configured_pointer_bindings.len(), 1);
+        assert_eq!(state.pending_pointer_bindings.len(), 1);
+        assert_eq!(
+            state.configured_pointer_bindings[0].action,
+            crate::wm::seat::PointerAction::Resize
+        );
+
+        // Multiple reloads do not accumulate pointer bindings
+        for _ in 0..3 {
+            state.handle_ipc_command(&ptr_cmd2).unwrap();
+        }
+        assert_eq!(state.configured_pointer_bindings.len(), 1);
+        assert_eq!(state.pending_pointer_bindings.len(), 1);
     }
 }
