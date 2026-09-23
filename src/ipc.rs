@@ -761,6 +761,7 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
             if args.len() < 5 {
                 return Err("Usage: xrwm map <mode> <modifiers> <key> <action...>".to_string());
             }
+            crate::wm::binds::parse_modifiers(&args[2])?;
             Ok(IpcCommand::Map {
                 mode: args[1].clone(),
                 modifiers: args[2].clone(),
@@ -772,6 +773,7 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
             if args.len() < 4 {
                 return Err("Usage: xrwm unmap <mode> <modifiers> <key>".to_string());
             }
+            crate::wm::binds::parse_modifiers(&args[2])?;
             Ok(IpcCommand::Unmap {
                 mode: args[1].clone(),
                 modifiers: args[2].clone(),
@@ -784,6 +786,7 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
                     "Usage: xrwm map-pointer <mode> <modifiers> <button> <action...>".to_string(),
                 );
             }
+            crate::wm::binds::parse_modifiers(&args[2])?;
             Ok(IpcCommand::MapPointer {
                 mode: args[1].clone(),
                 modifiers: args[2].clone(),
@@ -795,6 +798,7 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
             if args.len() < 4 {
                 return Err("Usage: xrwm unmap-pointer <mode> <modifiers> <button>".to_string());
             }
+            crate::wm::binds::parse_modifiers(&args[2])?;
             Ok(IpcCommand::UnmapPointer {
                 mode: args[1].clone(),
                 modifiers: args[2].clone(),
