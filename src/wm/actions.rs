@@ -773,6 +773,9 @@ impl AppState {
         if !self.modes.iter().any(|m| m.eq_ignore_ascii_case(name)) {
             return Err(format!("unknown mode '{name}', declare it first"));
         }
+        if self.session_locked && !name.eq_ignore_ascii_case("locked") {
+            return Err("cannot switch mode while session is locked".to_string());
+        }
         if self.active_mode != name {
             self.active_mode = name.to_string();
             self.mode_dirty = true;
@@ -2314,5 +2317,61 @@ mod tests {
         assert!(state.cursor_hidden);
         state.unhide_cursor();
         assert!(!state.cursor_hidden);
+    }
+
+    #[test]
+    fn test_session_locked_and_unlocked_lifecycle() {
+        let mut state = AppState::new();
+        assert_eq!(state.active_mode, "normal");
+        assert!(!state.session_locked);
+        assert!(state.pre_lock_mode.is_none());
+
+        // 1. Normal -> Locked
+        state.handle_session_locked();
+        assert!(state.session_locked);
+        assert_eq!(state.active_mode, "locked");
+        assert_eq!(state.pre_lock_mode.as_deref(), Some("normal"));
+        assert!(state.mode_dirty);
+
+        // While locked, switching to normal or another mode via enter_mode is blocked
+        assert!(state.enter_mode("normal").is_err());
+        assert_eq!(state.active_mode, "locked");
+
+        // Entering "locked" while locked is allowed
+        assert!(state.enter_mode("locked").is_ok());
+
+        // Redundant SessionLocked event preserves the original pre_lock_mode
+        state.handle_session_locked();
+        assert_eq!(state.pre_lock_mode.as_deref(), Some("normal"));
+        assert_eq!(state.active_mode, "locked");
+
+        // Unlock restores pre-lock mode ("normal")
+        state.mode_dirty = false;
+        state.handle_session_unlocked();
+        assert!(!state.session_locked);
+        assert_eq!(state.active_mode, "normal");
+        assert!(state.pre_lock_mode.is_none());
+        assert!(state.mode_dirty);
+
+        // 2. Custom mode -> Locked -> Custom mode
+        state.declare_mode("passthrough").unwrap();
+        state.enter_mode("passthrough").unwrap();
+        assert_eq!(state.active_mode, "passthrough");
+
+        state.handle_session_locked();
+        assert!(state.session_locked);
+        assert_eq!(state.active_mode, "locked");
+        assert_eq!(state.pre_lock_mode.as_deref(), Some("passthrough"));
+
+        state.handle_session_unlocked();
+        assert!(!state.session_locked);
+        assert_eq!(state.active_mode, "passthrough");
+        assert!(state.pre_lock_mode.is_none());
+
+        // 3. Fallback to normal if pre_lock_mode is missing or invalid
+        state.handle_session_locked();
+        state.pre_lock_mode = None;
+        state.handle_session_unlocked();
+        assert_eq!(state.active_mode, "normal");
     }
 }

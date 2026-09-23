@@ -99,8 +99,12 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
             Event::RenderStart => {
                 state.handle_render_start(proxy);
             }
-            Event::SessionLocked => {}
-            Event::SessionUnlocked => {}
+            Event::SessionLocked => {
+                state.handle_session_locked();
+            }
+            Event::SessionUnlocked => {
+                state.handle_session_unlocked();
+            }
             Event::Window { id } => {
                 let node = id.get_node(qh, ());
                 let vid = state.next_view_id;
