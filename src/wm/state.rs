@@ -757,14 +757,21 @@ impl AppState {
             if action == PointerAction::None {
                 continue;
             }
-            let Some(win_proxy) = seat.hovered.clone() else {
-                continue;
-            };
             match action {
-                PointerAction::Move => start_move.push((id.clone(), win_proxy)),
-                PointerAction::Resize => start_resize.push((id.clone(), win_proxy)),
+                PointerAction::Move => {
+                    if let Some(win_proxy) = seat.hovered.clone() {
+                        start_move.push((id.clone(), win_proxy));
+                    }
+                }
+                PointerAction::Resize => {
+                    if let Some(win_proxy) = seat.hovered.clone() {
+                        start_resize.push((id.clone(), win_proxy));
+                    }
+                }
                 PointerAction::Command(cmd) => {
-                    seat.set_focused_window(Some(win_proxy));
+                    if let Some(win_proxy) = seat.hovered.clone() {
+                        seat.set_focused_window(Some(win_proxy));
+                    }
                     pointer_commands.push(cmd);
                 }
                 PointerAction::None => {}
