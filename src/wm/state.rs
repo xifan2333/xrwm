@@ -1053,8 +1053,10 @@ impl AppState {
         }
 
         // 3b. End any released pointer operations in this manage sequence
+        let mut op_was_released = false;
         for seat in self.seats.values_mut() {
             if seat.op_release {
+                op_was_released = true;
                 if let SeatOp::Resize { proxy, .. } = &seat.op {
                     proxy.inform_resize_end();
                 }
@@ -1266,15 +1268,23 @@ impl AppState {
         if !is_any_pointer_op && any_geo_changed && self.anim.enabled {
             self.anim.start();
         }
-        if self.anim.is_animating() {
+        if self.anim.is_animating() || op_was_released {
             self.manage_dirty();
-        } else {
+        }
+        if !self.anim.is_animating() {
             if self.anim.start_time.is_some() {
                 self.anim.stop();
             }
             if self.tag_slide_dir.is_some() {
                 self.tag_slide_dir = None;
                 self.tag_anim_old_mask = TAG_NONE;
+            }
+            if !self.anim.enabled {
+                for w in self.windows.iter_mut().filter(|w| !w.closed) {
+                    if let Some(target) = w.anim_target_geo {
+                        w.visual_geo = Some(target);
+                    }
+                }
             }
         }
 
