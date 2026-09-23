@@ -351,6 +351,13 @@ impl Harness {
             .any(|msg| msg.sender_id == *id && msg.opcode == opcode)
     }
 
+    fn has_output_request(&self, id: &ObjectId, opcode: u16) -> bool {
+        self.server
+            .requests
+            .iter()
+            .any(|msg| msg.sender_id == *id && msg.opcode == opcode)
+    }
+
     fn proposals(&self, id: &ObjectId) -> Vec<(i32, i32)> {
         self.server
             .requests
@@ -932,11 +939,12 @@ fn late_bound_layer_shell_backfills_existing_seats_and_destroys_on_removal() {
         .get_layer_shell_seat()
         .expect("existing seat should be backfilled with layer shell seat");
 
-    // When the seat is removed, the layer-shell seat proxy must be destroyed
+    // When the seat is removed, the layer-shell seat proxy and seat proxy must be destroyed
     harness.server.requests.clear();
     harness.event(&seat, seat::EVT_REMOVED_OPCODE, vec![]);
     harness.dispatch_events();
     assert!(harness.has_seat_request(&layer_seat_id, layer_seat::REQ_DESTROY_OPCODE));
+    assert!(harness.has_seat_request(&seat, seat::REQ_DESTROY_OPCODE));
     assert!(harness.state.seats.is_empty());
 }
 
@@ -1123,4 +1131,30 @@ fn focus_follows_cursor_normal_vs_always_pointer_movement_in_same_window() {
     harness.state.focus_follows_cursor = crate::wm::FocusFollowsCursor::Disabled;
     harness.pointer_position(&seat, 15, 15);
     assert_eq!(harness.state.focused_window_id(), Some(win2_id));
+}
+
+#[test]
+fn window_closed_and_output_removed_sends_protocol_destroy() {
+    let mut harness = Harness::new();
+    let output = harness.add_output_with_id();
+    let window = harness.add_window();
+    harness.manage();
+    harness.render();
+
+    // 1. Close window and verify window.destroy request is sent on manage
+    harness.server.requests.clear();
+    harness.event(&window, window::EVT_CLOSED_OPCODE, vec![]);
+    harness.dispatch_events();
+    assert_eq!(harness.state.windows.len(), 1);
+    assert!(harness.state.windows[0].closed);
+    harness.manage();
+    assert!(harness.has_window_request(&window, window::REQ_DESTROY_OPCODE));
+    assert!(harness.state.windows.is_empty());
+
+    // 2. Remove output and verify output.destroy request is sent
+    harness.server.requests.clear();
+    harness.event(&output, output::EVT_REMOVED_OPCODE, vec![]);
+    harness.dispatch_events();
+    assert!(harness.has_output_request(&output, output::REQ_DESTROY_OPCODE));
+    assert!(harness.state.outputs.is_empty());
 }
