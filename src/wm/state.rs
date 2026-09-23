@@ -770,7 +770,12 @@ impl AppState {
                 }
                 PointerAction::Command(cmd) => {
                     if let Some(win_proxy) = seat.hovered.clone() {
-                        seat.set_focused_window(Some(win_proxy));
+                        seat.set_focused_window(Some(win_proxy.clone()));
+                        if let Some(win) = self.windows.iter().find(|w| w.proxy == win_proxy)
+                            && let Some(ref out_id) = win.output
+                        {
+                            self.focused_output = Some(out_id.clone());
+                        }
                     }
                     pointer_commands.push(cmd);
                 }
