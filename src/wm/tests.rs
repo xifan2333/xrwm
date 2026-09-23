@@ -1158,3 +1158,59 @@ fn window_closed_and_output_removed_sends_protocol_destroy() {
     assert!(harness.has_output_request(&output, output::REQ_DESTROY_OPCODE));
     assert!(harness.state.outputs.is_empty());
 }
+
+#[test]
+fn tiled_drag_resize_and_swap_applies_immediately_on_release_without_extra_events() {
+    let mut harness = Harness::new();
+    harness.state.anim.enabled = false;
+    let _out = harness.add_output_with_id();
+    let _seat = harness.add_seat();
+
+    let _win1 = harness.add_window();
+    let _win2 = harness.add_window();
+    harness.manage();
+    harness.render();
+
+    let win1_id = harness.state.windows[0].id;
+    let win2_id = harness.state.windows[1].id;
+    let initial_x1 = harness.state.windows[0].x;
+    let initial_w1 = harness.state.windows[0].width;
+    assert_eq!(harness.state.layout_config.split_ratio, 0.55);
+
+    // 1. Tiled resize drag release: immediately applies final ratio & geometry, and schedules follow-up manage
+    let seat_item = harness.state.seats.values_mut().next().unwrap();
+    seat_item.op = crate::wm::SeatOp::TiledResize { start_ratio: 0.55 };
+    seat_item.op_dx = 200;
+    seat_item.op_release = true;
+
+    harness.server.requests.clear();
+    harness.manage();
+
+    assert!(harness.state.layout_config.split_ratio > 0.60);
+    assert!(harness.state.windows[0].width > initial_w1);
+    assert_eq!(
+        harness.state.windows[0].visual_geo.unwrap().width,
+        harness.state.windows[0].width
+    );
+    assert!(harness.has_wm_request(wm::REQ_MANAGE_DIRTY_OPCODE));
+
+    // 2. Tiled swap drag release: immediately swaps master order & geometry, and schedules follow-up manage
+    let current_x2 = harness.state.windows[1].x;
+    harness.state.pointer = (50, 50); // Inside win1 (master slot)
+    let seat_item = harness.state.seats.values_mut().next().unwrap();
+    seat_item.op = crate::wm::SeatOp::TiledMove {
+        proxy: harness.state.windows[1].proxy.clone(),
+        start_win_id: win2_id,
+    };
+    seat_item.op_release = true;
+
+    harness.server.requests.clear();
+    harness.manage();
+
+    assert_eq!(harness.state.windows[0].id, win2_id);
+    assert_eq!(harness.state.windows[0].x, initial_x1);
+    assert_eq!(harness.state.windows[1].id, win1_id);
+    assert_eq!(harness.state.windows[1].x, current_x2);
+    assert_eq!(harness.state.windows[0].visual_geo.unwrap().x, initial_x1);
+    assert!(harness.has_wm_request(wm::REQ_MANAGE_DIRTY_OPCODE));
+}
