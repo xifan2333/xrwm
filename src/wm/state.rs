@@ -737,6 +737,9 @@ impl AppState {
                     seat.hovered = None;
                 }
             }
+            for c in &closed {
+                c.destroy();
+            }
             self.windows.retain(|w| !w.closed);
         }
 
