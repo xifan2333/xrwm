@@ -455,7 +455,15 @@ impl AppState {
             .output
             .as_ref()
             .and_then(|id| outputs.get(id))
-            .map(|o| o.usable_area)
+            .map(|o| {
+                if o.usable_area.width > 0 && o.usable_area.height > 0 {
+                    o.usable_area
+                } else if o.width > 0 && o.height > 0 {
+                    Rect::new(o.x, o.y, o.width, o.height)
+                } else {
+                    o.usable_area
+                }
+            })
             .or(usable_area);
 
         // Pass 2: apply dimensions and position using effective_usable_area
