@@ -1289,3 +1289,136 @@ fn pointer_commands_execute_on_empty_desktop_and_focus_hovered_window() {
     assert_eq!(harness.state.windows.len(), 1);
     assert_eq!(harness.state.windows[0].id, win1_id);
 }
+
+#[test]
+fn dimensions_rule_combined_with_output_rule_centers_on_target_output() {
+    let mut harness = Harness::new();
+    harness.state.anim.enabled = false;
+    let out1 = harness.add_output_with_id(); // Left screen: x=0, y=0, width=1920, height=1080
+    let out2 = harness.add_output_with_id(); // Right screen
+    harness.set_output_position(&out2, 1920, 0); // Position right screen at x=1920
+    harness.manage();
+
+    let out1_id = harness
+        .state
+        .outputs
+        .iter()
+        .find(|(id, _)| id.protocol_id() == out1.protocol_id())
+        .unwrap()
+        .0
+        .clone();
+    let out2_id = harness
+        .state
+        .outputs
+        .iter()
+        .find(|(id, _)| id.protocol_id() == out2.protocol_id())
+        .unwrap()
+        .0
+        .clone();
+
+    // Verify out2 is at x=1920
+    assert_eq!(harness.state.outputs[&out2_id].x, 1920);
+    assert_eq!(harness.state.outputs[&out2_id].usable_area.x, 1920);
+
+    // Focus left screen
+    harness.state.focused_output = Some(out1_id);
+
+    // Test 1: output rule followed by dimensions rule
+    harness.state.rules.clear();
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: Some("target_right".into()),
+            title: None,
+            action: vec!["output".into(), out2_id.to_string()],
+        })
+        .unwrap();
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: Some("target_right".into()),
+            title: None,
+            action: vec!["dimensions".into(), "800".into(), "600".into()],
+        })
+        .unwrap();
+
+    let win = harness.add_window();
+    harness.set_app_id(&win, "target_right");
+    let win_item = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.app_id.as_deref() == Some("target_right"))
+        .unwrap();
+    assert_eq!(win_item.output, Some(out2_id.clone()));
+    assert_eq!(win_item.width, 800);
+    assert_eq!(win_item.height, 600);
+    assert_eq!(win_item.x, 2480);
+    assert_eq!(win_item.y, 240);
+
+    // Test 2: dimensions rule defined BEFORE output rule (reversed order)
+    harness.state.rules.clear();
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: Some("rev_order".into()),
+            title: None,
+            action: vec!["dimensions".into(), "800".into(), "600".into()],
+        })
+        .unwrap();
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: Some("rev_order".into()),
+            title: None,
+            action: vec!["output".into(), out2_id.to_string()],
+        })
+        .unwrap();
+
+    let win_rev = harness.add_window();
+    harness.set_app_id(&win_rev, "rev_order");
+    let win_rev_item = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.app_id.as_deref() == Some("rev_order"))
+        .unwrap();
+    assert_eq!(win_rev_item.output, Some(out2_id.clone()));
+    assert_eq!(win_rev_item.x, 2480);
+    assert_eq!(win_rev_item.y, 240);
+
+    // Test 3: target output with exclusive layer-shell margins
+    if let Some(out2_item) = harness.state.outputs.get_mut(&out2_id) {
+        out2_item.has_custom_usable_area = true;
+        out2_item.usable_area = crate::layout::Rect::new(1920, 30, 1920, 1050);
+    }
+
+    let win_margins = harness.add_window();
+    harness.set_app_id(&win_margins, "target_margins");
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: Some("target_margins".into()),
+            title: None,
+            action: vec!["output".into(), out2_id.to_string()],
+        })
+        .unwrap();
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: Some("target_margins".into()),
+            title: None,
+            action: vec!["dimensions".into(), "800".into(), "600".into()],
+        })
+        .unwrap();
+    // Re-apply rules via set_title
+    harness.set_title(&win_margins, "update");
+    let win_margins_item = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.app_id.as_deref() == Some("target_margins"))
+        .unwrap();
+    assert_eq!(win_margins_item.x, 2480);
+    assert_eq!(win_margins_item.y, 255); // 30 + (1050 - 600) / 2 = 255
+}
