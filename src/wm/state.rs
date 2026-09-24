@@ -399,69 +399,86 @@ impl AppState {
         usable_area: Option<Rect>,
         outputs: &HashMap<ObjectId, OutputItem>,
     ) {
-        for r in rules {
-            let app_matches = match &r.app_id {
-                Some(pat) => glob_match(pat, w.app_id.as_deref().unwrap_or("")),
-                None => true,
-            };
-            let title_matches = match &r.title {
-                Some(pat) => glob_match(pat, w.title.as_deref().unwrap_or("")),
-                None => true,
-            };
-            if app_matches && title_matches {
-                if let Some(float) = r.float {
-                    w.floating = float;
+        // Collect all matching rules for this window
+        let matching_rules: Vec<&WindowRule> = rules
+            .iter()
+            .filter(|r| {
+                let app_matches = match &r.app_id {
+                    Some(pat) => glob_match(pat, w.app_id.as_deref().unwrap_or("")),
+                    None => true,
+                };
+                let title_matches = match &r.title {
+                    Some(pat) => glob_match(pat, w.title.as_deref().unwrap_or("")),
+                    None => true,
+                };
+                app_matches && title_matches
+            })
+            .collect();
+
+        // Pass 1: resolve output, floating, ssd, tags, fullscreen
+        for r in &matching_rules {
+            if let Some(float) = r.float {
+                w.floating = float;
+            }
+            if let Some(ssd) = r.ssd {
+                w.ssd = ssd;
+            }
+            if let Some(tags) = r.tags {
+                w.tags = tags;
+            }
+            if let Some(fs) = r.fullscreen {
+                w.fullscreen = fs;
+                w.pending_fullscreen_change = true;
+            }
+            if let Some(ref out_str) = r.output {
+                let matched_out = outputs
+                    .iter()
+                    .find(|(id, _)| id.to_string() == *out_str)
+                    .or_else(|| {
+                        if let Ok(num) = out_str.parse::<usize>()
+                            && num >= 1
+                            && num <= outputs.len()
+                        {
+                            outputs.keys().nth(num - 1).map(|id| (id, &outputs[id]))
+                        } else {
+                            None
+                        }
+                    });
+                if let Some((id, _)) = matched_out {
+                    w.output = Some(id.clone());
                 }
-                if let Some(ssd) = r.ssd {
-                    w.ssd = ssd;
-                }
-                if let Some(tags) = r.tags {
-                    w.tags = tags;
-                }
-                if let Some(fs) = r.fullscreen {
-                    w.fullscreen = fs;
-                    w.pending_fullscreen_change = true;
-                }
-                if let Some(ref out_str) = r.output {
-                    let matched_out = outputs
-                        .iter()
-                        .find(|(id, _)| id.to_string() == *out_str)
-                        .or_else(|| {
-                            if let Ok(num) = out_str.parse::<usize>()
-                                && num >= 1
-                                && num <= outputs.len()
-                            {
-                                outputs.keys().nth(num - 1).map(|id| (id, &outputs[id]))
-                            } else {
-                                None
-                            }
-                        });
-                    if let Some((id, _)) = matched_out {
-                        w.output = Some(id.clone());
-                    }
-                }
-                if let Some((width, height)) = r.dimensions {
-                    w.width = width;
-                    w.height = height;
-                    if let Some(usable) = usable_area {
-                        let cx = (usable.x as i64
-                            + ((usable.width as i64 - width as i64) / 2).max(0))
+            }
+        }
+
+        // Determine effective usable area based on resolved target output
+        let effective_usable_area = w
+            .output
+            .as_ref()
+            .and_then(|id| outputs.get(id))
+            .map(|o| o.usable_area)
+            .or(usable_area);
+
+        // Pass 2: apply dimensions and position using effective_usable_area
+        for r in &matching_rules {
+            if let Some((width, height)) = r.dimensions {
+                w.width = width;
+                w.height = height;
+                if let Some(usable) = effective_usable_area {
+                    let cx = (usable.x as i64 + ((usable.width as i64 - width as i64) / 2).max(0))
                         .clamp(i32::MIN as i64, i32::MAX as i64)
-                            as i32;
-                        let cy = (usable.y as i64
-                            + ((usable.height as i64 - height as i64) / 2).max(0))
+                        as i32;
+                    let cy = (usable.y as i64 + ((usable.height as i64 - height as i64) / 2).max(0))
                         .clamp(i32::MIN as i64, i32::MAX as i64)
-                            as i32;
-                        w.x = cx;
-                        w.y = cy;
-                        w.float_geo = Some(Rect::new(cx, cy, width, height));
-                    }
+                        as i32;
+                    w.x = cx;
+                    w.y = cy;
+                    w.float_geo = Some(Rect::new(cx, cy, width, height));
                 }
-                if let Some((px, py)) = r.position {
-                    w.x = px;
-                    w.y = py;
-                    w.float_geo = Some(Rect::new(px, py, w.width, w.height));
-                }
+            }
+            if let Some((px, py)) = r.position {
+                w.x = px;
+                w.y = py;
+                w.float_geo = Some(Rect::new(px, py, w.width, w.height));
             }
         }
     }
