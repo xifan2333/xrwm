@@ -1263,16 +1263,24 @@ impl AppState {
                     "no-fullscreen" => fullscreen = Some(false),
                     "tags" => {
                         if action.len() > 1 {
-                            let tag_num =
-                                action[1].parse::<u32>().map_err(|_| "Invalid tag number")?;
-                            let mask = if (1..=32).contains(&tag_num) {
-                                1 << (tag_num - 1)
+                            let raw = action[1].trim();
+                            let mask = if let Some(hex) =
+                                raw.strip_prefix("0x").or_else(|| raw.strip_prefix("0X"))
+                            {
+                                u32::from_str_radix(hex, 16)
+                                    .map_err(|_| "Invalid tag mask".to_string())?
                             } else {
-                                tag_num
+                                raw.parse::<u32>()
+                                    .map_err(|_| "Invalid tag mask".to_string())?
                             };
+                            if mask == 0 {
+                                return Err(
+                                    "a window rule must specify at least one tag".to_string()
+                                );
+                            }
                             tags = Some(mask);
                         } else {
-                            return Err("Usage: rule-add ... tags <tag>".to_string());
+                            return Err("Usage: rule-add ... tags <mask>".to_string());
                         }
                     }
                     "dimensions" => {
