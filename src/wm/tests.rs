@@ -1801,3 +1801,163 @@ fn focus_view_skip_floating_navigates_from_floating_to_tiled_windows() {
     ]);
     assert_eq!(harness.state.focused_window_id(), Some(tiled1_id));
 }
+
+#[test]
+fn multi_output_zoom_attach_and_drag_resize_column_determination() {
+    let mut harness = Harness::new();
+    harness.state.anim.enabled = false;
+    let out1 = harness.add_output_with_id();
+    let out2 = harness.add_output_with_id();
+    harness.set_output_position(&out2, 1920, 0);
+    let _seat = harness.add_seat();
+    harness.manage();
+
+    let out1_id = harness
+        .state
+        .outputs
+        .iter()
+        .find(|(id, _)| id.protocol_id() == out1.protocol_id())
+        .unwrap()
+        .0
+        .clone();
+    let out2_id = harness
+        .state
+        .outputs
+        .iter()
+        .find(|(id, _)| id.protocol_id() == out2.protocol_id())
+        .unwrap()
+        .0
+        .clone();
+
+    // Assign names for output rules
+    harness.state.outputs.get_mut(&out1_id).unwrap().name = Some("OUT-1".to_string());
+    harness.state.outputs.get_mut(&out2_id).unwrap().name = Some("OUT-2".to_string());
+
+    // Window 1 on Out-1
+    harness.state.rules.clear();
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: Some("app1".into()),
+            title: None,
+            action: vec!["output".into(), "OUT-1".into()],
+        })
+        .unwrap();
+    let win1 = harness.add_window();
+    harness.set_app_id(&win1, "app1");
+
+    // Windows 2 & 3 on Out-2
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: Some("app2".into()),
+            title: None,
+            action: vec!["output".into(), "OUT-2".into()],
+        })
+        .unwrap();
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: Some("app3".into()),
+            title: None,
+            action: vec!["output".into(), "OUT-2".into()],
+        })
+        .unwrap();
+
+    let win2 = harness.add_window();
+    harness.set_app_id(&win2, "app2");
+
+    let win3 = harness.add_window();
+    harness.set_app_id(&win3, "app3");
+
+    harness.manage();
+    harness.render();
+
+    let win1_id = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == win1.protocol_id())
+        .unwrap()
+        .id;
+    let win2_id = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == win2.protocol_id())
+        .unwrap()
+        .id;
+    let win3_id = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == win3.protocol_id())
+        .unwrap()
+        .id;
+
+    // Verify out2 has win2 as master and win3 as stack
+    let out2_tiled: Vec<u32> = harness
+        .state
+        .windows
+        .iter()
+        .filter(|w| w.output == Some(out2_id.clone()))
+        .map(|w| w.id)
+        .collect();
+    assert_eq!(out2_tiled, vec![win2_id, win3_id]);
+
+    // 1. Focus master of out2 (win2) and zoom: should promote win3 to master of out2
+    let win2_proxy = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.id == win2_id)
+        .unwrap()
+        .proxy
+        .clone();
+    let seat_item = harness.state.seats.values_mut().next().unwrap();
+    seat_item.set_focused_window(Some(win2_proxy.clone()));
+    harness.state.focused_output = Some(out2_id.clone());
+
+    harness.state.zoom_focused().unwrap();
+    harness.manage();
+
+    let out2_after_zoom: Vec<u32> = harness
+        .state
+        .windows
+        .iter()
+        .filter(|w| w.output == Some(out2_id.clone()))
+        .map(|w| w.id)
+        .collect();
+    assert_eq!(out2_after_zoom, vec![win3_id, win2_id]);
+
+    // Window 1 on out1 was completely untouched
+    let out1_tiled: Vec<u32> = harness
+        .state
+        .windows
+        .iter()
+        .filter(|w| w.output == Some(out1_id.clone()))
+        .map(|w| w.id)
+        .collect();
+    assert_eq!(out1_tiled, vec![win1_id]);
+
+    // 2. Drag resize master of out2 (win3): should be classified as TiledResize (not TiledStackResize)
+    let win3_proxy = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.id == win3_id)
+        .unwrap()
+        .proxy
+        .clone();
+    let seat_item = harness.state.seats.values_mut().next().unwrap();
+    seat_item.hovered = Some(win3_proxy.clone());
+    seat_item.pending_action = crate::wm::seat::PointerAction::Resize;
+
+    harness.manage();
+
+    let seat_item = harness.state.seats.values().next().unwrap();
+    assert!(matches!(
+        seat_item.op,
+        crate::wm::SeatOp::TiledResize { .. }
+    ));
+}
