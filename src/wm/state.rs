@@ -1961,4 +1961,53 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
+
+    #[test]
+    fn test_glob_match_exhaustive() {
+        // 1. Exact string matches
+        assert!(glob_match("firefox", "firefox"));
+        assert!(!glob_match("firefox", "chrome"));
+
+        // 2. Empty string edge cases
+        assert!(glob_match("", ""));
+        assert!(glob_match("*", ""));
+        assert!(glob_match("***", ""));
+        assert!(!glob_match("", "a"));
+        assert!(!glob_match("a", ""));
+        assert!(!glob_match("a*", ""));
+        assert!(!glob_match("*a", ""));
+
+        // 3. Prefix wildcard
+        assert!(glob_match("*calc", "gnome-calc"));
+        assert!(glob_match("*calc", "calc"));
+        assert!(!glob_match("*calc", "calculator"));
+
+        // 4. Suffix wildcard
+        assert!(glob_match("calc*", "calculator"));
+        assert!(glob_match("calc*", "calc"));
+        assert!(!glob_match("calc*", "gnome-calc"));
+
+        // 5. Multi-segment / internal wildcards
+        assert!(glob_match("org.*.App", "org.test.App"));
+        assert!(glob_match("org.*.App", "org.my.long.name.App"));
+        assert!(!glob_match("org.*.App", "org.test.Application"));
+        assert!(!glob_match("org.*.App", "com.test.App"));
+        assert!(glob_match("*foo*bar*", "123foomidbar456"));
+        assert!(glob_match("*foo*bar*", "foobar"));
+        assert!(!glob_match("*foo*bar*", "foobaz"));
+        assert!(glob_match("a*b*c", "a_middle_b_end_c"));
+        assert!(!glob_match("a*b*c", "a_middle_b_end_d"));
+
+        // 6. Consecutive asterisks
+        assert!(glob_match("foo**bar", "foobar"));
+        assert!(glob_match("foo**bar", "foobazbar"));
+        assert!(glob_match("***", "anything"));
+
+        // 7. Multibyte Unicode characters
+        assert!(glob_match("终端*", "终端窗口"));
+        assert!(glob_match("*测*试*", "这是一个测试页面"));
+        assert!(!glob_match("*测*试*", "这是一个页面"));
+        assert!(glob_match("🎉*🚀", "🎉 celebration 🚀"));
+        assert!(!glob_match("🎉*🚀", "🎉 celebration 🛸"));
+    }
 }
