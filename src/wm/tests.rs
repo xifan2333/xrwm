@@ -1573,7 +1573,7 @@ fn window_rules_support_multi_segment_wildcards_in_app_id_and_title() {
         .unwrap();
 
     assert!(win_item.floating);
-    assert_eq!(win_item.tags, 8);
+    assert_eq!(win_item.tags, 4);
 
     // Non-matching app_id does not receive float rule
     let win_mismatch = harness.add_window();
