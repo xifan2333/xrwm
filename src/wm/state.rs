@@ -217,6 +217,8 @@ pub struct OutputItem {
     pub y: i32,
     pub width: u32,
     pub height: u32,
+    pub tag_state: TagState,
+    pub previous_focused_tags: TagMask,
 }
 
 pub struct AppState {
@@ -612,6 +614,16 @@ impl AppState {
     }
 
     pub fn sync_occupied_tags(&mut self) {
+        for (out_id, out) in &mut self.outputs {
+            let mut mask = TAG_NONE;
+            for w in &self.windows {
+                if !w.closed && w.output == Some(out_id.clone()) {
+                    mask |= w.tags;
+                }
+            }
+            out.tag_state.occupied = mask;
+        }
+
         let mut mask = TAG_NONE;
         for w in &self.windows {
             if !w.closed {
