@@ -291,6 +291,7 @@ impl Dispatch<RiverOutputV1, ()> for AppState {
             }
             Event::Removed => {
                 let out_id = proxy.id();
+                let removed_usable_area = state.outputs.get(&out_id).map(|o| o.usable_area);
                 if let Some(mut out) = state.outputs.remove(&out_id) {
                     if let Some(ls_out) = out.ls_output.take() {
                         ls_out.destroy();
@@ -303,12 +304,22 @@ impl Dispatch<RiverOutputV1, ()> for AppState {
                 }
                 proxy.destroy();
                 let fallback = state.outputs.keys().next().cloned();
+                let fallback_usable_area = fallback
+                    .as_ref()
+                    .and_then(|id| state.outputs.get(id))
+                    .map(|o| o.usable_area);
+
                 for w in &mut state.windows {
-                    if w.output == Some(proxy.id()) {
-                        w.output = fallback.clone();
+                    if w.output == Some(out_id.clone()) {
+                        AppState::migrate_window_to_output(
+                            w,
+                            fallback.clone(),
+                            removed_usable_area,
+                            fallback_usable_area,
+                        );
                     }
                 }
-                if state.focused_output == Some(proxy.id()) {
+                if state.focused_output == Some(out_id) {
                     state.focused_output = fallback;
                 }
                 state.manage_dirty();
