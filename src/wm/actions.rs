@@ -259,12 +259,22 @@ impl AppState {
         };
 
         let tag_state = self.tag_state;
+        let focused_win_output = self
+            .windows
+            .iter()
+            .find(|w| w.id == id)
+            .and_then(|w| w.output.clone());
+
         let visible_tiled: Vec<usize> = self
             .windows
             .iter()
             .enumerate()
             .filter(|(_, w)| {
-                !w.closed && !w.floating && !w.fullscreen && tag_state.is_view_visible(w.tags)
+                !w.closed
+                    && !w.floating
+                    && !w.fullscreen
+                    && tag_state.is_view_visible(w.tags)
+                    && w.output == focused_win_output
             })
             .map(|(i, _)| i)
             .collect();
@@ -280,17 +290,17 @@ impl AppState {
             return Ok(format!("window {id} not in tiled layout"));
         };
 
-        let target_idx = if pos == 0 {
+        let (target_idx, dest_idx) = if pos == 0 {
             // Already at top: bump second view to top
-            visible_tiled[1]
+            (visible_tiled[1], visible_tiled[0])
         } else {
             // Bump focused view to top
-            visible_tiled[pos]
+            (visible_tiled[pos], visible_tiled[0])
         };
 
         let win = self.windows.remove(target_idx);
         let win_id = win.id;
-        self.windows.insert(0, win);
+        self.windows.insert(dest_idx, win);
         self.manage_dirty();
         Ok(format!("zoomed window {win_id}"))
     }

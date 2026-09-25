@@ -945,10 +945,20 @@ impl AppState {
                     };
                 } else {
                     let tag_state = self.tag_state;
+                    let win_output = self
+                        .windows
+                        .iter()
+                        .find(|w| w.id == win_id)
+                        .and_then(|w| w.output.clone());
                     let tiled_wins: Vec<u32> = self
                         .windows
                         .iter()
-                        .filter(|w| !w.closed && !w.floating && tag_state.is_view_visible(w.tags))
+                        .filter(|w| {
+                            !w.closed
+                                && !w.floating
+                                && tag_state.is_view_visible(w.tags)
+                                && w.output == win_output
+                        })
                         .map(|w| w.id)
                         .collect();
                     let main_count =
