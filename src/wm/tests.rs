@@ -1586,3 +1586,90 @@ fn window_rules_support_multi_segment_wildcards_in_app_id_and_title() {
         .unwrap();
     assert!(!win_mismatch_item.floating);
 }
+
+#[test]
+fn title_change_does_not_reset_manual_tags_geometry_or_output() {
+    let mut harness = Harness::new();
+    harness.add_output();
+
+    // 1. Initial rules for terminal
+    harness.state.rules.clear();
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: Some("terminal".into()),
+            title: None,
+            action: vec!["tags".into(), "2".into()],
+        })
+        .unwrap();
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: Some("terminal".into()),
+            title: None,
+            action: vec!["float".into()],
+        })
+        .unwrap();
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: Some("terminal".into()),
+            title: None,
+            action: vec!["dimensions".into(), "400".into(), "300".into()],
+        })
+        .unwrap();
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: None,
+            title: Some("*vim*".into()),
+            action: vec!["tags".into(), "2".into()],
+        })
+        .unwrap();
+
+    let win = harness.add_window();
+    harness.set_app_id(&win, "terminal");
+    harness.manage();
+
+    let win_item = &harness.state.windows[0];
+    assert!(win_item.initial_managed);
+    assert_eq!(win_item.tags, 2);
+    assert!(win_item.floating);
+    assert_eq!(win_item.width, 400);
+    assert_eq!(win_item.height, 300);
+
+    // 2. User manually adjusts tags to 8, and geometry to custom floating size and position
+    harness.state.windows[0].tags = 8;
+    harness.state.windows[0].x = 100;
+    harness.state.windows[0].y = 150;
+    harness.state.windows[0].width = 777;
+    harness.state.windows[0].height = 555;
+    harness.state.windows[0].float_geo = Some(crate::layout::Rect::new(100, 150, 777, 555));
+
+    // 3. Terminal changes title (e.g. launching vim)
+    harness.set_title(&win, "vim - main.rs");
+
+    // Verify manual adjustments are completely preserved
+    let win_after = &harness.state.windows[0];
+    assert_eq!(win_after.tags, 8);
+    assert_eq!(win_after.x, 100);
+    assert_eq!(win_after.y, 150);
+    assert_eq!(win_after.width, 777);
+    assert_eq!(win_after.height, 555);
+
+    // 4. Dynamic rule (e.g. CSD for dialog) still updates dynamic attribute
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: None,
+            title: Some("*dialog*".into()),
+            action: vec!["csd".into()],
+        })
+        .unwrap();
+
+    harness.set_title(&win, "open file dialog");
+    let win_dialog = &harness.state.windows[0];
+    assert!(!win_dialog.ssd); // CSD dynamically applied
+    assert_eq!(win_dialog.tags, 8); // Manual tags still preserved!
+    assert_eq!(win_dialog.width, 777); // Manual width still preserved!
+}
