@@ -258,7 +258,6 @@ impl AppState {
             return Err("no view focused".to_string());
         };
 
-        let tag_state = self.tag_state;
         let focused_win_output = self
             .windows
             .iter()
@@ -273,7 +272,7 @@ impl AppState {
                 !w.closed
                     && !w.floating
                     && !w.fullscreen
-                    && tag_state.is_view_visible(w.tags)
+                    && self.is_window_visible(w)
                     && w.output == focused_win_output
             })
             .map(|(i, _)| i)
@@ -311,13 +310,10 @@ impl AppState {
     /// but the currently focused window (even if floating) is preserved as the spatial and
     /// order reference for navigation into tiled windows.
     pub fn find_target_window(&self, dir: Direction, skip_floating: bool) -> Option<u32> {
-        let tag_state = self.tag_state;
         let candidates: Vec<&crate::wm::state::WindowItem> = self
             .windows
             .iter()
-            .filter(|w| {
-                !w.closed && (!skip_floating || !w.floating) && tag_state.is_view_visible(w.tags)
-            })
+            .filter(|w| !w.closed && (!skip_floating || !w.floating) && self.is_window_visible(w))
             .collect();
 
         if candidates.is_empty() {
@@ -328,7 +324,7 @@ impl AppState {
         let current_win = self
             .windows
             .iter()
-            .find(|w| w.id == focused_id && !w.closed && tag_state.is_view_visible(w.tags));
+            .find(|w| w.id == focused_id && !w.closed && self.is_window_visible(w));
 
         let current_in_candidates = candidates.iter().position(|w| w.id == focused_id);
 
@@ -485,10 +481,15 @@ impl AppState {
         };
         self.focused_output = Some(out_id.clone());
 
-        let tag_state = self.tag_state;
-        let dest_win = self.windows.iter().find(|w| {
-            !w.closed && w.output == Some(out_id.clone()) && tag_state.is_view_visible(w.tags)
-        });
+        if let Some(out) = self.outputs.get(&out_id) {
+            self.tag_state = out.tag_state;
+            self.previous_focused_tags = out.previous_focused_tags;
+        }
+
+        let dest_win = self
+            .windows
+            .iter()
+            .find(|w| !w.closed && w.output == Some(out_id.clone()) && self.is_window_visible(w));
         if let Some(w) = dest_win {
             let proxy = w.proxy.clone();
             for seat in self.seats.values_mut() {
@@ -527,7 +528,11 @@ impl AppState {
             return Err("no view focused".to_string());
         };
 
-        let dest_tags = self.tag_state.focused;
+        let dest_tags = self
+            .outputs
+            .get(&out_id)
+            .map(|o| o.tag_state.focused)
+            .unwrap_or(self.tag_state.focused);
         let source_out = self
             .windows
             .iter()
@@ -573,13 +578,10 @@ impl AppState {
         dir_str: &str,
         skip_floating: bool,
     ) -> Result<String, String> {
-        let tag_state = self.tag_state;
         let visible_count = self
             .windows
             .iter()
-            .filter(|w| {
-                !w.closed && (!skip_floating || !w.floating) && tag_state.is_view_visible(w.tags)
-            })
+            .filter(|w| !w.closed && (!skip_floating || !w.floating) && self.is_window_visible(w))
             .count();
         if visible_count == 0 {
             return Ok("no visible windows".to_string());
@@ -650,8 +652,27 @@ impl AppState {
         if mask == TAG_NONE {
             return Err("at least one tag must be focused".to_string());
         }
-        if self.tag_state.focused != mask {
-            let old_mask = self.tag_state.focused;
+        let focused_out_id = self.get_focused_output_id();
+        let old_mask = if let Some(ref out_id) = focused_out_id
+            && let Some(out) = self.outputs.get_mut(out_id)
+        {
+            let old = out.tag_state.focused;
+            if old != mask {
+                out.previous_focused_tags = old;
+                out.tag_state.set_focused_tags(mask);
+            }
+            old
+        } else {
+            let old = self.tag_state.focused;
+            if old != mask {
+                self.previous_focused_tags = old;
+                self.tag_state.set_focused_tags(mask);
+            }
+            old
+        };
+
+        if old_mask != mask {
+            self.tag_state.set_focused_tags(mask);
             self.previous_focused_tags = old_mask;
             let dir = if mask > old_mask {
                 crate::animation::SlideDirection::Right
@@ -662,20 +683,31 @@ impl AppState {
             self.tag_anim_old_mask = old_mask;
             self.anim.start();
         }
-        self.tag_state.set_focused_tags(mask);
         self.manage_dirty();
         Ok(format!("focused tags set to {mask}"))
     }
 
     /// Toggles tags back to the previous tag setup.
     pub fn focus_previous_tags(&mut self) -> Result<String, String> {
-        let prev = self.previous_focused_tags;
+        let prev = if let Some(ref out_id) = self.get_focused_output_id()
+            && let Some(out) = self.outputs.get(out_id)
+        {
+            out.previous_focused_tags
+        } else {
+            self.previous_focused_tags
+        };
         self.set_focused_tags(prev)
     }
 
     /// Sends the focused window to the previous tag setup.
     pub fn send_to_previous_tags(&mut self) -> Result<String, String> {
-        let prev = self.previous_focused_tags;
+        let prev = if let Some(ref out_id) = self.get_focused_output_id()
+            && let Some(out) = self.outputs.get(out_id)
+        {
+            out.previous_focused_tags
+        } else {
+            self.previous_focused_tags
+        };
         self.set_view_tags(prev)
     }
 
@@ -754,10 +786,30 @@ impl AppState {
 
     /// Toggles the focused tags mask on the WM.
     pub fn toggle_focused_tags(&mut self, mask: TagMask) -> Result<String, String> {
-        let old_mask = self.tag_state.focused;
-        let new_mask = old_mask ^ mask;
+        let focused_out_id = self.get_focused_output_id();
+        let (old_mask, new_mask) = if let Some(ref out_id) = focused_out_id
+            && let Some(out) = self.outputs.get_mut(out_id)
+        {
+            let old = out.tag_state.focused;
+            let new = old ^ mask;
+            if new != TAG_NONE && new != old {
+                out.previous_focused_tags = old;
+                out.tag_state.toggle_focused_tags(mask);
+            }
+            (old, new)
+        } else {
+            let old = self.tag_state.focused;
+            let new = old ^ mask;
+            if new != TAG_NONE && new != old {
+                self.previous_focused_tags = old;
+                self.tag_state.toggle_focused_tags(mask);
+            }
+            (old, new)
+        };
+
         if new_mask != TAG_NONE && new_mask != old_mask {
             self.previous_focused_tags = old_mask;
+            self.tag_state.focused = new_mask;
             let dir = if new_mask > old_mask {
                 crate::animation::SlideDirection::Right
             } else {
@@ -767,7 +819,6 @@ impl AppState {
             self.tag_anim_old_mask = old_mask;
             self.anim.start();
         }
-        self.tag_state.toggle_focused_tags(mask);
         self.manage_dirty();
         Ok(format!("focused tags toggled with {mask}"))
     }

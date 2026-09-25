@@ -109,11 +109,16 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                 let node = id.get_node(qh, ());
                 let vid = state.next_view_id;
                 state.next_view_id += 1;
-                let mut current_tags = state.tag_state.focused & state.spawn_tagmask;
-                if current_tags == crate::tag::TAG_NONE {
-                    current_tags = state.tag_state.focused;
-                }
                 let current_out = state.get_focused_output_id();
+                let out_tags = current_out
+                    .as_ref()
+                    .and_then(|id| state.outputs.get(id))
+                    .map(|o| o.tag_state.focused)
+                    .unwrap_or(state.tag_state.focused);
+                let mut current_tags = out_tags & state.spawn_tagmask;
+                if current_tags == crate::tag::TAG_NONE {
+                    current_tags = out_tags;
+                }
 
                 state.attach_window(WindowItem {
                     id: vid,
@@ -165,6 +170,8 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                         y: 0,
                         width: 0,
                         height: 0,
+                        tag_state: crate::tag::TagState::new(),
+                        previous_focused_tags: 1,
                     },
                 );
                 if state.focused_output.is_none() {
