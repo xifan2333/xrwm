@@ -2125,3 +2125,91 @@ fn per_output_tags_state_isolation_and_current_tags() {
     assert_eq!(w1_sent.tags, 4);
     assert!(harness.state.is_window_visible(w1_sent));
 }
+
+#[test]
+fn test_migrate_float_geometry_across_outputs() {
+    let mut harness = Harness::new();
+    harness.state.anim.enabled = false;
+    let out1 = harness.add_output_with_id();
+    let out2 = harness.add_output_with_id();
+    harness.set_output_position(&out2, 1920, 0);
+    let _seat = harness.add_seat();
+    harness.manage();
+
+    let out1_id = harness
+        .state
+        .outputs
+        .iter()
+        .find(|(id, _)| id.protocol_id() == out1.protocol_id())
+        .unwrap()
+        .0
+        .clone();
+    let out2_id = harness
+        .state
+        .outputs
+        .iter()
+        .find(|(id, _)| id.protocol_id() == out2.protocol_id())
+        .unwrap()
+        .0
+        .clone();
+
+    // 1. Tiled window with saved float_geo sent to out2, then toggle-float restores on out2
+    harness.state.focused_output = Some(out1_id.clone());
+    let _win = harness.add_window();
+    harness.manage();
+
+    let _win_id = harness.state.windows[0].id;
+    let win_proxy = harness.state.windows[0].proxy.clone();
+    let seat_item = harness.state.seats.values_mut().next().unwrap();
+    seat_item.set_focused_window(Some(win_proxy.clone()));
+
+    // Make it floating with custom geometry on out1
+    harness.state.windows[0].floating = true;
+    harness.state.windows[0].x = 100;
+    harness.state.windows[0].y = 100;
+    harness.state.windows[0].width = 600;
+    harness.state.windows[0].height = 400;
+    harness.state.windows[0].float_geo = Some(crate::layout::Rect::new(100, 100, 600, 400));
+
+    // Toggle float to tile it: saves float_geo at (100, 100)
+    harness.state.toggle_float_focused().unwrap();
+    assert!(!harness.state.windows[0].floating);
+    assert_eq!(harness.state.windows[0].float_geo.unwrap().x, 100);
+
+    // Send tiled window to out2
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::SendToOutput {
+            direction: "right".into(),
+            current_tags: false,
+        })
+        .unwrap();
+
+    let w = &harness.state.windows[0];
+    assert_eq!(w.output, Some(out2_id.clone()));
+    // Saved float_geo should have translated from [0, 1920) to [1920, 3840): x = 100 + 1920 = 2020!
+    assert_eq!(w.float_geo.unwrap().x, 2020);
+    assert_eq!(w.float_geo.unwrap().y, 100);
+
+    // Now toggle-float on out2: should restore at x = 2020 on out2!
+    harness.state.toggle_float_focused().unwrap();
+    let w_float = &harness.state.windows[0];
+    assert!(w_float.floating);
+    assert_eq!(w_float.x, 2020);
+    assert_eq!(w_float.y, 100);
+
+    // 2. Output unplug / removal: window floating on out2 (x=2100) migrated to fallback out1
+    harness.state.windows[0].x = 2100;
+    harness.state.windows[0].y = 200;
+    harness.state.windows[0].float_geo = Some(crate::layout::Rect::new(2100, 200, 600, 400));
+
+    harness.event(&out2, output::EVT_REMOVED_OPCODE, vec![]);
+    harness.dispatch_events();
+
+    let w_after_unplug = &harness.state.windows[0];
+    assert_eq!(w_after_unplug.output, Some(out1_id));
+    // Window on out2 (x=2100) translated back to out1: x = 2100 - 1920 = 180!
+    assert_eq!(w_after_unplug.x, 180);
+    assert_eq!(w_after_unplug.y, 200);
+    assert_eq!(w_after_unplug.float_geo.unwrap().x, 180);
+}
