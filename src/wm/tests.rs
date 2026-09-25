@@ -2213,3 +2213,92 @@ fn test_migrate_float_geometry_across_outputs() {
     assert_eq!(w_after_unplug.y, 200);
     assert_eq!(w_after_unplug.float_geo.unwrap().x, 180);
 }
+
+#[test]
+fn fullscreen_cross_output_migration_and_removal_sync() {
+    let mut harness = Harness::new();
+    harness.state.anim.enabled = false;
+    let out1 = harness.add_output_with_id();
+    let out2 = harness.add_output_with_id();
+    harness.set_output_position(&out2, 1920, 0);
+    let _seat = harness.add_seat();
+    harness.manage();
+
+    let out1_id = harness
+        .state
+        .outputs
+        .iter()
+        .find(|(id, _)| id.protocol_id() == out1.protocol_id())
+        .unwrap()
+        .0
+        .clone();
+    let out2_id = harness
+        .state
+        .outputs
+        .iter()
+        .find(|(id, _)| id.protocol_id() == out2.protocol_id())
+        .unwrap()
+        .0
+        .clone();
+
+    // Create window on out1 and make it fullscreen
+    harness.state.focused_output = Some(out1_id.clone());
+    let win = harness.add_window();
+    let win_id = harness.state.windows[0].id;
+    let win_proxy = harness.state.windows[0].proxy.clone();
+    let seat_item = harness.state.seats.values_mut().next().unwrap();
+    seat_item.set_focused_window(Some(win_proxy.clone()));
+
+    harness.state.toggle_fullscreen_focused().unwrap();
+    harness.manage();
+    assert!(harness.state.windows[0].fullscreen);
+
+    // 1. send-to-output to out2: should resubmit fullscreen request on out2
+    harness.server.requests.clear();
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::SendToOutput {
+            direction: "right".into(),
+            current_tags: false,
+        })
+        .unwrap();
+
+    let w = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.id == win_id)
+        .unwrap();
+    assert_eq!(w.output, Some(out2_id.clone()));
+    assert!(w.pending_fullscreen_change);
+
+    harness.manage();
+    let fs_requests = harness
+        .server
+        .requests
+        .iter()
+        .filter(|msg| msg.sender_id == win && msg.opcode == window::REQ_FULLSCREEN_OPCODE)
+        .count();
+    assert_eq!(fs_requests, 1);
+
+    // 2. Output removal: out2 is removed while window is fullscreen on it
+    harness.server.requests.clear();
+    harness.event(&out2, output::EVT_REMOVED_OPCODE, vec![]);
+    harness.dispatch_events();
+
+    let w_after_unplug = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.id == win_id)
+        .unwrap();
+    assert_eq!(w_after_unplug.output, Some(out1_id.clone()));
+    assert!(!w_after_unplug.fullscreen);
+    assert!(!w_after_unplug.pending_fullscreen_change);
+    assert!(harness.has_window_request(&win, window::REQ_INFORM_NOT_FULLSCREEN_OPCODE));
+
+    // Follow-up manage arranges window normally on out1 and proposes dimensions
+    harness.server.requests.clear();
+    harness.manage();
+    assert!(!harness.proposals(&win).is_empty());
+}
