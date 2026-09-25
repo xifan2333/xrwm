@@ -298,7 +298,7 @@ impl AppState {
     /// Finds the target window in the given direction.
     pub fn find_target_window(&self, dir: Direction, skip_floating: bool) -> Option<u32> {
         let tag_state = self.tag_state;
-        let visible: Vec<&crate::wm::state::WindowItem> = self
+        let candidates: Vec<&crate::wm::state::WindowItem> = self
             .windows
             .iter()
             .filter(|w| {
@@ -306,32 +306,76 @@ impl AppState {
             })
             .collect();
 
-        if visible.len() <= 1 {
+        if candidates.is_empty() {
             return None;
         }
 
         let focused_id = self.focused_window_id()?;
-        let current_win = visible.iter().find(|w| w.id == focused_id)?;
+        let current_win = self
+            .windows
+            .iter()
+            .find(|w| w.id == focused_id && !w.closed && tag_state.is_view_visible(w.tags));
+
+        let current_in_candidates = candidates.iter().position(|w| w.id == focused_id);
 
         match dir {
             Direction::Next => {
-                let idx = visible.iter().position(|w| w.id == focused_id)?;
-                let next_idx = (idx + 1) % visible.len();
-                Some(visible[next_idx].id)
+                if let Some(idx) = current_in_candidates {
+                    if candidates.len() <= 1 {
+                        return None;
+                    }
+                    let next_idx = (idx + 1) % candidates.len();
+                    Some(candidates[next_idx].id)
+                } else {
+                    let current_pos = self.windows.iter().position(|w| w.id == focused_id);
+                    if let Some(pos) = current_pos {
+                        let next_cand = candidates.iter().find(|c| {
+                            self.windows.iter().position(|w| w.id == c.id).unwrap_or(0) > pos
+                        });
+                        next_cand
+                            .map(|w| w.id)
+                            .or_else(|| candidates.first().map(|w| w.id))
+                    } else {
+                        candidates.first().map(|w| w.id)
+                    }
+                }
             }
             Direction::Previous => {
-                let idx = visible.iter().position(|w| w.id == focused_id)?;
-                let prev_idx = (idx + visible.len() - 1) % visible.len();
-                Some(visible[prev_idx].id)
+                if let Some(idx) = current_in_candidates {
+                    if candidates.len() <= 1 {
+                        return None;
+                    }
+                    let prev_idx = (idx + candidates.len() - 1) % candidates.len();
+                    Some(candidates[prev_idx].id)
+                } else {
+                    let current_pos = self.windows.iter().position(|w| w.id == focused_id);
+                    if let Some(pos) = current_pos {
+                        let prev_cand = candidates.iter().rev().find(|c| {
+                            self.windows.iter().position(|w| w.id == c.id).unwrap_or(0) < pos
+                        });
+                        prev_cand
+                            .map(|w| w.id)
+                            .or_else(|| candidates.last().map(|w| w.id))
+                    } else {
+                        candidates.last().map(|w| w.id)
+                    }
+                }
             }
             Direction::Left | Direction::Right | Direction::Up | Direction::Down => {
-                let fx = current_win.x + current_win.width as i32 / 2;
-                let fy = current_win.y + current_win.height as i32 / 2;
+                if current_in_candidates.is_some() && candidates.len() <= 1 {
+                    return None;
+                }
+
+                let (fx, fy) = if let Some(cw) = current_win {
+                    (cw.x + cw.width as i32 / 2, cw.y + cw.height as i32 / 2)
+                } else {
+                    (0, 0)
+                };
 
                 let mut best_id = None;
                 let mut best_dist = i64::MAX;
 
-                for w in &visible {
+                for w in &candidates {
                     if w.id == focused_id {
                         continue;
                     }
@@ -358,7 +402,7 @@ impl AppState {
                 }
 
                 if best_id.is_none() {
-                    for w in &visible {
+                    for w in &candidates {
                         if w.id == focused_id {
                             continue;
                         }
@@ -385,7 +429,13 @@ impl AppState {
                     }
                 }
 
-                best_id
+                best_id.or_else(|| {
+                    if current_in_candidates.is_none() {
+                        candidates.first().map(|w| w.id)
+                    } else {
+                        None
+                    }
+                })
             }
         }
     }
