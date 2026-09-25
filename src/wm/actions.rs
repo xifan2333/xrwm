@@ -296,6 +296,10 @@ impl AppState {
     }
 
     /// Finds the target window in the given direction.
+    ///
+    /// When `skip_floating` is true, floating windows are excluded from destination candidates,
+    /// but the currently focused window (even if floating) is preserved as the spatial and
+    /// order reference for navigation into tiled windows.
     pub fn find_target_window(&self, dir: Direction, skip_floating: bool) -> Option<u32> {
         let tag_state = self.tag_state;
         let candidates: Vec<&crate::wm::state::WindowItem> = self
