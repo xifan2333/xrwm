@@ -407,11 +407,40 @@ impl AppState {
     /// Attaches a new window according to the current `attach_mode`.
     pub fn attach_window(&mut self, item: WindowItem) {
         let focused_id = self.focused_window_id();
-        let focused_idx = focused_id.and_then(|id| self.windows.iter().position(|w| w.id == id));
-        let idx = self
+        let target_out = item.output.clone();
+
+        let output_indices: Vec<usize> = self
+            .windows
+            .iter()
+            .enumerate()
+            .filter(|(_, w)| target_out.is_none() || w.output == target_out)
+            .map(|(i, _)| i)
+            .collect();
+
+        if output_indices.is_empty() {
+            self.windows.push(item);
+            return;
+        }
+
+        let focused_pos = focused_id.and_then(|id| {
+            output_indices
+                .iter()
+                .position(|&idx| self.windows[idx].id == id)
+        });
+
+        let local_insert_idx = self
             .attach_mode
-            .calculate_insert_index(focused_idx, self.windows.len());
-        self.windows.insert(idx, item);
+            .calculate_insert_index(focused_pos, output_indices.len());
+
+        let global_insert_idx = if local_insert_idx < output_indices.len() {
+            output_indices[local_insert_idx]
+        } else if let Some(&last_idx) = output_indices.last() {
+            last_idx + 1
+        } else {
+            self.windows.len()
+        };
+
+        self.windows.insert(global_insert_idx, item);
     }
 
     /// Applies matching window rules to a window item.
