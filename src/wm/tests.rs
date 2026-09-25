@@ -1422,3 +1422,115 @@ fn dimensions_rule_combined_with_output_rule_centers_on_target_output() {
     assert_eq!(win_margins_item.x, 2480);
     assert_eq!(win_margins_item.y, 255); // 30 + (1050 - 600) / 2 = 255
 }
+
+#[test]
+fn output_rule_matching_by_name_and_deterministic_index() {
+    let mut harness = Harness::new();
+    harness.state.anim.enabled = false;
+    let out1 = harness.add_output_with_id();
+    let out2 = harness.add_output_with_id();
+    harness.set_output_position(&out2, 1920, 0);
+    harness.manage();
+
+    let out1_id = harness
+        .state
+        .outputs
+        .iter()
+        .find(|(id, _)| id.protocol_id() == out1.protocol_id())
+        .unwrap()
+        .0
+        .clone();
+    let out2_id = harness
+        .state
+        .outputs
+        .iter()
+        .find(|(id, _)| id.protocol_id() == out2.protocol_id())
+        .unwrap()
+        .0
+        .clone();
+
+    // Assign monitor names
+    harness.state.outputs.get_mut(&out1_id).unwrap().name = Some("eDP-1".to_string());
+    harness.state.outputs.get_mut(&out2_id).unwrap().name = Some("DP-1".to_string());
+
+    // 1. Match by name: "DP-1" (and case-insensitive "dp-1")
+    harness.state.rules.clear();
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: Some("by_name".into()),
+            title: None,
+            action: vec!["output".into(), "DP-1".into()],
+        })
+        .unwrap();
+
+    let win_name = harness.add_window();
+    harness.set_app_id(&win_name, "by_name");
+    let win_name_item = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.app_id.as_deref() == Some("by_name"))
+        .unwrap();
+    assert_eq!(win_name_item.output, Some(out2_id.clone()));
+
+    // Case-insensitive name match: "edp-1" matches "eDP-1"
+    harness.state.rules.clear();
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: Some("by_lower_name".into()),
+            title: None,
+            action: vec!["output".into(), "edp-1".into()],
+        })
+        .unwrap();
+
+    let win_lower = harness.add_window();
+    harness.set_app_id(&win_lower, "by_lower_name");
+    let win_lower_item = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.app_id.as_deref() == Some("by_lower_name"))
+        .unwrap();
+    assert_eq!(win_lower_item.output, Some(out1_id.clone()));
+
+    // 2. Match by deterministic 1-based index: 1 -> eDP-1 (x=0), 2 -> DP-1 (x=1920)
+    harness.state.rules.clear();
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: Some("by_idx_1".into()),
+            title: None,
+            action: vec!["output".into(), "1".into()],
+        })
+        .unwrap();
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: Some("by_idx_2".into()),
+            title: None,
+            action: vec!["output".into(), "2".into()],
+        })
+        .unwrap();
+
+    let win_idx1 = harness.add_window();
+    harness.set_app_id(&win_idx1, "by_idx_1");
+    let win_idx1_item = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.app_id.as_deref() == Some("by_idx_1"))
+        .unwrap();
+    assert_eq!(win_idx1_item.output, Some(out1_id.clone()));
+
+    let win_idx2 = harness.add_window();
+    harness.set_app_id(&win_idx2, "by_idx_2");
+    let win_idx2_item = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.app_id.as_deref() == Some("by_idx_2"))
+        .unwrap();
+    assert_eq!(win_idx2_item.output, Some(out2_id.clone()));
+}
