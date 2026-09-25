@@ -1673,3 +1673,131 @@ fn title_change_does_not_reset_manual_tags_geometry_or_output() {
     assert_eq!(win_dialog.tags, 8); // Manual tags still preserved!
     assert_eq!(win_dialog.width, 777); // Manual width still preserved!
 }
+
+#[test]
+fn focus_view_skip_floating_navigates_from_floating_to_tiled_windows() {
+    let mut harness = Harness::new();
+    harness.state.anim.enabled = false;
+    let _out = harness.add_output_with_id();
+    let _seat = harness.add_seat();
+
+    // 2 tiled windows and 1 floating window
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: Some("float_app".into()),
+            title: None,
+            action: vec!["float".into()],
+        })
+        .unwrap();
+
+    let win_tiled1 = harness.add_window();
+    let win_tiled2 = harness.add_window();
+    let win_float = harness.add_window();
+    harness.set_app_id(&win_float, "float_app");
+
+    harness.manage();
+    harness.render();
+
+    let tiled1_id = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == win_tiled1.protocol_id())
+        .unwrap()
+        .id;
+    let tiled2_id = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == win_tiled2.protocol_id())
+        .unwrap()
+        .id;
+    let float_id = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == win_float.protocol_id())
+        .unwrap()
+        .id;
+
+    assert!(
+        harness
+            .state
+            .windows
+            .iter()
+            .find(|w| w.id == float_id)
+            .unwrap()
+            .floating
+    );
+
+    let float_proxy = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.id == float_id)
+        .unwrap()
+        .proxy
+        .clone();
+
+    // 1. Initially focus the floating window
+    let seat_item = harness.state.seats.values_mut().next().unwrap();
+    seat_item.set_focused_window(Some(float_proxy.clone()));
+    assert_eq!(harness.state.focused_window_id(), Some(float_id));
+
+    // 2. focus-view -skip-floating next from floating window navigates to a tiled window
+    harness.state.execute_action_tokens(&[
+        "focus-view".into(),
+        "-skip-floating".into(),
+        "next".into(),
+    ]);
+    let new_focused = harness.state.focused_window_id();
+    assert!(new_focused == Some(tiled1_id) || new_focused == Some(tiled2_id));
+
+    // 3. Focus floating window again, test focus-view -skip-floating previous
+    let seat_item = harness.state.seats.values_mut().next().unwrap();
+    seat_item.set_focused_window(Some(float_proxy.clone()));
+    assert_eq!(harness.state.focused_window_id(), Some(float_id));
+
+    harness.state.execute_action_tokens(&[
+        "focus-view".into(),
+        "-skip-floating".into(),
+        "previous".into(),
+    ]);
+    let prev_focused = harness.state.focused_window_id();
+    assert!(prev_focused == Some(tiled1_id) || prev_focused == Some(tiled2_id));
+
+    // 4. Spatial direction: floating window on right (x=1000), navigating left focuses tiled window on left
+    if let Some(fw) = harness.state.windows.iter_mut().find(|w| w.id == float_id) {
+        fw.x = 1000;
+        fw.y = 200;
+        fw.width = 400;
+        fw.height = 300;
+    }
+    let seat_item = harness.state.seats.values_mut().next().unwrap();
+    seat_item.set_focused_window(Some(float_proxy.clone()));
+
+    harness.state.execute_action_tokens(&[
+        "focus-view".into(),
+        "-skip-floating".into(),
+        "left".into(),
+    ]);
+    let left_focused = harness.state.focused_window_id();
+    assert!(left_focused == Some(tiled1_id) || left_focused == Some(tiled2_id));
+
+    // 5. Single tiled candidate: close win_tiled2, only 1 tiled window remains
+    harness.event(&win_tiled2, window::EVT_CLOSED_OPCODE, vec![]);
+    harness.dispatch_events();
+    harness.manage();
+
+    let seat_item = harness.state.seats.values_mut().next().unwrap();
+    seat_item.set_focused_window(Some(float_proxy.clone()));
+    assert_eq!(harness.state.focused_window_id(), Some(float_id));
+
+    harness.state.execute_action_tokens(&[
+        "focus-view".into(),
+        "-skip-floating".into(),
+        "next".into(),
+    ]);
+    assert_eq!(harness.state.focused_window_id(), Some(tiled1_id));
+}
