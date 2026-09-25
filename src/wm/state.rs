@@ -433,19 +433,35 @@ impl AppState {
                 w.pending_fullscreen_change = true;
             }
             if let Some(ref out_str) = r.output {
-                let matched_out = outputs
-                    .iter()
-                    .find(|(id, _)| id.to_string() == *out_str)
-                    .or_else(|| {
-                        if let Ok(num) = out_str.parse::<usize>()
-                            && num >= 1
-                            && num <= outputs.len()
-                        {
-                            outputs.keys().nth(num - 1).map(|id| (id, &outputs[id]))
-                        } else {
-                            None
-                        }
+                let trimmed = out_str.trim();
+
+                // 1. Match by display name (e.g. "DP-1", "eDP-1", case-insensitive)
+                let by_name = outputs.iter().find(|(_, o)| {
+                    o.name
+                        .as_deref()
+                        .is_some_and(|n| n.eq_ignore_ascii_case(trimmed))
+                });
+
+                // 2. Match by exact ObjectId string or protocol ID string
+                let by_id = outputs.iter().find(|(id, _)| {
+                    id.to_string() == trimmed || id.protocol_id().to_string() == trimmed
+                });
+
+                // 3. Match by 1-based index with deterministic ordering (sorted by x, y, name, id)
+                let by_index = if let Ok(num) = trimmed.parse::<usize>()
+                    && num >= 1
+                    && num <= outputs.len()
+                {
+                    let mut sorted: Vec<(&ObjectId, &OutputItem)> = outputs.iter().collect();
+                    sorted.sort_by_key(|(id, o)| {
+                        (o.x, o.y, o.name.as_deref().unwrap_or(""), id.protocol_id())
                     });
+                    sorted.get(num - 1).map(|(id, o)| (*id, *o))
+                } else {
+                    None
+                };
+
+                let matched_out = by_name.or(by_id).or(by_index);
                 if let Some((id, _)) = matched_out {
                     w.output = Some(id.clone());
                 }
