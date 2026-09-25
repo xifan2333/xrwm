@@ -258,7 +258,6 @@ impl AppState {
             return Err("no view focused".to_string());
         };
 
-        let tag_state = self.tag_state;
         let focused_win_output = self
             .windows
             .iter()
@@ -273,7 +272,7 @@ impl AppState {
                 !w.closed
                     && !w.floating
                     && !w.fullscreen
-                    && tag_state.is_view_visible(w.tags)
+                    && self.is_window_visible(w)
                     && w.output == focused_win_output
             })
             .map(|(i, _)| i)
@@ -311,13 +310,10 @@ impl AppState {
     /// but the currently focused window (even if floating) is preserved as the spatial and
     /// order reference for navigation into tiled windows.
     pub fn find_target_window(&self, dir: Direction, skip_floating: bool) -> Option<u32> {
-        let tag_state = self.tag_state;
         let candidates: Vec<&crate::wm::state::WindowItem> = self
             .windows
             .iter()
-            .filter(|w| {
-                !w.closed && (!skip_floating || !w.floating) && tag_state.is_view_visible(w.tags)
-            })
+            .filter(|w| !w.closed && (!skip_floating || !w.floating) && self.is_window_visible(w))
             .collect();
 
         if candidates.is_empty() {
@@ -328,7 +324,7 @@ impl AppState {
         let current_win = self
             .windows
             .iter()
-            .find(|w| w.id == focused_id && !w.closed && tag_state.is_view_visible(w.tags));
+            .find(|w| w.id == focused_id && !w.closed && self.is_window_visible(w));
 
         let current_in_candidates = candidates.iter().position(|w| w.id == focused_id);
 
@@ -490,10 +486,10 @@ impl AppState {
             self.previous_focused_tags = out.previous_focused_tags;
         }
 
-        let tag_state = self.tag_state;
-        let dest_win = self.windows.iter().find(|w| {
-            !w.closed && w.output == Some(out_id.clone()) && tag_state.is_view_visible(w.tags)
-        });
+        let dest_win = self
+            .windows
+            .iter()
+            .find(|w| !w.closed && w.output == Some(out_id.clone()) && self.is_window_visible(w));
         if let Some(w) = dest_win {
             let proxy = w.proxy.clone();
             for seat in self.seats.values_mut() {
@@ -582,13 +578,10 @@ impl AppState {
         dir_str: &str,
         skip_floating: bool,
     ) -> Result<String, String> {
-        let tag_state = self.tag_state;
         let visible_count = self
             .windows
             .iter()
-            .filter(|w| {
-                !w.closed && (!skip_floating || !w.floating) && tag_state.is_view_visible(w.tags)
-            })
+            .filter(|w| !w.closed && (!skip_floating || !w.floating) && self.is_window_visible(w))
             .count();
         if visible_count == 0 {
             return Ok("no visible windows".to_string());

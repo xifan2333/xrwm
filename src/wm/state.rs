@@ -572,6 +572,31 @@ impl AppState {
         }
     }
 
+    /// Returns whether the window is visible according to the tag state of its output.
+    #[inline]
+    pub fn is_window_visible(&self, w: &WindowItem) -> bool {
+        Self::is_window_visible_with(&self.outputs, self.tag_state, w)
+    }
+
+    /// Evaluates window visibility using the given outputs map and fallback tag state.
+    #[inline]
+    pub fn is_window_visible_with(
+        outputs: &HashMap<ObjectId, OutputItem>,
+        default_tag_state: TagState,
+        w: &WindowItem,
+    ) -> bool {
+        if outputs.len() <= 1 {
+            return default_tag_state.is_view_visible(w.tags);
+        }
+        let out_tag_state = w
+            .output
+            .as_ref()
+            .and_then(|id| outputs.get(id))
+            .map(|o| o.tag_state)
+            .unwrap_or(default_tag_state);
+        out_tag_state.is_view_visible(w.tags)
+    }
+
     pub fn offscreen_hiding_position(&self) -> (i32, i32) {
         let min_x = self.outputs.values().map(|o| o.x as i64).min().unwrap_or(0);
         let min_y = self.outputs.values().map(|o| o.y as i64).min().unwrap_or(0);
@@ -1225,7 +1250,11 @@ impl AppState {
                             !other.closed
                                 && !other.floating
                                 && other.id != start_win_id
-                                && self.tag_state.is_view_visible(other.tags)
+                                && Self::is_window_visible_with(
+                                    &self.outputs,
+                                    self.tag_state,
+                                    other,
+                                )
                                 && px >= other.x
                                 && px <= (other.x + other.width as i32)
                                 && py >= other.y
@@ -1269,7 +1298,6 @@ impl AppState {
         }
 
         let layout_engine = MasterStackLayout;
-        let tag_state = self.tag_state;
         let mut any_geo_changed = false;
 
         let active_outputs: Vec<(ObjectId, Rect)> = self
@@ -1279,6 +1307,14 @@ impl AppState {
             .collect();
 
         for (out_id, usable_area) in active_outputs {
+            let out_tag_state = if self.outputs.len() <= 1 {
+                self.tag_state
+            } else {
+                self.outputs
+                    .get(&out_id)
+                    .map(|o| o.tag_state)
+                    .unwrap_or(self.tag_state)
+            };
             let mut tiled_indices: Vec<usize> = Vec::new();
             for (i, w) in self.windows.iter().enumerate() {
                 let matches_output = match (&w.output, out_id.is_null()) {
@@ -1288,7 +1324,7 @@ impl AppState {
                 if matches_output
                     && !w.floating
                     && !w.fullscreen
-                    && tag_state.is_view_visible(w.tags)
+                    && out_tag_state.is_view_visible(w.tags)
                 {
                     tiled_indices.push(i);
                 }
@@ -1342,7 +1378,13 @@ impl AppState {
             .iter_mut()
             .filter(|w| w.floating && !w.fullscreen)
         {
-            let is_visible = tag_state.is_view_visible(w.tags);
+            let out_tag_state = w
+                .output
+                .as_ref()
+                .and_then(|id| self.outputs.get(id))
+                .map(|o| o.tag_state)
+                .unwrap_or(self.tag_state);
+            let is_visible = out_tag_state.is_view_visible(w.tags);
             let target = Rect::new(w.x, w.y, w.width, w.height);
             if !is_any_pointer_op {
                 if !w.initial_managed {
@@ -1499,7 +1541,16 @@ impl AppState {
                 0
             };
 
-            let is_in_current = self.tag_state.is_view_visible(w.tags);
+            let out_tag_state = if self.outputs.len() <= 1 {
+                self.tag_state
+            } else {
+                w.output
+                    .as_ref()
+                    .and_then(|id| self.outputs.get(id))
+                    .map(|o| o.tag_state)
+                    .unwrap_or(self.tag_state)
+            };
+            let is_in_current = out_tag_state.is_view_visible(w.tags);
             let is_in_old = is_tag_animating && (w.tags & self.tag_anim_old_mask) != 0;
 
             if is_in_current || is_in_old {
@@ -1583,16 +1634,17 @@ impl AppState {
         for w in self
             .windows
             .iter()
-            .filter(|w| !w.floating && self.tag_state.is_view_visible(w.tags))
+            .filter(|w| !w.floating && self.is_window_visible(w))
         {
             if focused_proxy.as_ref() != Some(&w.proxy) {
                 w.node.place_top();
             }
         }
         if let Some(ref focused) = focused_proxy
-            && let Some(win) = self.windows.iter().find(|w| {
-                &w.proxy == focused && !w.floating && self.tag_state.is_view_visible(w.tags)
-            })
+            && let Some(win) = self
+                .windows
+                .iter()
+                .find(|w| &w.proxy == focused && !w.floating && self.is_window_visible(w))
         {
             win.node.place_top();
         }
@@ -1603,16 +1655,17 @@ impl AppState {
         for w in self
             .windows
             .iter()
-            .filter(|w| w.floating && self.tag_state.is_view_visible(w.tags))
+            .filter(|w| w.floating && self.is_window_visible(w))
         {
             if focused_proxy.as_ref() != Some(&w.proxy) {
                 w.node.place_top();
             }
         }
         if let Some(ref focused) = focused_proxy
-            && let Some(win) = self.windows.iter().find(|w| {
-                &w.proxy == focused && w.floating && self.tag_state.is_view_visible(w.tags)
-            })
+            && let Some(win) = self
+                .windows
+                .iter()
+                .find(|w| &w.proxy == focused && w.floating && self.is_window_visible(w))
         {
             win.node.place_top();
         }
@@ -1621,7 +1674,7 @@ impl AppState {
         for w in self
             .windows
             .iter()
-            .filter(|w| w.fullscreen && self.tag_state.is_view_visible(w.tags))
+            .filter(|w| w.fullscreen && self.is_window_visible(w))
         {
             w.node.place_top();
         }
