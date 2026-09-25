@@ -1263,16 +1263,24 @@ impl AppState {
                     "no-fullscreen" => fullscreen = Some(false),
                     "tags" => {
                         if action.len() > 1 {
-                            let tag_num =
-                                action[1].parse::<u32>().map_err(|_| "Invalid tag number")?;
-                            let mask = if (1..=32).contains(&tag_num) {
-                                1 << (tag_num - 1)
+                            let raw = action[1].trim();
+                            let mask = if let Some(hex) =
+                                raw.strip_prefix("0x").or_else(|| raw.strip_prefix("0X"))
+                            {
+                                u32::from_str_radix(hex, 16)
+                                    .map_err(|_| "Invalid tag mask".to_string())?
                             } else {
-                                tag_num
+                                raw.parse::<u32>()
+                                    .map_err(|_| "Invalid tag mask".to_string())?
                             };
+                            if mask == 0 {
+                                return Err(
+                                    "a window rule must specify at least one tag".to_string()
+                                );
+                            }
                             tags = Some(mask);
                         } else {
-                            return Err("Usage: rule-add ... tags <tag>".to_string());
+                            return Err("Usage: rule-add ... tags <mask>".to_string());
                         }
                     }
                     "dimensions" => {
@@ -2740,5 +2748,58 @@ mod tests {
         }
         assert_eq!(state.configured_pointer_bindings.len(), 1);
         assert_eq!(state.pending_pointer_bindings.len(), 1);
+    }
+
+    #[test]
+    fn test_rule_add_tags_direct_bitmask_and_zero_rejection() {
+        let mut state = AppState::new();
+
+        // 1. Zero tagmask must be rejected
+        let zero_cmd = IpcCommand::RuleAdd {
+            app_id: Some("demo".into()),
+            title: None,
+            action: vec!["tags".into(), "0".into()],
+        };
+        assert!(state.handle_ipc_command(&zero_cmd).is_err());
+
+        let zero_hex_cmd = IpcCommand::RuleAdd {
+            app_id: Some("demo".into()),
+            title: None,
+            action: vec!["tags".into(), "0x0".into()],
+        };
+        assert!(state.handle_ipc_command(&zero_hex_cmd).is_err());
+        assert!(state.rules.is_empty());
+
+        // 2. Small integers are interpreted directly as bitmasks
+        for (input, expected) in [
+            ("1", 1),
+            ("2", 2),
+            ("3", 3),
+            ("4", 4),
+            ("16", 16),
+            ("32", 32),
+            ("511", 511),
+            ("0x80000000", 2147483648),
+        ] {
+            let cmd = IpcCommand::RuleAdd {
+                app_id: Some(format!("app_{input}")),
+                title: None,
+                action: vec!["tags".into(), input.into()],
+            };
+            assert!(state.handle_ipc_command(&cmd).is_ok());
+            let rule = state
+                .rules
+                .iter()
+                .find(|r| r.app_id.as_deref() == Some(&format!("app_{input}")))
+                .unwrap();
+            assert_eq!(rule.tags, Some(expected));
+        }
+
+        // 3. list-rules output displays the exact bitmask stored
+        let list = state.list_rules(Some("tags")).unwrap();
+        assert!(list.contains("-app-id app_3 tags 3"));
+        assert!(list.contains("-app-id app_4 tags 4"));
+        assert!(list.contains("-app-id app_16 tags 16"));
+        assert!(list.contains("-app-id app_32 tags 32"));
     }
 }
