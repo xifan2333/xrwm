@@ -414,8 +414,12 @@ impl AppState {
         self.windows.insert(idx, item);
     }
 
-    /// Applies matching window rules to a window item, supporting multi-segment wildcards for
-    /// both `app_id` and `title`.
+    /// Applies matching window rules to a window item.
+    ///
+    /// Distinguishes between initial allocation rules (`tags`, `output`, `dimensions`, `position`,
+    /// `fullscreen`), which are only applied prior to initial management so user manual adjustments
+    /// are preserved across title/app_id updates, and dynamic rules (`float`, `ssd`/`csd`), which
+    /// update whenever metadata changes.
     pub fn apply_rules_to_window(
         rules: &[WindowRule],
         w: &mut WindowItem,
