@@ -77,19 +77,36 @@ pub fn hex_to_river_rgba(hex_str: &str) -> (u32, u32, u32, u32) {
 }
 
 pub fn glob_match(pattern: &str, text: &str) -> bool {
-    if pattern == "*" {
-        return true;
-    }
-    if let Some(prefix) = pattern.strip_suffix('*') {
-        if let Some(inner) = prefix.strip_prefix('*') {
-            return text.contains(inner);
+    let p_chars: Vec<char> = pattern.chars().collect();
+    let t_chars: Vec<char> = text.chars().collect();
+
+    let mut p_idx = 0;
+    let mut t_idx = 0;
+    let mut star_idx = None;
+    let mut match_idx = 0;
+
+    while t_idx < t_chars.len() {
+        if p_idx < p_chars.len() && p_chars[p_idx] == t_chars[t_idx] {
+            p_idx += 1;
+            t_idx += 1;
+        } else if p_idx < p_chars.len() && p_chars[p_idx] == '*' {
+            star_idx = Some(p_idx);
+            match_idx = t_idx;
+            p_idx += 1;
+        } else if let Some(star) = star_idx {
+            p_idx = star + 1;
+            match_idx += 1;
+            t_idx = match_idx;
+        } else {
+            return false;
         }
-        return text.starts_with(prefix);
     }
-    if let Some(suffix) = pattern.strip_prefix('*') {
-        return text.ends_with(suffix);
+
+    while p_idx < p_chars.len() && p_chars[p_idx] == '*' {
+        p_idx += 1;
     }
-    pattern == text
+
+    p_idx == p_chars.len()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
