@@ -1534,3 +1534,55 @@ fn output_rule_matching_by_name_and_deterministic_index() {
         .unwrap();
     assert_eq!(win_idx2_item.output, Some(out2_id.clone()));
 }
+
+#[test]
+fn window_rules_support_multi_segment_wildcards_in_app_id_and_title() {
+    let mut harness = Harness::new();
+    harness.add_output();
+
+    // 1. Rule with multi-segment app_id wildcard: "org.*.App" -> float
+    harness.state.rules.clear();
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: Some("org.*.App".into()),
+            title: None,
+            action: vec!["float".into()],
+        })
+        .unwrap();
+
+    // 2. Rule with multi-segment title wildcard: "* - Mozilla Firefox*" -> tags 4
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: None,
+            title: Some("* - Mozilla Firefox*".into()),
+            action: vec!["tags".into(), "4".into()],
+        })
+        .unwrap();
+
+    let win = harness.add_window();
+    harness.set_app_id(&win, "org.test.App");
+    harness.set_title(&win, "Dashboard - Mozilla Firefox v135");
+
+    let win_item = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.app_id.as_deref() == Some("org.test.App"))
+        .unwrap();
+
+    assert!(win_item.floating);
+    assert_eq!(win_item.tags, 8);
+
+    // Non-matching app_id does not receive float rule
+    let win_mismatch = harness.add_window();
+    harness.set_app_id(&win_mismatch, "org.test.Application");
+    let win_mismatch_item = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.app_id.as_deref() == Some("org.test.Application"))
+        .unwrap();
+    assert!(!win_mismatch_item.floating);
+}
