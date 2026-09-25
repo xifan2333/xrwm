@@ -317,6 +317,13 @@ impl Dispatch<RiverOutputV1, ()> for AppState {
                             removed_usable_area,
                             fallback_usable_area,
                         );
+                        if w.fullscreen {
+                            w.fullscreen = false;
+                            w.pending_fullscreen_change = false;
+                            w.proxy.inform_not_fullscreen();
+                            w.last_proposed_w = None;
+                            w.last_proposed_h = None;
+                        }
                     }
                 }
                 if state.focused_output == Some(out_id) {
