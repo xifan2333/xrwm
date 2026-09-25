@@ -188,6 +188,8 @@ pub struct WindowItem {
 #[derive(Debug)]
 pub struct OutputItem {
     pub proxy: RiverOutputV1,
+    pub wl_output: Option<wayland_client::protocol::wl_output::WlOutput>,
+    pub name: Option<String>,
     pub ls_output: Option<RiverLayerShellOutputV1>,
     pub removed: bool,
     pub usable_area: Rect,

@@ -155,6 +155,8 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                     out_id.clone(),
                     OutputItem {
                         proxy: id,
+                        wl_output: None,
+                        name: None,
                         ls_output: ls_out,
                         removed: false,
                         usable_area: Rect::default(),
@@ -267,11 +269,30 @@ impl Dispatch<RiverOutputV1, ()> for AppState {
                     }
                 }
             }
+            Event::WlOutput { name } => {
+                if let Some(ref reg) = state.wl_registry {
+                    let wl_out = reg.bind::<wayland_client::protocol::wl_output::WlOutput, _, _>(
+                        name,
+                        4,
+                        _qh,
+                        proxy.id(),
+                    );
+                    if let Some(out) = state.outputs.get_mut(&proxy.id()) {
+                        out.wl_output = Some(wl_out);
+                    }
+                }
+            }
             Event::Removed => {
-                if let Some(mut out) = state.outputs.remove(&proxy.id())
-                    && let Some(ls_out) = out.ls_output.take()
-                {
-                    ls_out.destroy();
+                let out_id = proxy.id();
+                if let Some(mut out) = state.outputs.remove(&out_id) {
+                    if let Some(ls_out) = out.ls_output.take() {
+                        ls_out.destroy();
+                    }
+                    if let Some(wl_out) = out.wl_output.take()
+                        && wl_out.version() >= 2
+                    {
+                        wl_out.release();
+                    }
                 }
                 proxy.destroy();
                 let fallback = state.outputs.keys().next().cloned();
@@ -286,6 +307,24 @@ impl Dispatch<RiverOutputV1, ()> for AppState {
                 state.manage_dirty();
             }
             _ => {}
+        }
+    }
+}
+
+impl Dispatch<wayland_client::protocol::wl_output::WlOutput, ObjectId> for AppState {
+    fn event(
+        state: &mut Self,
+        _proxy: &wayland_client::protocol::wl_output::WlOutput,
+        event: <wayland_client::protocol::wl_output::WlOutput as Proxy>::Event,
+        data: &ObjectId,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+        use wayland_client::protocol::wl_output::Event;
+        if let Event::Name { name } = event
+            && let Some(out) = state.outputs.get_mut(data)
+        {
+            out.name = Some(name);
         }
     }
 }
