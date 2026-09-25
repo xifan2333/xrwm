@@ -1961,3 +1961,167 @@ fn multi_output_zoom_attach_and_drag_resize_column_determination() {
         crate::wm::SeatOp::TiledResize { .. }
     ));
 }
+
+#[test]
+fn per_output_tags_state_isolation_and_current_tags() {
+    let mut harness = Harness::new();
+    harness.state.anim.enabled = false;
+    let out1 = harness.add_output_with_id();
+    let out2 = harness.add_output_with_id();
+    harness.set_output_position(&out2, 1920, 0);
+    let _seat = harness.add_seat();
+    harness.manage();
+
+    let out1_id = harness
+        .state
+        .outputs
+        .iter()
+        .find(|(id, _)| id.protocol_id() == out1.protocol_id())
+        .unwrap()
+        .0
+        .clone();
+    let out2_id = harness
+        .state
+        .outputs
+        .iter()
+        .find(|(id, _)| id.protocol_id() == out2.protocol_id())
+        .unwrap()
+        .0
+        .clone();
+
+    // Window 1 on out1, Window 2 on out2
+    harness.state.rules.clear();
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: Some("w1".into()),
+            title: None,
+            action: vec!["output".into(), out1_id.to_string()],
+        })
+        .unwrap();
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: Some("w2".into()),
+            title: None,
+            action: vec!["output".into(), out2_id.to_string()],
+        })
+        .unwrap();
+
+    let win1 = harness.add_window();
+    harness.set_app_id(&win1, "w1");
+    let win2 = harness.add_window();
+    harness.set_app_id(&win2, "w2");
+
+    harness.manage();
+    harness.render();
+
+    let win1_id = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == win1.protocol_id())
+        .unwrap()
+        .id;
+    let win2_id = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == win2.protocol_id())
+        .unwrap()
+        .id;
+
+    // Both outputs initially display tag 1
+    assert_eq!(harness.state.outputs[&out1_id].tag_state.focused, 1);
+    assert_eq!(harness.state.outputs[&out2_id].tag_state.focused, 1);
+    assert!(harness.state.is_window_visible(&harness.state.windows[1]));
+    assert!(harness.state.is_window_visible(&harness.state.windows[0]));
+
+    // 1. Focus out1 and switch to tag 2
+    harness.state.focused_output = Some(out1_id.clone());
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::SetFocusedTags(2))
+        .unwrap();
+    harness.manage();
+    harness.render();
+
+    // Out1 is on tag 2, Out2 REMAINS on tag 1!
+    assert_eq!(harness.state.outputs[&out1_id].tag_state.focused, 2);
+    assert_eq!(harness.state.outputs[&out2_id].tag_state.focused, 1);
+
+    // Window 2 on Out2 remains VISIBLE! Window 1 on Out1 is hidden!
+    let w1 = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.id == win1_id)
+        .unwrap();
+    let w2 = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.id == win2_id)
+        .unwrap();
+    assert!(!harness.state.is_window_visible(w1));
+    assert!(harness.state.is_window_visible(w2));
+
+    // 2. Focus previous tags on out1 restores tag 1 on out1 without affecting out2
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::FocusPreviousTags)
+        .unwrap();
+    harness.manage();
+    harness.render();
+
+    assert_eq!(harness.state.outputs[&out1_id].tag_state.focused, 1);
+    assert_eq!(harness.state.outputs[&out2_id].tag_state.focused, 1);
+    let w1_restored = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.id == win1_id)
+        .unwrap();
+    assert!(harness.state.is_window_visible(w1_restored));
+
+    // 3. Switch out2 to tag 4
+    harness.state.focused_output = Some(out2_id.clone());
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::SetFocusedTags(4))
+        .unwrap();
+    assert_eq!(harness.state.outputs[&out2_id].tag_state.focused, 4);
+    assert_eq!(harness.state.outputs[&out1_id].tag_state.focused, 1);
+
+    // 4. Focus win1 on out1, send to out2 with -current-tags
+    harness.state.focused_output = Some(out1_id.clone());
+    let w1_proxy = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.id == win1_id)
+        .unwrap()
+        .proxy
+        .clone();
+    let seat_item = harness.state.seats.values_mut().next().unwrap();
+    seat_item.set_focused_window(Some(w1_proxy));
+
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::SendToOutput {
+            direction: "right".into(),
+            current_tags: true,
+        })
+        .unwrap();
+
+    let w1_sent = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.id == win1_id)
+        .unwrap();
+    assert_eq!(w1_sent.output, Some(out2_id.clone()));
+    // win1 receives out2's current tag (4), NOT out1's tag (1)!
+    assert_eq!(w1_sent.tags, 4);
+    assert!(harness.state.is_window_visible(w1_sent));
+}
