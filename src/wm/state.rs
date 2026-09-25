@@ -445,6 +445,55 @@ impl AppState {
         self.windows.insert(global_insert_idx, item);
     }
 
+    /// Translates floating geometry of a window from `src_area` to `dst_area`.
+    pub fn translate_float_geometry(
+        geo: Rect,
+        src_area: Option<Rect>,
+        dst_area: Option<Rect>,
+    ) -> Rect {
+        let (new_x, new_y) = if let (Some(src), Some(dst)) = (src_area, dst_area) {
+            let rel_x = geo.x - src.x;
+            let rel_y = geo.y - src.y;
+            let new_x = dst.x + rel_x;
+            let new_y = dst.y + rel_y;
+            let max_x = (dst.x + dst.width as i32 - 50).max(dst.x);
+            let max_y = (dst.y + dst.height as i32 - 50).max(dst.y);
+            (new_x.clamp(dst.x, max_x), new_y.clamp(dst.y, max_y))
+        } else if let Some(dst) = dst_area {
+            let cx = dst.x + (dst.width.saturating_sub(geo.width) / 2) as i32;
+            let cy = dst.y + (dst.height.saturating_sub(geo.height) / 2) as i32;
+            (cx, cy)
+        } else {
+            (geo.x, geo.y)
+        };
+        Rect::new(new_x, new_y, geo.width, geo.height)
+    }
+
+    /// Migrates a window's output and transforms both active and saved floating geometry.
+    pub fn migrate_window_to_output(
+        w: &mut WindowItem,
+        dest_out_id: Option<ObjectId>,
+        src_area: Option<Rect>,
+        dest_area: Option<Rect>,
+    ) {
+        w.output = dest_out_id;
+
+        // Translate saved floating geometry if present
+        if let Some(saved) = w.float_geo {
+            w.float_geo = Some(Self::translate_float_geometry(saved, src_area, dest_area));
+        }
+
+        // If currently floating, also translate active coordinates and visual geometry
+        if w.floating {
+            let current_geo = Rect::new(w.x, w.y, w.width, w.height);
+            let new_geo = Self::translate_float_geometry(current_geo, src_area, dest_area);
+            w.x = new_geo.x;
+            w.y = new_geo.y;
+            w.float_geo = Some(new_geo);
+            w.visual_geo = Some(new_geo);
+        }
+    }
+
     /// Applies matching window rules to a window item.
     ///
     /// Distinguishes between initial allocation rules (`tags`, `output`, `dimensions`, `position`,
