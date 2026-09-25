@@ -76,6 +76,8 @@ pub fn hex_to_river_rgba(hex_str: &str) -> (u32, u32, u32, u32) {
     parse_hex_color(hex_str).unwrap_or((u32::MAX, u32::MAX, u32::MAX, u32::MAX))
 }
 
+/// Performs wildcard matching where `*` matches zero or more characters at any position,
+/// supporting multi-segment wildcards (e.g. `org.*.App`, `*foo*bar*`).
 pub fn glob_match(pattern: &str, text: &str) -> bool {
     let p_chars: Vec<char> = pattern.chars().collect();
     let t_chars: Vec<char> = text.chars().collect();
@@ -412,6 +414,8 @@ impl AppState {
         self.windows.insert(idx, item);
     }
 
+    /// Applies matching window rules to a window item, supporting multi-segment wildcards for
+    /// both `app_id` and `title`.
     pub fn apply_rules_to_window(
         rules: &[WindowRule],
         w: &mut WindowItem,
