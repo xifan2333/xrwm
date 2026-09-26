@@ -290,19 +290,19 @@ fn test_app_state_modal_modes_and_relative_ratio() {
 
     // Cursor warp and focus-follows-cursor tests
     state.execute_action_tokens(&["set-cursor-warp".into(), "on-output-change".into()]);
-    assert_eq!(state.cursor_warp, crate::wm::CursorWarp::OnOutputChange);
+    assert_eq!(state.cursor_warp, crate::CursorWarp::OnOutputChange);
     state.execute_action_tokens(&["set-cursor-warp".into(), "disabled".into()]);
-    assert_eq!(state.cursor_warp, crate::wm::CursorWarp::Disabled);
+    assert_eq!(state.cursor_warp, crate::CursorWarp::Disabled);
 
     state.execute_action_tokens(&["focus-follows-cursor".into(), "disabled".into()]);
     assert_eq!(
         state.focus_follows_cursor,
-        crate::wm::FocusFollowsCursor::Disabled
+        crate::FocusFollowsCursor::Disabled
     );
     state.execute_action_tokens(&["focus-follows-cursor".into(), "always".into()]);
     assert_eq!(
         state.focus_follows_cursor,
-        crate::wm::FocusFollowsCursor::Always
+        crate::FocusFollowsCursor::Always
     );
 
     // Hide cursor tests
@@ -502,7 +502,7 @@ fn wait_for_process_exit(pid: u32) {
 #[test]
 #[allow(clippy::zombie_processes)]
 fn test_reap_zombies_cleans_exited_children() {
-    let _guard = crate::wm::state::PROCESS_TEST_MUTEX.lock().unwrap();
+    let _guard = crate::state::PROCESS_TEST_MUTEX.lock().unwrap();
     let child1 = std::process::Command::new("true").spawn().unwrap();
     let child2 = std::process::Command::new("true").spawn().unwrap();
     let child3 = std::process::Command::new("true").spawn().unwrap();
@@ -530,7 +530,7 @@ fn test_reap_zombies_cleans_exited_children() {
 
 #[test]
 fn test_reap_zombies_does_not_block_on_running_child() {
-    let _guard = crate::wm::state::PROCESS_TEST_MUTEX.lock().unwrap();
+    let _guard = crate::state::PROCESS_TEST_MUTEX.lock().unwrap();
     // Spawn a long-running process
     let mut child = std::process::Command::new("sleep")
         .arg("10")
@@ -553,7 +553,7 @@ fn test_reap_zombies_does_not_block_on_running_child() {
 #[test]
 #[allow(clippy::zombie_processes)]
 fn test_spawn_and_reload_actions_reap_children() {
-    let _guard = crate::wm::state::PROCESS_TEST_MUTEX.lock().unwrap();
+    let _guard = crate::state::PROCESS_TEST_MUTEX.lock().unwrap();
     let mut state = AppState::new();
 
     // Spawn a child and wait for it to exit
@@ -1199,7 +1199,7 @@ fn test_remapping_replaces_duplicate_bindings_without_accumulation() {
     assert_eq!(state.pending_pointer_bindings.len(), 1);
     assert_eq!(
         state.configured_pointer_bindings[0].action,
-        crate::wm::seat::PointerAction::Move
+        crate::seat::PointerAction::Move
     );
 
     // Re-map with different action replaces the pointer binding
@@ -1214,7 +1214,7 @@ fn test_remapping_replaces_duplicate_bindings_without_accumulation() {
     assert_eq!(state.pending_pointer_bindings.len(), 1);
     assert_eq!(
         state.configured_pointer_bindings[0].action,
-        crate::wm::seat::PointerAction::Resize
+        crate::seat::PointerAction::Resize
     );
 
     // Multiple reloads do not accumulate pointer bindings

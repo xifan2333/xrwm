@@ -231,21 +231,21 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
                 return Err("Missing attach mode: top|bottom|above|below|after <N>".to_string());
             }
             let raw_arg = args[1..].join(" ");
-            let mode = crate::wm::AttachMode::parse(&raw_arg)?;
+            let mode = crate::AttachMode::parse(&raw_arg)?;
             Ok(IpcCommand::DefaultAttachMode(mode))
         }
         "set-cursor-warp" => {
             let raw = args
                 .get(1)
                 .ok_or("Missing cursor warp mode: disabled|on-output-change|on-focus-change")?;
-            let mode = crate::wm::CursorWarp::parse(raw)?;
+            let mode = crate::CursorWarp::parse(raw)?;
             Ok(IpcCommand::SetCursorWarp(mode))
         }
         "focus-follows-cursor" => {
             let raw = args
                 .get(1)
                 .ok_or("Missing focus-follows-cursor mode: disabled|normal|always")?;
-            let mode = crate::wm::FocusFollowsCursor::parse(raw)?;
+            let mode = crate::FocusFollowsCursor::parse(raw)?;
             Ok(IpcCommand::FocusFollowsCursor(mode))
         }
         "hide-cursor" => {
@@ -310,17 +310,17 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
         }
         "border-color-focused" => {
             let color = args.get(1).ok_or("Missing color value")?.clone();
-            crate::wm::state::parse_hex_color(&color)?;
+            crate::state::parse_hex_color(&color)?;
             Ok(IpcCommand::BorderColorFocused(color))
         }
         "border-color-unfocused" => {
             let color = args.get(1).ok_or("Missing color value")?.clone();
-            crate::wm::state::parse_hex_color(&color)?;
+            crate::state::parse_hex_color(&color)?;
             Ok(IpcCommand::BorderColorUnfocused(color))
         }
         "border-color-urgent" => {
             let color = args.get(1).ok_or("Missing color value")?.clone();
-            crate::wm::state::parse_hex_color(&color)?;
+            crate::state::parse_hex_color(&color)?;
             Ok(IpcCommand::BorderColorUrgent(color))
         }
         "declare-mode" => {
@@ -402,7 +402,7 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
             if args.len() < 5 {
                 return Err("Usage: xrwm map <mode> <modifiers> <key> <action...>".to_string());
             }
-            crate::wm::binds::parse_modifiers(&args[2])?;
+            crate::binds::parse_modifiers(&args[2])?;
             Ok(IpcCommand::Map {
                 mode: args[1].clone(),
                 modifiers: args[2].clone(),
@@ -414,7 +414,7 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
             if args.len() < 4 {
                 return Err("Usage: xrwm unmap <mode> <modifiers> <key>".to_string());
             }
-            crate::wm::binds::parse_modifiers(&args[2])?;
+            crate::binds::parse_modifiers(&args[2])?;
             Ok(IpcCommand::Unmap {
                 mode: args[1].clone(),
                 modifiers: args[2].clone(),
@@ -427,7 +427,7 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
                     "Usage: xrwm map-pointer <mode> <modifiers> <button> <action...>".to_string(),
                 );
             }
-            crate::wm::binds::parse_modifiers(&args[2])?;
+            crate::binds::parse_modifiers(&args[2])?;
             Ok(IpcCommand::MapPointer {
                 mode: args[1].clone(),
                 modifiers: args[2].clone(),
@@ -439,7 +439,7 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
             if args.len() < 4 {
                 return Err("Usage: xrwm unmap-pointer <mode> <modifiers> <button>".to_string());
             }
-            crate::wm::binds::parse_modifiers(&args[2])?;
+            crate::binds::parse_modifiers(&args[2])?;
             Ok(IpcCommand::UnmapPointer {
                 mode: args[1].clone(),
                 modifiers: args[2].clone(),

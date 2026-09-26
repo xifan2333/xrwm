@@ -289,23 +289,23 @@ fn test_parse_cli_args() {
     );
     assert_eq!(
         parse_cli_args(&["default-attach-mode".into(), "bottom".into()]).unwrap(),
-        IpcCommand::DefaultAttachMode(crate::wm::AttachMode::Bottom)
+        IpcCommand::DefaultAttachMode(crate::AttachMode::Bottom)
     );
     assert_eq!(
         parse_cli_args(&["default-attach-mode".into(), "after".into(), "2".into()]).unwrap(),
-        IpcCommand::DefaultAttachMode(crate::wm::AttachMode::After(2))
+        IpcCommand::DefaultAttachMode(crate::AttachMode::After(2))
     );
     assert_eq!(
         parse_cli_args(&["set-cursor-warp".into(), "on-output-change".into()]).unwrap(),
-        IpcCommand::SetCursorWarp(crate::wm::CursorWarp::OnOutputChange)
+        IpcCommand::SetCursorWarp(crate::CursorWarp::OnOutputChange)
     );
     assert_eq!(
         parse_cli_args(&["set-cursor-warp".into(), "disabled".into()]).unwrap(),
-        IpcCommand::SetCursorWarp(crate::wm::CursorWarp::Disabled)
+        IpcCommand::SetCursorWarp(crate::CursorWarp::Disabled)
     );
     assert_eq!(
         parse_cli_args(&["focus-follows-cursor".into(), "always".into()]).unwrap(),
-        IpcCommand::FocusFollowsCursor(crate::wm::FocusFollowsCursor::Always)
+        IpcCommand::FocusFollowsCursor(crate::FocusFollowsCursor::Always)
     );
     assert_eq!(
         parse_cli_args(&["main-location".into(), "top".into()]).unwrap(),

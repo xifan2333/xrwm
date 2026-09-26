@@ -143,7 +143,7 @@ pub struct PendingPointerBinding {
     pub mode: String,
     pub modifiers: Modifiers,
     pub button: u32,
-    pub action: crate::wm::seat::PointerAction,
+    pub action: crate::seat::PointerAction,
 }
 
 /// An active keybinding registered with the compositor.

@@ -1,6 +1,6 @@
 //! Window manager status serialization, formatting, and IPC broadcasting.
 
-use crate::wm::state::AppState;
+use crate::state::AppState;
 
 pub fn parse_hex_color(hex_str: &str) -> Result<(u32, u32, u32, u32), String> {
     let h = hex_str

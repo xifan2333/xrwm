@@ -1,16 +1,31 @@
+pub mod actions;
 pub mod animation;
+pub mod binds;
+pub mod dispatch;
 pub mod ipc;
 pub mod layout;
+pub mod nav;
 pub mod protocol;
+pub mod rule;
+pub mod seat;
+pub mod state;
+pub mod status;
 pub mod tag;
-pub mod wm;
+
+#[cfg(test)]
+mod tests;
+
+pub use actions::*;
+pub use binds::*;
+pub use nav::*;
+pub use rule::*;
+pub use seat::*;
+pub use state::*;
 
 use std::os::fd::AsFd;
 
 use rustix::event::{PollFd, PollFlags, Timespec};
 use wayland_client::Connection;
-use wm::AppState;
-use wm::spawn_init_script;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -90,7 +105,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 4. Solid single-threaded event loop with poll(2)
     while !state.should_exit {
         // Non-blocking child process reaping for spawned commands and init/reload scripts
-        wm::reap_zombies();
+        reap_zombies();
 
         // Dispatch pending events in the queue
         if let Err(e) = event_queue.dispatch_pending(&mut state) {
@@ -143,7 +158,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         if ret == 0 {
             drop(guard);
-            wm::reap_zombies();
+            reap_zombies();
             if state.anim.is_animating() {
                 state.manage_dirty();
             }
@@ -252,7 +267,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
-            wm::reap_zombies();
+            reap_zombies();
         } else {
             drop(guard);
         }

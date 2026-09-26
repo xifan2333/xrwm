@@ -11,6 +11,7 @@ use wayland_client::{Proxy, QueueHandle};
 use crate::animation::AnimationController;
 use crate::animation::calculate_clip_box;
 use crate::animation::interpolate_rect;
+use crate::binds::{ActiveKeyBinding, PendingKeyBinding};
 use crate::layout::{Layout, LayoutConfig, MasterStackLayout, Rect};
 use crate::protocol::{
     river_layer_shell_output_v1::RiverLayerShellOutputV1,
@@ -22,19 +23,18 @@ use crate::protocol::{
     river_xkb_bindings_v1::RiverXkbBindingsV1,
     wp_cursor_shape_manager_v1::WpCursorShapeManagerV1,
 };
+use crate::seat::{LayerShellFocus, PointerAction, SeatItem, SeatOp};
 use crate::tag::TAG_NONE;
 use crate::tag::TagMask;
 use crate::tag::TagState;
-use crate::wm::binds::{ActiveKeyBinding, PendingKeyBinding};
-use crate::wm::seat::{LayerShellFocus, PointerAction, SeatItem, SeatOp};
 
 pub const MIN_WINDOW_DIMENSION: u32 = 100;
 
-pub use crate::wm::status::{
+pub use crate::status::{
     broadcast_status, format_json_status, format_waybar_status, hex_to_river_rgba, parse_hex_color,
 };
 
-pub use crate::wm::rule::{WindowRule, apply_rules_to_window, glob_match};
+pub use crate::rule::{WindowRule, apply_rules_to_window, glob_match};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum AttachMode {
@@ -171,8 +171,8 @@ pub struct AppState {
     pub configured_key_bindings: Vec<PendingKeyBinding>,
     pub pending_key_bindings: Vec<PendingKeyBinding>,
     pub key_bindings: HashMap<ObjectId, ActiveKeyBinding>,
-    pub configured_pointer_bindings: Vec<crate::wm::binds::PendingPointerBinding>,
-    pub pending_pointer_bindings: Vec<crate::wm::binds::PendingPointerBinding>,
+    pub configured_pointer_bindings: Vec<crate::binds::PendingPointerBinding>,
+    pub pending_pointer_bindings: Vec<crate::binds::PendingPointerBinding>,
     pub active_mode: String,
     pub modes: Vec<String>,
     pub mode_dirty: bool,
@@ -180,8 +180,8 @@ pub struct AppState {
     pub pre_lock_mode: Option<String>,
     pub next_view_id: u32,
     pub attach_mode: AttachMode,
-    pub cursor_warp: crate::wm::seat::CursorWarp,
-    pub focus_follows_cursor: crate::wm::seat::FocusFollowsCursor,
+    pub cursor_warp: crate::seat::CursorWarp,
+    pub focus_follows_cursor: crate::seat::FocusFollowsCursor,
     pub spawn_tagmask: TagMask,
     pub cursor_hide_timeout: u64,
     pub cursor_hide_when_typing: bool,
@@ -234,8 +234,8 @@ impl AppState {
             pre_lock_mode: None,
             next_view_id: 1,
             attach_mode: AttachMode::default(),
-            cursor_warp: crate::wm::seat::CursorWarp::default(),
-            focus_follows_cursor: crate::wm::seat::FocusFollowsCursor::default(),
+            cursor_warp: crate::seat::CursorWarp::default(),
+            focus_follows_cursor: crate::seat::FocusFollowsCursor::default(),
             spawn_tagmask: u32::MAX,
             cursor_hide_timeout: 0,
             cursor_hide_when_typing: false,
@@ -437,7 +437,7 @@ impl AppState {
         usable_area: Option<Rect>,
         outputs: &HashMap<ObjectId, OutputItem>,
     ) {
-        crate::wm::rule::apply_rules_to_window(rules, w, usable_area, outputs);
+        crate::rule::apply_rules_to_window(rules, w, usable_area, outputs);
     }
 
     /// Returns whether the window is visible according to the tag state of its output.
@@ -661,7 +661,7 @@ impl AppState {
                     }
                     seat.pointer_bindings.insert(
                         pb.id(),
-                        crate::wm::seat::PointerBinding {
+                        crate::seat::PointerBinding {
                             proxy: pb,
                             mode: def.mode.clone(),
                             modifiers: def.modifiers,
@@ -686,7 +686,7 @@ impl AppState {
                     }
                     seat.pointer_bindings.insert(
                         pb.id(),
-                        crate::wm::seat::PointerBinding {
+                        crate::seat::PointerBinding {
                             proxy: pb,
                             mode: pending.mode.clone(),
                             modifiers: pending.modifiers,
@@ -1642,17 +1642,17 @@ impl AppState {
 
     #[inline]
     pub fn broadcast_status(&mut self) {
-        crate::wm::status::broadcast_status(self);
+        crate::status::broadcast_status(self);
     }
 
     #[inline]
     pub fn format_json_status(&self) -> String {
-        crate::wm::status::format_json_status(self)
+        crate::status::format_json_status(self)
     }
 
     #[inline]
     pub fn format_waybar_status(&self) -> String {
-        crate::wm::status::format_waybar_status(self)
+        crate::status::format_waybar_status(self)
     }
 }
 
