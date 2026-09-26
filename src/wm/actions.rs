@@ -463,13 +463,7 @@ impl AppState {
                     }
                 }
 
-                best_id.or_else(|| {
-                    if current_in_candidates.is_none() {
-                        candidates.first().map(|w| w.id)
-                    } else {
-                        None
-                    }
-                })
+                best_id
             }
         }
     }
