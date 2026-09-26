@@ -1034,6 +1034,8 @@ fn tag_toggle_and_previous_tags_history_navigation() {
     assert_eq!(harness.state.previous_focused_tags, 2);
 
     // 3. send-to-previous-tags sends window to previous_focused_tags (2)
+    harness.state.windows[0].tags = 6;
+    harness.interact_window(&seat, &window);
     harness
         .state
         .handle_ipc_command(&IpcCommand::SendToPreviousTags)

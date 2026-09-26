@@ -728,17 +728,14 @@ impl AppState {
         if let Some(proxy) = win {
             self.windows
                 .iter()
-                .find(|w| &w.proxy == proxy)
+                .find(|w| {
+                    &w.proxy == proxy
+                        && !w.closed
+                        && Self::is_window_visible_with(&self.outputs, self.tag_state, w)
+                })
                 .map(|w| w.id)
-        } else if self
-            .seats
-            .values()
-            .all(|s| s.layer_focus != LayerShellFocus::None)
-            && !self.seats.is_empty()
-        {
-            None
         } else {
-            self.windows.first().map(|w| w.id)
+            None
         }
     }
 
