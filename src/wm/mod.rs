@@ -3,6 +3,7 @@
 pub mod actions;
 pub mod binds;
 pub mod dispatch;
+pub mod nav;
 pub mod rule;
 pub mod seat;
 pub mod state;
