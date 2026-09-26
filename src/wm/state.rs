@@ -668,6 +668,55 @@ impl AppState {
         (hide_x, hide_y)
     }
 
+    pub fn reconcile_focus(&mut self) {
+        let focused_out = self.get_focused_output_id();
+
+        for seat in self.seats.values_mut() {
+            if seat.layer_focus != LayerShellFocus::None {
+                continue;
+            }
+
+            // Check if current focused window is still alive and visible
+            let current_is_valid = if let Some(ref focused) = seat.focused {
+                self.windows.iter().any(|w| {
+                    &w.proxy == focused
+                        && !w.closed
+                        && Self::is_window_visible_with(&self.outputs, self.tag_state, w)
+                })
+            } else {
+                false
+            };
+
+            if current_is_valid {
+                continue;
+            }
+
+            // Otherwise, select a deterministic replacement candidate from visible, alive windows.
+            // Priority:
+            // 1. Visible alive windows on the current focused output
+            // 2. Visible alive windows on any output
+            let candidate = self
+                .windows
+                .iter()
+                .find(|w| {
+                    !w.closed
+                        && Self::is_window_visible_with(&self.outputs, self.tag_state, w)
+                        && (focused_out.is_none() || w.output == focused_out)
+                })
+                .or_else(|| {
+                    self.windows.iter().find(|w| {
+                        !w.closed && Self::is_window_visible_with(&self.outputs, self.tag_state, w)
+                    })
+                });
+
+            if let Some(cand) = candidate {
+                seat.set_focused_window(Some(cand.proxy.clone()));
+            } else {
+                seat.set_focused_window(None);
+            }
+        }
+    }
+
     pub fn focused_window_id(&self) -> Option<u32> {
         let win = self.seats.values().find_map(|s| {
             if s.layer_focus == LayerShellFocus::None {
@@ -679,17 +728,14 @@ impl AppState {
         if let Some(proxy) = win {
             self.windows
                 .iter()
-                .find(|w| &w.proxy == proxy)
+                .find(|w| {
+                    &w.proxy == proxy
+                        && !w.closed
+                        && Self::is_window_visible_with(&self.outputs, self.tag_state, w)
+                })
                 .map(|w| w.id)
-        } else if self
-            .seats
-            .values()
-            .all(|s| s.layer_focus != LayerShellFocus::None)
-            && !self.seats.is_empty()
-        {
-            None
         } else {
-            self.windows.first().map(|w| w.id)
+            None
         }
     }
 
@@ -736,6 +782,7 @@ impl AppState {
     }
 
     pub fn handle_manage_start(&mut self, _proxy: &RiverWindowManagerV1, qh: &QueueHandle<Self>) {
+        self.reconcile_focus();
         // Register keybindings during the manage sequence
         if let Some(ref xkb_mgr) = self.river_xkb {
             for seat in self.seats.values_mut() {

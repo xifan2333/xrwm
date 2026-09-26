@@ -676,6 +676,7 @@ impl AppState {
             self.tag_anim_old_mask = old_mask;
             self.anim.start();
         }
+        self.reconcile_focus();
         self.manage_dirty();
         Ok(format!("focused tags set to {mask}"))
     }
@@ -812,6 +813,7 @@ impl AppState {
             self.tag_anim_old_mask = old_mask;
             self.anim.start();
         }
+        self.reconcile_focus();
         self.manage_dirty();
         Ok(format!("focused tags toggled with {mask}"))
     }
@@ -829,6 +831,7 @@ impl AppState {
         if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
             w.tags = mask;
             self.sync_occupied_tags();
+            self.reconcile_focus();
             self.manage_dirty();
             Ok(format!("window {id} tags set to {mask}"))
         } else {
@@ -850,6 +853,7 @@ impl AppState {
             }
             w.tags = new_tags;
             self.sync_occupied_tags();
+            self.reconcile_focus();
             self.manage_dirty();
             Ok(format!("window {id} tags toggled to {new_tags}"))
         } else {
