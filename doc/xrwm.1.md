@@ -60,6 +60,12 @@ master (toggles between the two most active windows).
 : Toggles floating or tiled state on the focused window. When returning to floating,
 preserves its previous floating geometry.
 
+**toggle-floating-views**
+: Toggles visibility of all floating windows on the current output. When hiding,
+floating windows are collapsed offscreen while preserving their geometry, and focus
+transfers seamlessly to the active tiled window. When restored, floating windows reappear
+in place and focus returns to the top floating view.
+
 **toggle-fullscreen**
 : Toggles fullscreen state on the focused window.
 

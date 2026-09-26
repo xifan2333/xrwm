@@ -16,6 +16,7 @@ pub const IPC_PER_REQUEST_TIMEOUT_MS: u64 = 5;
 pub enum IpcCommand {
     Close,
     ToggleFloat,
+    ToggleFloatingViews,
     ToggleFullscreen,
     ToggleMonocle,
     Zoom,
@@ -551,6 +552,7 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
         "ping" => Ok(IpcCommand::Ping),
         "close" => Ok(IpcCommand::Close),
         "toggle-float" => Ok(IpcCommand::ToggleFloat),
+        "toggle-floating-views" => Ok(IpcCommand::ToggleFloatingViews),
         "toggle-fullscreen" => Ok(IpcCommand::ToggleFullscreen),
         "toggle-monocle" => Ok(IpcCommand::ToggleMonocle),
         "zoom" => Ok(IpcCommand::Zoom),

@@ -170,6 +170,88 @@ impl AppState {
         Ok(format!("monocle mode {state}"))
     }
 
+    /// Toggles visibility of all floating views on the focused output.
+    pub fn toggle_floating_views(&mut self) -> Result<String, String> {
+        let focused_out_id = self.get_focused_output_id();
+        let Some(out_id) = focused_out_id else {
+            return Err("no focused output".to_string());
+        };
+
+        let is_hidden = if let Some(out) = self.outputs.get_mut(&out_id) {
+            out.floating_hidden = !out.floating_hidden;
+            out.floating_hidden
+        } else {
+            false
+        };
+
+        if is_hidden {
+            // Hiding floating windows:
+            // If the currently focused window on any seat is a floating window on this output,
+            // transfer focus to the first visible tiled window on this output so the user keeps focus.
+            let out_tag_state = self
+                .outputs
+                .get(&out_id)
+                .map(|o| o.tag_state)
+                .unwrap_or(self.tag_state);
+
+            let first_tiled = self
+                .windows
+                .iter()
+                .find(|w| {
+                    !w.closed
+                        && !w.floating
+                        && out_tag_state.is_view_visible(w.tags)
+                        && (w.output.as_ref() == Some(&out_id) || self.outputs.len() <= 1)
+                })
+                .map(|w| w.proxy.clone());
+
+            for seat in self.seats.values_mut() {
+                let focus_is_floating_on_this_out = seat.focused.as_ref().is_some_and(|f| {
+                    self.windows.iter().any(|w| {
+                        &w.proxy == f
+                            && w.floating
+                            && (w.output.as_ref() == Some(&out_id) || self.outputs.len() <= 1)
+                    })
+                });
+
+                if focus_is_floating_on_this_out {
+                    seat.set_focused_window(first_tiled.clone());
+                }
+            }
+        } else {
+            // Restoring floating windows:
+            // Transfer focus back to the top visible floating window on this output.
+            let out_tag_state = self
+                .outputs
+                .get(&out_id)
+                .map(|o| o.tag_state)
+                .unwrap_or(self.tag_state);
+
+            let top_floating = self
+                .windows
+                .iter()
+                .rev()
+                .find(|w| {
+                    !w.closed
+                        && w.floating
+                        && !w.fullscreen
+                        && out_tag_state.is_view_visible(w.tags)
+                        && (w.output.as_ref() == Some(&out_id) || self.outputs.len() <= 1)
+                })
+                .map(|w| w.proxy.clone());
+
+            if let Some(target) = top_floating {
+                for seat in self.seats.values_mut() {
+                    seat.set_focused_window(Some(target.clone()));
+                }
+            }
+        }
+
+        self.manage_dirty();
+        let state_str = if is_hidden { "hidden" } else { "visible" };
+        Ok(format!("floating views {state_str}"))
+    }
+
     /// Bumps the focused window to the master position in the layout stack.
     /// If the view on the top of the stack is already focused, bumps the second view to top (matching river-classic).
     pub fn zoom_focused(&mut self) -> Result<String, String> {
@@ -1036,6 +1118,7 @@ impl AppState {
             IpcCommand::Ping => Ok("pong".to_string()),
             IpcCommand::Close => self.close_focused(),
             IpcCommand::ToggleFloat => self.toggle_float_focused(),
+            IpcCommand::ToggleFloatingViews => self.toggle_floating_views(),
             IpcCommand::ToggleFullscreen => self.toggle_fullscreen_focused(),
             IpcCommand::ToggleMonocle => self.toggle_monocle(),
             IpcCommand::Zoom => self.zoom_focused(),

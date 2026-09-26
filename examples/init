@@ -49,6 +49,7 @@ xrwm map normal Super Space spawn fuzzel
 # 6. 窗口管理 (Window Management - Actions)
 xrwm map normal Super W close
 xrwm map normal Super P toggle-float
+xrwm map normal "Super+Shift" P toggle-floating-views
 xrwm map normal Super F toggle-fullscreen
 xrwm map normal None F11 toggle-fullscreen
 xrwm map normal "Super+Shift" Return zoom

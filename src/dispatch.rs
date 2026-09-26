@@ -179,6 +179,7 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                         tag_state: crate::tag::TagState::new(),
                         previous_focused_tags: 1,
                         monocle: false,
+                        floating_hidden: false,
                     },
                 );
                 if state.focused_output.is_none() {

@@ -3051,3 +3051,78 @@ fn spatial_focus_navigation_does_not_reverse_wrap() {
     // Focus MUST remain on the floating window and not jump to the window on the right
     assert_eq!(harness.state.focused_window_id(), Some(float_id));
 }
+
+#[test]
+fn test_toggle_floating_views_hides_and_restores() {
+    let mut harness = Harness::new();
+    harness.state.anim.enabled = false;
+    harness.add_output();
+    let seat = harness.add_seat();
+
+    // 1. Create tiled window 1
+    let win_tiled = harness.add_window();
+
+    // 2. Create floating window 2
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: Some("float_demo".into()),
+            title: None,
+            action: vec!["float".into()],
+        })
+        .unwrap();
+
+    let win_float = harness.add_window();
+    harness.set_app_id(&win_float, "float_demo");
+
+    harness.manage();
+    harness.render();
+
+    let tiled_id = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == win_tiled.protocol_id())
+        .unwrap()
+        .id;
+    let float_id = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == win_float.protocol_id())
+        .unwrap()
+        .id;
+
+    // Initially floating window is focused
+    assert_eq!(harness.state.focused_window_id(), Some(float_id));
+    assert!(harness.has_window_request(&win_float, window::REQ_SHOW_OPCODE));
+
+    // 3. Toggle floating views to hidden
+    harness.server.requests.clear();
+    harness
+        .state
+        .execute_action_tokens(&["toggle-floating-views".into()]);
+
+    harness.manage();
+    // Focus transfers automatically to the underlying tiled window
+    assert_eq!(harness.state.focused_window_id(), Some(tiled_id));
+    assert!(harness.has_seat_request(&seat, seat::REQ_FOCUS_WINDOW_OPCODE));
+
+    harness.render();
+    // Floating window is hidden via REQ_HIDE_OPCODE
+    assert!(harness.has_window_request(&win_float, window::REQ_HIDE_OPCODE));
+
+    // 4. Toggle floating views again to restore
+    harness.server.requests.clear();
+    harness
+        .state
+        .execute_action_tokens(&["toggle-floating-views".into()]);
+
+    harness.manage();
+    harness.render();
+
+    // Floating window is restored and shown
+    assert!(harness.has_window_request(&win_float, window::REQ_SHOW_OPCODE));
+    // Focus is recalled to the floating window
+    assert_eq!(harness.state.focused_window_id(), Some(float_id));
+}
