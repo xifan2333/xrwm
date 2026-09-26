@@ -377,7 +377,10 @@ impl AppState {
                 }
 
                 let (fx, fy) = if let Some(cw) = current_win {
-                    (cw.x + cw.width as i32 / 2, cw.y + cw.height as i32 / 2)
+                    (
+                        cw.x + cw.effective_width() as i32 / 2,
+                        cw.y + cw.effective_height() as i32 / 2,
+                    )
                 } else {
                     (0, 0)
                 };
@@ -389,8 +392,8 @@ impl AppState {
                     if w.id == focused_id {
                         continue;
                     }
-                    let cx = w.x + w.width as i32 / 2;
-                    let cy = w.y + w.height as i32 / 2;
+                    let cx = w.x + w.effective_width() as i32 / 2;
+                    let cy = w.y + w.effective_height() as i32 / 2;
                     let dx = cx - fx;
                     let dy = cy - fy;
 
@@ -416,8 +419,8 @@ impl AppState {
                         if w.id == focused_id {
                             continue;
                         }
-                        let cx = w.x + w.width as i32 / 2;
-                        let cy = w.y + w.height as i32 / 2;
+                        let cx = w.x + w.effective_width() as i32 / 2;
+                        let cy = w.y + w.effective_height() as i32 / 2;
                         let dx = cx - fx;
                         let dy = cy - fy;
 
@@ -502,9 +505,10 @@ impl AppState {
             && let Some(out) = self.outputs.get(&out_id)
         {
             let (cx, cy) = match (self.cursor_warp, dest_win) {
-                (crate::wm::CursorWarp::OnFocusChange, Some(w)) => {
-                    (w.x + w.width as i32 / 2, w.y + w.height as i32 / 2)
-                }
+                (crate::wm::CursorWarp::OnFocusChange, Some(w)) => (
+                    w.x + w.effective_width() as i32 / 2,
+                    w.y + w.effective_height() as i32 / 2,
+                ),
                 _ => (out.x + out.width as i32 / 2, out.y + out.height as i32 / 2),
             };
             for seat in self.seats.values_mut() {
@@ -581,7 +585,10 @@ impl AppState {
 
         if let Some(win) = self.windows.iter().find(|w| w.id == new_id) {
             let proxy = win.proxy.clone();
-            let (cx, cy) = (win.x + win.width as i32 / 2, win.y + win.height as i32 / 2);
+            let (cx, cy) = (
+                win.x + win.effective_width() as i32 / 2,
+                win.y + win.effective_height() as i32 / 2,
+            );
             let out_id = win.output.clone();
             for seat in self.seats.values_mut() {
                 seat.set_focused_window(Some(proxy.clone()));

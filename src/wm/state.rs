@@ -195,6 +195,8 @@ pub struct WindowItem {
     pub y: i32,
     pub width: u32,
     pub height: u32,
+    pub content_width: Option<u32>,
+    pub content_height: Option<u32>,
     // Animation & visual geometry tracking
     pub visual_geo: Option<Rect>,
     pub anim_start_geo: Option<Rect>,
@@ -202,6 +204,18 @@ pub struct WindowItem {
     // None means no proposal has been sent; zero lets the client choose its size.
     pub last_proposed_w: Option<u32>,
     pub last_proposed_h: Option<u32>,
+}
+
+impl WindowItem {
+    #[inline]
+    pub fn effective_width(&self) -> u32 {
+        self.content_width.unwrap_or(self.width)
+    }
+
+    #[inline]
+    pub fn effective_height(&self) -> u32 {
+        self.content_height.unwrap_or(self.height)
+    }
 }
 
 #[derive(Debug)]
@@ -1017,11 +1031,16 @@ impl AppState {
         }
 
         for (id, win_proxy) in start_resize {
-            let win_info = self
-                .windows
-                .iter()
-                .find(|w| w.proxy == win_proxy)
-                .map(|w| (w.id, w.floating, w.x, w.y, w.width, w.height));
+            let win_info = self.windows.iter().find(|w| w.proxy == win_proxy).map(|w| {
+                (
+                    w.id,
+                    w.floating,
+                    w.x,
+                    w.y,
+                    w.effective_width(),
+                    w.effective_height(),
+                )
+            });
             if let (Some((win_id, floating, x, y, w, h)), Some(seat)) =
                 (win_info, self.seats.get_mut(&id))
             {
@@ -1311,9 +1330,9 @@ impl AppState {
                                     other,
                                 )
                                 && px >= other.x
-                                && px <= (other.x + other.width as i32)
+                                && px <= (other.x + other.effective_width() as i32)
                                 && py >= other.y
-                                && py <= (other.y + other.height as i32)
+                                && py <= (other.y + other.effective_height() as i32)
                         })
                         .map(|w| w.id);
 
@@ -1610,7 +1629,7 @@ impl AppState {
 
             if is_in_current || is_in_old {
                 let is_interactive = active_move_proxy.as_ref() == Some(&w.proxy);
-                let target = Rect::new(w.x, w.y, w.width, w.height);
+                let target = Rect::new(w.x, w.y, w.effective_width(), w.effective_height());
 
                 let (render_geo, is_visible) = if is_interactive {
                     w.proxy.set_clip_box(0, 0, 0, 0);
@@ -1787,8 +1806,10 @@ impl AppState {
                     "fullscreen": w.fullscreen,
                     "x": w.x,
                     "y": w.y,
-                    "width": w.width,
-                    "height": w.height,
+                    "width": w.effective_width(),
+                    "height": w.effective_height(),
+                    "content_width": w.content_width,
+                    "content_height": w.content_height,
                 })
             })
             .collect();
