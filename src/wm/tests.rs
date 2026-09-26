@@ -2302,3 +2302,73 @@ fn fullscreen_cross_output_migration_and_removal_sync() {
     harness.manage();
     assert!(!harness.proposals(&win).is_empty());
 }
+
+#[test]
+fn exit_fullscreen_immediately_submits_propose_dimensions_for_tiled_and_floating() {
+    // 1. Floating window: 800x600 floating window
+    {
+        let mut harness = Harness::new();
+        harness.add_output();
+        let _seat = harness.add_seat();
+        harness.rule(&["float"]);
+        harness.rule(&["dimensions", "800", "600"]);
+
+        let win = harness.add_window();
+        harness.manage();
+        assert_eq!(harness.proposals(&win), [(800, 600)]);
+
+        // Idle manage emits no proposals
+        harness.manage();
+        assert!(harness.proposals(&win).is_empty());
+
+        // Toggle fullscreen: window goes fullscreen
+        let seat_item = harness.state.seats.values_mut().next().unwrap();
+        seat_item.set_focused_window(Some(harness.state.windows[0].proxy.clone()));
+        harness.state.toggle_fullscreen_focused().unwrap();
+        harness.manage();
+        assert!(harness.state.windows[0].fullscreen);
+
+        // Immediately exit fullscreen without modifying window or screen dimensions
+        harness.state.toggle_fullscreen_focused().unwrap();
+        harness.server.requests.clear();
+        harness.manage();
+
+        assert!(!harness.state.windows[0].fullscreen);
+        // propose_dimensions must be called immediately in this manage cycle with original size
+        assert_eq!(harness.proposals(&win), [(800, 600)]);
+    }
+
+    // 2. Tiled window: single tiled window
+    {
+        let mut harness = Harness::new();
+        harness.add_output();
+        let _seat = harness.add_seat();
+
+        let win = harness.add_window();
+        harness.manage();
+        let initial_proposals = harness.proposals(&win);
+        assert_eq!(initial_proposals.len(), 1);
+        let expected_size = initial_proposals[0];
+        assert!(expected_size.0 > 0 && expected_size.1 > 0);
+
+        // Idle manage emits no proposals
+        harness.manage();
+        assert!(harness.proposals(&win).is_empty());
+
+        // Toggle fullscreen
+        let seat_item = harness.state.seats.values_mut().next().unwrap();
+        seat_item.set_focused_window(Some(harness.state.windows[0].proxy.clone()));
+        harness.state.toggle_fullscreen_focused().unwrap();
+        harness.manage();
+        assert!(harness.state.windows[0].fullscreen);
+
+        // Immediately exit fullscreen without modifying layout
+        harness.state.toggle_fullscreen_focused().unwrap();
+        harness.server.requests.clear();
+        harness.manage();
+
+        assert!(!harness.state.windows[0].fullscreen);
+        // propose_dimensions must be called immediately in this manage cycle with tiled size
+        assert_eq!(harness.proposals(&win), [expected_size]);
+    }
+}

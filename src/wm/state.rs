@@ -877,6 +877,10 @@ impl AppState {
                     }
                 } else {
                     w.proxy.exit_fullscreen();
+                    // Invalidate proposal cache so the current manage sequence reliably submits
+                    // propose_dimensions for the restored layout/floating geometry (River protocol requirement).
+                    w.last_proposed_w = None;
+                    w.last_proposed_h = None;
                 }
                 w.pending_fullscreen_change = false;
             }
