@@ -2421,3 +2421,88 @@ fn fullscreen_transitions_send_inform_fullscreen_and_not_fullscreen() {
     assert!(harness.has_window_request(&win_rule, window::REQ_FULLSCREEN_OPCODE));
     assert!(harness.has_window_request(&win_rule, window::REQ_INFORM_FULLSCREEN_OPCODE));
 }
+
+#[test]
+fn client_dimensions_event_updates_content_dimensions_and_avoids_reproposal() {
+    let mut harness = Harness::new();
+    harness.add_output();
+    let window = harness.add_window();
+
+    // Initial manage sequence proposes layout dimensions to the tiled window
+    harness.manage();
+    let proposals = harness.proposals(&window);
+    assert_eq!(proposals.len(), 1);
+    let (prop_w, prop_h) = proposals[0];
+
+    // Client reports its content dimensions (e.g. terminal snapping to character cell boundaries)
+    let actual_w = (prop_w - 5) as u32;
+    let actual_h = (prop_h - 10) as u32;
+    harness.event(
+        &window,
+        window::EVT_DIMENSIONS_OPCODE,
+        vec![
+            Argument::Int(actual_w as i32),
+            Argument::Int(actual_h as i32),
+        ],
+    );
+    harness.dispatch_events();
+
+    let win_item = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == window.protocol_id())
+        .unwrap();
+
+    // Content dimensions must be recorded and reflected in effective dimensions
+    assert_eq!(win_item.content_width, Some(actual_w));
+    assert_eq!(win_item.content_height, Some(actual_h));
+    assert_eq!(win_item.effective_width(), actual_w);
+    assert_eq!(win_item.effective_height(), actual_h);
+
+    // Status json must report content dimensions
+    let status_json = harness.state.format_json_status();
+    assert!(status_json.contains(&format!("\"width\":{}", actual_w)));
+    assert!(status_json.contains(&format!("\"height\":{}", actual_h)));
+    assert!(status_json.contains(&format!("\"content_width\":{}", actual_w)));
+    assert!(status_json.contains(&format!("\"content_height\":{}", actual_h)));
+
+    // Next manage cycle must NOT enter an infinite propose loop
+    harness.server.requests.clear();
+    harness.manage();
+    assert!(harness.proposals(&window).is_empty());
+}
+
+#[test]
+fn floating_window_dimensions_event_sets_initial_geometry() {
+    let mut harness = Harness::new();
+    harness.add_output();
+    harness.rule(&["float"]);
+    let window = harness.add_window();
+    harness.manage();
+
+    // Floating window receives zero proposal initially
+    assert_eq!(harness.proposals(&window), [(0, 0)]);
+
+    // Client selects 640x480
+    harness.event(
+        &window,
+        window::EVT_DIMENSIONS_OPCODE,
+        vec![Argument::Int(640), Argument::Int(480)],
+    );
+    harness.dispatch_events();
+
+    let win_item = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == window.protocol_id())
+        .unwrap();
+
+    assert_eq!(win_item.width, 640);
+    assert_eq!(win_item.height, 480);
+    assert_eq!(win_item.effective_width(), 640);
+    assert_eq!(win_item.effective_height(), 480);
+    assert_eq!(win_item.float_geo.unwrap().width, 640);
+    assert_eq!(win_item.float_geo.unwrap().height, 480);
+}
