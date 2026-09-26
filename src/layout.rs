@@ -262,4 +262,5 @@ impl Layout for MasterStackLayout {
 }
 
 #[cfg(test)]
+#[path = "layout_test.rs"]
 mod tests;
