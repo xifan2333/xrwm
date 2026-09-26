@@ -37,6 +37,7 @@ jobs:
           echo "tag=${latest_tag}" >> "$GITHUB_OUTPUT"
           echo "Latest release identified: ${latest_tag} (version ${version}) for aur/xrwm-bin"
 
+      # aur-auto supports skip_publish=true to perform full packaging validation without pushing to AUR.
       - name: Trigger AUR xrwm-bin publish
         env:
           GH_TOKEN: ${{ secrets.AUR_AUTO_PAT }}
