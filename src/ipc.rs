@@ -478,6 +478,60 @@ fn validate_ratio_arg(arg: &str) -> Result<(), String> {
     Ok(())
 }
 
+struct ParsedRuleArgs {
+    app_id: Option<String>,
+    title: Option<String>,
+    action: Vec<String>,
+}
+
+fn parse_rule_args(args: &[String], is_add: bool) -> Result<ParsedRuleArgs, String> {
+    let cmd_name = if is_add { "rule-add" } else { "rule-del" };
+    let mut app_id = None;
+    let mut title = None;
+    let mut action_tokens = Vec::new();
+    let mut i = 1;
+
+    while i < args.len() {
+        match args[i].as_str() {
+            "-app-id" => {
+                i += 1;
+                if i < args.len() {
+                    app_id = Some(args[i].clone());
+                } else {
+                    return Err(format!("Missing value for -app-id in {cmd_name}"));
+                }
+            }
+            "-title" => {
+                i += 1;
+                if i < args.len() {
+                    title = Some(args[i].clone());
+                } else {
+                    return Err(format!("Missing value for -title in {cmd_name}"));
+                }
+            }
+            val => {
+                action_tokens.push(val.to_string());
+            }
+        }
+        i += 1;
+    }
+
+    if action_tokens.is_empty() {
+        let usage = if is_add {
+            "Usage: xrwm rule-add [-app-id <id>] [-title <title>] <action> [args...]"
+        } else {
+            "Usage: xrwm rule-del [-app-id <id>] [-title <title>] <action>"
+        };
+        return Err(usage.to_string());
+    }
+
+    Ok(ParsedRuleArgs {
+        app_id,
+        title,
+        action: action_tokens,
+    })
+}
+
 pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
     if args.is_empty() {
         return Err("No arguments provided".to_string());
@@ -806,80 +860,19 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
             })
         }
         "rule-add" => {
-            let mut app_id = None;
-            let mut title = None;
-            let mut action_tokens = Vec::new();
-            let mut i = 1;
-
-            while i < args.len() {
-                match args[i].as_str() {
-                    "-app-id" => {
-                        i += 1;
-                        if i < args.len() {
-                            app_id = Some(args[i].clone());
-                        }
-                    }
-                    "-title" => {
-                        i += 1;
-                        if i < args.len() {
-                            title = Some(args[i].clone());
-                        }
-                    }
-                    val => {
-                        action_tokens.push(val.to_string());
-                    }
-                }
-                i += 1;
-            }
-
-            if action_tokens.is_empty() {
-                return Err(
-                    "Usage: xrwm rule-add [-app-id <id>] [-title <title>] <action> [args...]"
-                        .to_string(),
-                );
-            }
+            let parsed = parse_rule_args(args, true)?;
             Ok(IpcCommand::RuleAdd {
-                app_id,
-                title,
-                action: action_tokens,
+                app_id: parsed.app_id,
+                title: parsed.title,
+                action: parsed.action,
             })
         }
         "rule-del" => {
-            let mut app_id = None;
-            let mut title = None;
-            let mut action_tokens = Vec::new();
-            let mut i = 1;
-
-            while i < args.len() {
-                match args[i].as_str() {
-                    "-app-id" => {
-                        i += 1;
-                        if i < args.len() {
-                            app_id = Some(args[i].clone());
-                        }
-                    }
-                    "-title" => {
-                        i += 1;
-                        if i < args.len() {
-                            title = Some(args[i].clone());
-                        }
-                    }
-                    val => {
-                        action_tokens.push(val.to_string());
-                    }
-                }
-                i += 1;
-            }
-
-            if action_tokens.is_empty() {
-                return Err(
-                    "Usage: xrwm rule-del [-app-id <id>] [-title <title>] <action>".to_string(),
-                );
-            }
+            let parsed = parse_rule_args(args, false)?;
             Ok(IpcCommand::RuleDel {
-                app_id,
-                title,
-                action: action_tokens,
+                app_id: parsed.app_id,
+                title: parsed.title,
+                action: parsed.action,
             })
         }
         "list-rules" => {
