@@ -498,7 +498,11 @@ fn parse_rule_args(args: &[String], is_add: bool) -> Result<ParsedRuleArgs, Stri
             "-app-id" => {
                 i += 1;
                 if i < args.len() {
-                    app_id = Some(args[i].clone());
+                    let val = &args[i];
+                    if val == "-title" || val == "-app-id" {
+                        return Err(format!("Missing value for -app-id in {cmd_name}"));
+                    }
+                    app_id = Some(val.clone());
                 } else {
                     return Err(format!("Missing value for -app-id in {cmd_name}"));
                 }
@@ -506,7 +510,11 @@ fn parse_rule_args(args: &[String], is_add: bool) -> Result<ParsedRuleArgs, Stri
             "-title" => {
                 i += 1;
                 if i < args.len() {
-                    title = Some(args[i].clone());
+                    let val = &args[i];
+                    if val == "-app-id" || val == "-title" {
+                        return Err(format!("Missing value for -title in {cmd_name}"));
+                    }
+                    title = Some(val.clone());
                 } else {
                     return Err(format!("Missing value for -title in {cmd_name}"));
                 }
@@ -1673,6 +1681,25 @@ mod tests {
         ])
         .unwrap_err();
         assert!(err5.contains("Missing value for -title in rule-add"));
+
+        // Consecutive options: -app-id followed immediately by -title must be rejected
+        let err_consecutive1 = parse_cli_args(&[
+            "rule-add".into(),
+            "-app-id".into(),
+            "-title".into(),
+            "float".into(),
+        ])
+        .unwrap_err();
+        assert!(err_consecutive1.contains("Missing value for -app-id in rule-add"));
+
+        let err_consecutive2 = parse_cli_args(&[
+            "rule-del".into(),
+            "-title".into(),
+            "-app-id".into(),
+            "float".into(),
+        ])
+        .unwrap_err();
+        assert!(err_consecutive2.contains("Missing value for -title in rule-del"));
 
         // Valid combinations work as expected regardless of position
         let ok1 = parse_cli_args(&[
