@@ -548,6 +548,9 @@ impl AppState {
             if current_tags {
                 w.tags = dest_tags;
             }
+            if w.fullscreen {
+                w.pending_fullscreen_change = true;
+            }
             self.manage_dirty();
             Ok(format!("sent window {id} to output {:?}", out_id))
         } else {
