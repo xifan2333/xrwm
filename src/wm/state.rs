@@ -1678,7 +1678,7 @@ impl AppState {
 
             if is_in_current || is_in_old {
                 let is_interactive = active_move_proxy.as_ref() == Some(&w.proxy);
-                let target = Rect::new(w.x, w.y, w.effective_width(), w.effective_height());
+                let target = Rect::new(w.x, w.y, w.width, w.height);
 
                 let (render_geo, is_visible) = if is_interactive {
                     w.proxy.set_clip_box(0, 0, 0, 0);
