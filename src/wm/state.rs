@@ -862,7 +862,7 @@ impl AppState {
             }
         }
 
-        // Apply any pending fullscreen requests
+        // Apply any pending fullscreen requests (synchronizing compositor state and client notifications)
         for w in &mut self.windows {
             if w.pending_fullscreen_change {
                 if w.fullscreen {
