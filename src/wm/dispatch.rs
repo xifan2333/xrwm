@@ -248,12 +248,17 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
             Event::Dimensions { width, height } => {
                 let w = width as u32;
                 let h = height as u32;
+                let is_resizing = state.seats.values().any(|s| {
+                    matches!(&s.op, crate::wm::seat::SeatOp::Resize { proxy: p, .. } if p == proxy)
+                });
                 if let Some(win) = state.windows.iter_mut().find(|win| &win.proxy == proxy) {
                     win.content_width = Some(w);
                     win.content_height = Some(h);
-                    if win.floating && (win.width == 0 || win.height == 0) {
+                    if win.floating && !is_resizing {
                         win.width = w;
                         win.height = h;
+                        win.last_proposed_w = Some(w);
+                        win.last_proposed_h = Some(h);
                         win.float_geo = Some(Rect::new(win.x, win.y, w, h));
                     }
                 }
