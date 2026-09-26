@@ -1631,4 +1631,57 @@ mod tests {
             assert!(parse_cli_args(&[cmd.into(), "-0.05".into()]).is_ok());
         }
     }
+
+    #[test]
+    fn test_parse_cli_args_rule_missing_selector_value() {
+        // -app-id at the end of rule-add with action already present
+        let err1 =
+            parse_cli_args(&["rule-add".into(), "float".into(), "-app-id".into()]).unwrap_err();
+        assert!(err1.contains("Missing value for -app-id in rule-add"));
+
+        // -title at the end of rule-add with action already present
+        let err2 =
+            parse_cli_args(&["rule-add".into(), "float".into(), "-title".into()]).unwrap_err();
+        assert!(err2.contains("Missing value for -title in rule-add"));
+
+        // -app-id at the end of rule-del with action already present
+        let err3 =
+            parse_cli_args(&["rule-del".into(), "float".into(), "-app-id".into()]).unwrap_err();
+        assert!(err3.contains("Missing value for -app-id in rule-del"));
+
+        // -title at the end of rule-del with action already present
+        let err4 =
+            parse_cli_args(&["rule-del".into(), "float".into(), "-title".into()]).unwrap_err();
+        assert!(err4.contains("Missing value for -title in rule-del"));
+
+        // Combination: valid -app-id followed by missing -title
+        let err5 = parse_cli_args(&[
+            "rule-add".into(),
+            "-app-id".into(),
+            "firefox".into(),
+            "float".into(),
+            "-title".into(),
+        ])
+        .unwrap_err();
+        assert!(err5.contains("Missing value for -title in rule-add"));
+
+        // Valid combinations work as expected regardless of position
+        let ok1 = parse_cli_args(&[
+            "rule-add".into(),
+            "float".into(),
+            "-app-id".into(),
+            "firefox".into(),
+            "-title".into(),
+            "Picture-in-Picture".into(),
+        ])
+        .unwrap();
+        assert_eq!(
+            ok1,
+            IpcCommand::RuleAdd {
+                app_id: Some("firefox".into()),
+                title: Some("Picture-in-Picture".into()),
+                action: vec!["float".into()],
+            }
+        );
+    }
 }
