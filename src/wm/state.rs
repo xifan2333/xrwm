@@ -424,12 +424,15 @@ impl AppState {
     pub fn attach_window(&mut self, item: WindowItem) {
         let focused_id = self.focused_window_id();
         let target_out = item.output.clone();
+        let is_floating = item.floating;
 
         let output_indices: Vec<usize> = self
             .windows
             .iter()
             .enumerate()
-            .filter(|(_, w)| target_out.is_none() || w.output == target_out)
+            .filter(|(_, w)| {
+                (target_out.is_none() || w.output == target_out) && w.floating == is_floating
+            })
             .map(|(i, _)| i)
             .collect();
 
@@ -1678,7 +1681,7 @@ impl AppState {
 
             if is_in_current || is_in_old {
                 let is_interactive = active_move_proxy.as_ref() == Some(&w.proxy);
-                let target = Rect::new(w.x, w.y, w.effective_width(), w.effective_height());
+                let target = Rect::new(w.x, w.y, w.width, w.height);
 
                 let (render_geo, is_visible) = if is_interactive {
                     w.proxy.set_clip_box(0, 0, 0, 0);
@@ -1725,7 +1728,26 @@ impl AppState {
                 } else if is_animating && w.anim_start_geo.is_some_and(|start| start != target) {
                     let start = w.anim_start_geo.unwrap_or(target);
                     let geo = interpolate_rect(start, target, progress);
-                    if let Some((cx, cy, cw, ch)) =
+                    let b = border_width.max(0) as i64;
+                    let win_left = geo.x as i64 - b;
+                    let win_right = geo.x as i64 + geo.width as i64 + b;
+                    let win_top = geo.y as i64 - b;
+                    let win_bottom = geo.y as i64 + geo.height as i64 + b;
+
+                    let scr_left = usable_area.x as i64;
+                    let scr_right = usable_area.x as i64 + usable_area.width as i64;
+                    let scr_top = usable_area.y as i64;
+                    let scr_bottom = usable_area.y as i64 + usable_area.height as i64;
+
+                    let is_fully_inside = win_left >= scr_left
+                        && win_top >= scr_top
+                        && win_right <= scr_right
+                        && win_bottom <= scr_bottom;
+
+                    if is_fully_inside {
+                        w.proxy.set_clip_box(0, 0, 0, 0);
+                        (geo, true)
+                    } else if let Some((cx, cy, cw, ch)) =
                         calculate_clip_box(geo, usable_area, border_width)
                     {
                         w.proxy.set_clip_box(cx, cy, cw, ch);
