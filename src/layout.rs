@@ -70,9 +70,9 @@ impl Layout for MasterStackLayout {
             return Vec::new();
         }
 
-        // Monocle mode fills the entire usable area
+        // Monocle mode fills the entire usable area for all windows
         if config.monocle {
-            return vec![usable_area];
+            return vec![usable_area; count];
         }
 
         let max_op = ((usable_area.width.min(usable_area.height) / 2).saturating_sub(1)) as i32;
@@ -296,7 +296,7 @@ mod tests {
         };
         let area = Rect::new(0, 0, 1920, 1080);
         let rects = layout.arrange(area, 3, &config);
-        assert_eq!(rects, vec![area]);
+        assert_eq!(rects, vec![area; 3]);
     }
 
     #[test]
