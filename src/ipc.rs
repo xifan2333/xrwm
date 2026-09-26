@@ -17,6 +17,7 @@ pub enum IpcCommand {
     Close,
     ToggleFloat,
     ToggleFullscreen,
+    ToggleMonocle,
     Zoom,
     FocusView {
         direction: String,
@@ -105,6 +106,7 @@ pub enum IpcCommand {
     Exit,
     Reload,
     Ping,
+    Spawn(Vec<String>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -542,6 +544,7 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
         "close" => Ok(IpcCommand::Close),
         "toggle-float" => Ok(IpcCommand::ToggleFloat),
         "toggle-fullscreen" => Ok(IpcCommand::ToggleFullscreen),
+        "toggle-monocle" => Ok(IpcCommand::ToggleMonocle),
         "zoom" => Ok(IpcCommand::Zoom),
         "focus-view" => {
             let mut skip_floating = false;
@@ -811,6 +814,12 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
         }
         "exit" => Ok(IpcCommand::Exit),
         "reload" => Ok(IpcCommand::Reload),
+        "spawn" => {
+            if args.len() < 2 {
+                return Err("Usage: xrwm spawn <command> [args...]".to_string());
+            }
+            Ok(IpcCommand::Spawn(args[1..].to_vec()))
+        }
         "map" => {
             if args.len() < 5 {
                 return Err("Usage: xrwm map <mode> <modifiers> <key> <action...>".to_string());
@@ -1682,6 +1691,20 @@ mod tests {
                 title: Some("Picture-in-Picture".into()),
                 action: vec!["float".into()],
             }
+        );
+    }
+
+    #[test]
+    fn test_parse_cli_args_spawn_and_monocle() {
+        assert_eq!(
+            parse_cli_args(&["spawn".into(), "foot".into(), "-e".into(), "top".into()]).unwrap(),
+            IpcCommand::Spawn(vec!["foot".into(), "-e".into(), "top".into()])
+        );
+        assert!(parse_cli_args(&["spawn".into()]).is_err());
+
+        assert_eq!(
+            parse_cli_args(&["toggle-monocle".into()]).unwrap(),
+            IpcCommand::ToggleMonocle
         );
     }
 }
