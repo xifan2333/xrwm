@@ -178,7 +178,3 @@ impl SeatItem {
         self.focused = proxy;
     }
 }
-
-#[cfg(test)]
-#[path = "seat_test.rs"]
-mod tests;

@@ -260,7 +260,3 @@ impl Layout for MasterStackLayout {
         rects
     }
 }
-
-#[cfg(test)]
-#[path = "layout_test.rs"]
-mod tests;

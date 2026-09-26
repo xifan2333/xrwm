@@ -1,4 +1,6 @@
-use super::*;
+#![allow(clippy::unwrap_used)]
+
+use xrwm::tag::*;
 
 #[test]
 fn test_tag_masks() {

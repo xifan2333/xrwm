@@ -1735,9 +1735,4 @@ pub fn reap_zombies() {
     }
 }
 
-#[cfg(test)]
-pub(crate) static PROCESS_TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-#[cfg(test)]
-#[path = "state_test.rs"]
-mod tests;
+pub static PROCESS_TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());

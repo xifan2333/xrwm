@@ -156,7 +156,3 @@ pub struct ActiveKeyBinding {
     pub keysym: u32,
     pub action: Vec<String>,
 }
-
-#[cfg(test)]
-#[path = "binds_test.rs"]
-mod tests;

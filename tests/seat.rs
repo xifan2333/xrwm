@@ -1,4 +1,6 @@
-use super::*;
+#![allow(clippy::unwrap_used)]
+
+use xrwm::seat::*;
 
 #[test]
 fn test_cursor_warp_parse() {

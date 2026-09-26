@@ -1413,7 +1413,3 @@ impl AppState {
         self.execute_action_tokens(&action);
     }
 }
-
-#[cfg(test)]
-#[path = "actions_test.rs"]
-mod tests;

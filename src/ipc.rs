@@ -131,9 +131,9 @@ impl IpcResponse {
     }
 }
 
-pub(crate) const MAX_SUN_LEN: usize = 107; // 108 bytes minus null terminator
+pub const MAX_SUN_LEN: usize = 107; // 108 bytes minus null terminator
 
-fn fnv1a_64(bytes: &[u8]) -> u64 {
+pub fn fnv1a_64(bytes: &[u8]) -> u64 {
     const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
     const FNV_PRIME: u64 = 0x100000001b3;
 
@@ -145,7 +145,7 @@ fn fnv1a_64(bytes: &[u8]) -> u64 {
     hash
 }
 
-fn is_safe_relative_name(name: &str) -> bool {
+pub fn is_safe_relative_name(name: &str) -> bool {
     if name.is_empty() || name.len() > 32 {
         return false;
     }
@@ -277,9 +277,9 @@ pub fn create_ipc_server() -> std::io::Result<UnixListener> {
 }
 
 pub struct IpcServerGuard {
-    path: PathBuf,
-    ino: u64,
-    dev: u64,
+    pub path: PathBuf,
+    pub ino: u64,
+    pub dev: u64,
 }
 
 impl IpcServerGuard {
@@ -907,7 +907,3 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
         other => Err(format!("Unknown command: {other}")),
     }
 }
-
-#[cfg(test)]
-#[path = "ipc_test.rs"]
-mod tests;
