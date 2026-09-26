@@ -57,6 +57,10 @@ When returning to floating, preserves its previous floating geometry.
 \f[B]toggle\-fullscreen\f[R]
 Toggles fullscreen state on the focused window.
 .TP
+\f[B]toggle\-monocle\f[R]
+Toggles monocle layout mode on the current output, maximizing all tiled
+windows to fill the usable area.
+.TP
 \f[B]focus\-view\f[R] [\f[B]\-skip\-floating\f[R]] \f[I]direction\f[R]
 Shifts window focus in the specified direction.
 Supported directions are \f[B]next\f[R], \f[B]previous\f[R] (or
@@ -97,9 +101,10 @@ Converts the focused window to floating and snaps it to cover the
 corresponding half of the screen (50% width on left/right, or 50% height
 on up/down).
 .TP
-\f[B]spawn\f[R] \f[I]command\f[R]
-Spawns an external application process with arguments (typically used in
-keybindings: \f[CR]map normal Super Return spawn foot\f[R]).
+\f[B]spawn\f[R] \f[I]command\f[R] [\f[I]args\&...\f[R]]
+Spawns an external application process with optional arguments.
+Can be executed as an independent command (\f[CR]xrwm spawn foot\f[R])
+or bound to hotkeys (\f[CR]map normal Super Return spawn foot\f[R]).
 .TP
 \f[B]exit\f[R]
 Terminates the \f[B]xrwm\f[R] window manager daemon.
@@ -199,7 +204,9 @@ Sets the border color of the focused window (hex format
 Sets the border color of unfocused windows.
 .TP
 \f[B]border\-color\-urgent\f[R] \f[I]color\f[R]
-Sets the border color of windows demanding urgency attention.
+Sets the border color reserved for windows demanding urgency attention.
+(Reserved for future protocol revisions; standard
+river\-window\-management\-v1 does not yet emit window urgency events).
 .TP
 \f[B]set\-cursor\-warp\f[R] \f[B]disabled\f[R]|\f[B]on\-output\-change\f[R]|\f[B]on\-focus\-change\f[R]
 Configures cursor warp policy:

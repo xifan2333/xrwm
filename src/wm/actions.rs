@@ -250,6 +250,18 @@ impl AppState {
         }
     }
 
+    /// Toggles monocle layout mode (maximizing all tiled views).
+    pub fn toggle_monocle(&mut self) -> Result<String, String> {
+        self.layout_config.monocle = !self.layout_config.monocle;
+        self.manage_dirty();
+        let state = if self.layout_config.monocle {
+            "enabled"
+        } else {
+            "disabled"
+        };
+        Ok(format!("monocle mode {state}"))
+    }
+
     /// Bumps the focused window to the master position in the layout stack.
     /// If the view on the top of the stack is already focused, bumps the second view to top (matching river-classic).
     pub fn zoom_focused(&mut self) -> Result<String, String> {
@@ -1279,6 +1291,7 @@ impl AppState {
             IpcCommand::Close => self.close_focused(),
             IpcCommand::ToggleFloat => self.toggle_float_focused(),
             IpcCommand::ToggleFullscreen => self.toggle_fullscreen_focused(),
+            IpcCommand::ToggleMonocle => self.toggle_monocle(),
             IpcCommand::Zoom => self.zoom_focused(),
             IpcCommand::FocusView {
                 direction,
@@ -1593,6 +1606,19 @@ impl AppState {
                 spawn_init_script();
                 Ok("reloaded init script".to_string())
             }
+            IpcCommand::Spawn(args) => {
+                if args.is_empty() {
+                    return Err("spawn command requires a program to run".to_string());
+                }
+                reap_zombies();
+                let prog = &args[0];
+                let prog_args = &args[1..];
+                std::process::Command::new(prog)
+                    .args(prog_args)
+                    .spawn()
+                    .map_err(|e| format!("failed to spawn {prog}: {e}"))?;
+                Ok(format!("spawned {prog}"))
+            }
             IpcCommand::Exit => {
                 self.should_exit = true;
                 Ok("exiting".to_string())
@@ -1801,6 +1827,23 @@ mod tests {
             .handle_ipc_command(&IpcCommand::AnimationDuration(200))
             .unwrap();
         assert_eq!(state.anim.duration, Duration::from_millis(200));
+
+        assert!(!state.layout_config.monocle);
+        let res_monocle = state
+            .handle_ipc_command(&IpcCommand::ToggleMonocle)
+            .unwrap();
+        assert_eq!(res_monocle, "monocle mode enabled");
+        assert!(state.layout_config.monocle);
+        let res_monocle2 = state
+            .handle_ipc_command(&IpcCommand::ToggleMonocle)
+            .unwrap();
+        assert_eq!(res_monocle2, "monocle mode disabled");
+        assert!(!state.layout_config.monocle);
+
+        let res_spawn = state.handle_ipc_command(&IpcCommand::Spawn(vec!["true".into()]));
+        assert!(res_spawn.is_ok());
+        let res_spawn_empty = state.handle_ipc_command(&IpcCommand::Spawn(vec![]));
+        assert!(res_spawn_empty.is_err());
     }
 
     #[test]

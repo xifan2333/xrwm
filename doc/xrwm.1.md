@@ -63,6 +63,9 @@ preserves its previous floating geometry.
 **toggle-fullscreen**
 : Toggles fullscreen state on the focused window.
 
+**toggle-monocle**
+: Toggles monocle layout mode on the current output, maximizing all tiled windows to fill the usable area.
+
 **focus-view** [**-skip-floating**] _direction_
 : Shifts window focus in the specified direction. Supported directions are
 **next**, **previous** (or **prev**), **left**, **right**, **up**, and **down**.
@@ -93,8 +96,8 @@ match the active tags of the destination output.
 : Converts the focused window to floating and snaps it to cover the corresponding
 half of the screen (50% width on left/right, or 50% height on up/down).
 
-**spawn** _command_
-: Spawns an external application process with arguments (typically used in keybindings: `map normal Super Return spawn foot`).
+**spawn** _command_ [_args..._]
+: Spawns an external application process with optional arguments. Can be executed as an independent command (`xrwm spawn foot`) or bound to hotkeys (`map normal Super Return spawn foot`).
 
 **exit**
 : Terminates the **xrwm** window manager daemon.
@@ -174,7 +177,7 @@ Can be absolute (e.g. `0.65`) or relative (e.g. `+0.05`, `-0.05`). Defaults to `
 : Sets the border color of unfocused windows.
 
 **border-color-urgent** _color_
-: Sets the border color of windows demanding urgency attention.
+: Sets the border color reserved for windows demanding urgency attention. (Reserved for future protocol revisions; standard river-window-management-v1 does not yet emit window urgency events).
 
 **set-cursor-warp** **disabled**|**on-output-change**|**on-focus-change**
 : Configures cursor warp policy:

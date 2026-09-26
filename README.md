@@ -155,7 +155,7 @@ xrwm default-attach-mode top
 xrwm border-width 2
 xrwm border-color-focused '#61afef'
 xrwm border-color-unfocused '#4b5263'
-xrwm border-color-urgent '#e06c75'
+xrwm border-color-urgent '#e06c75' # Reserved for urgency-aware compositors
 xrwm focus-follows-cursor normal
 xrwm set-cursor-warp on-output-change
 xrwm animation true
@@ -166,6 +166,7 @@ xrwm map normal Super Return spawn foot
 xrwm map normal Super W close
 xrwm map normal Super P toggle-float
 xrwm map normal Super F toggle-fullscreen
+xrwm map normal Super M toggle-monocle
 xrwm map normal "Super+Shift" Return zoom
 
 # 4. Tags 1 to 9 (river-classic bitmask loop)
