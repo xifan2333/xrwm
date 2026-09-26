@@ -250,15 +250,24 @@ impl AppState {
         }
     }
 
-    /// Toggles monocle layout mode (maximizing all tiled views).
+    /// Toggles monocle layout mode on the focused output (maximizing all tiled views).
     pub fn toggle_monocle(&mut self) -> Result<String, String> {
-        self.layout_config.monocle = !self.layout_config.monocle;
-        self.manage_dirty();
-        let state = if self.layout_config.monocle {
-            "enabled"
+        let focused_out = self.get_focused_output_id();
+        let is_monocle = if let Some(ref out_id) = focused_out {
+            if let Some(out) = self.outputs.get_mut(out_id) {
+                out.monocle = !out.monocle;
+                out.monocle
+            } else {
+                self.layout_config.monocle = !self.layout_config.monocle;
+                self.layout_config.monocle
+            }
         } else {
-            "disabled"
+            self.layout_config.monocle = !self.layout_config.monocle;
+            self.layout_config.monocle
         };
+        self.layout_config.monocle = is_monocle;
+        self.manage_dirty();
+        let state = if is_monocle { "enabled" } else { "disabled" };
         Ok(format!("monocle mode {state}"))
     }
 
@@ -454,13 +463,7 @@ impl AppState {
                     }
                 }
 
-                best_id.or_else(|| {
-                    if current_in_candidates.is_none() {
-                        candidates.first().map(|w| w.id)
-                    } else {
-                        None
-                    }
-                })
+                best_id
             }
         }
     }
