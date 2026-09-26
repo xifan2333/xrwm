@@ -233,6 +233,7 @@ pub struct OutputItem {
     pub height: u32,
     pub tag_state: TagState,
     pub previous_focused_tags: TagMask,
+    pub monocle: bool,
 }
 
 pub struct AppState {
@@ -1454,8 +1455,12 @@ impl AppState {
                 }
             }
 
-            let rects =
-                layout_engine.arrange(usable_area, tiled_indices.len(), &self.layout_config);
+            let mut out_layout_config = self.layout_config.clone();
+            if let Some(out) = self.outputs.get(&out_id) {
+                out_layout_config.monocle = out.monocle;
+            }
+
+            let rects = layout_engine.arrange(usable_area, tiled_indices.len(), &out_layout_config);
 
             for (slot, &idx) in tiled_indices.iter().enumerate() {
                 if let Some(rect) = rects.get(slot) {
