@@ -877,6 +877,8 @@ impl AppState {
                     }
                 } else {
                     w.proxy.exit_fullscreen();
+                    w.last_proposed_w = None;
+                    w.last_proposed_h = None;
                 }
                 w.pending_fullscreen_change = false;
             }
