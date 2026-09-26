@@ -3,56 +3,58 @@ name: channels
 on:
   workflow_dispatch:
     inputs:
-      ref:
-        description: "Git ref to publish from"
-        required: true
-        default: "main"
-      version:
-        description: "Release version override (defaults to Cargo.toml)"
+      dry_run:
+        description: "Dry-run mode (skip actual AUR publishing)"
         required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: channels-${{ inputs.ref }}
+  group: channels-aur-xrwm-bin
   cancel-in-progress: false
 
 jobs:
   aur:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.ref }}
-
-      - name: Resolve version from Cargo.toml
-        id: meta
-        shell: bash
+      # aur-auto (pkgs/xrwm-bin/upstream.sh) queries /releases/latest to build aur/xrwm-bin.
+      # We query the latest release tag here so the logged target version strictly matches downstream.
+      - name: Query latest GitHub release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if [[ -n "${{ inputs.version }}" ]]; then
-            version="${{ inputs.version }}"
-          else
-            version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
-          fi
-
-          if [[ -z "${version}" ]]; then
-            echo "Failed to extract version from Cargo.toml" >&2
+          latest_tag=$(gh release view --repo "${{ github.repository }}" --json tagName -q .tagName 2>/dev/null || true)
+          if [[ -z "${latest_tag}" ]]; then
+            echo "No release found on ${{ github.repository }}" >&2
             exit 1
           fi
-
+          version="${latest_tag#v}"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "Publishing version ${version} to AUR (aur/xrwm-bin)"
+          echo "tag=${latest_tag}" >> "$GITHUB_OUTPUT"
+          echo "Latest release identified: ${latest_tag} (version ${version}) for aur/xrwm-bin"
 
+      # aur-auto supports skip_publish=true to perform full packaging validation without pushing to AUR.
       - name: Trigger AUR xrwm-bin publish
         env:
           GH_TOKEN: ${{ secrets.AUR_AUTO_PAT }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           if [[ -z "${GH_TOKEN}" ]]; then
             echo "AUR_AUTO_PAT secret is not set; skipping automated downstream dispatch."
             exit 0
           fi
+          extra_args=()
+          if [[ "${DRY_RUN}" == "true" ]]; then
+            extra_args+=(--field skip_publish=true)
+            echo "Dry-run enabled: forwarding skip_publish=true to aur-auto."
+          fi
+          echo "Triggering aur-auto for xrwm-bin (target version: ${{ steps.release.outputs.version }})..."
           gh workflow run build-and-publish.yml \
             --repo xifan2333/aur-auto \
             --field package=xrwm-bin \
-            --field force=true
+            --field force=true \
+            "${extra_args[@]}"
