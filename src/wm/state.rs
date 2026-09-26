@@ -195,6 +195,8 @@ pub struct WindowItem {
     pub y: i32,
     pub width: u32,
     pub height: u32,
+    pub content_width: Option<u32>,
+    pub content_height: Option<u32>,
     // Animation & visual geometry tracking
     pub visual_geo: Option<Rect>,
     pub anim_start_geo: Option<Rect>,
@@ -202,6 +204,18 @@ pub struct WindowItem {
     // None means no proposal has been sent; zero lets the client choose its size.
     pub last_proposed_w: Option<u32>,
     pub last_proposed_h: Option<u32>,
+}
+
+impl WindowItem {
+    #[inline]
+    pub fn effective_width(&self) -> u32 {
+        self.content_width.unwrap_or(self.width)
+    }
+
+    #[inline]
+    pub fn effective_height(&self) -> u32 {
+        self.content_height.unwrap_or(self.height)
+    }
 }
 
 #[derive(Debug)]

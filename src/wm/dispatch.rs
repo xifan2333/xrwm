@@ -142,6 +142,8 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                     y: 0,
                     width: 0,
                     height: 0,
+                    content_width: None,
+                    content_height: None,
                     visual_geo: None,
                     anim_start_geo: None,
                     anim_target_geo: None,
@@ -237,7 +239,20 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
                 }
                 state.manage_dirty();
             }
-            Event::Dimensions { .. } => {}
+            Event::Dimensions { width, height } => {
+                let w = width as u32;
+                let h = height as u32;
+                if let Some(win) = state.windows.iter_mut().find(|win| &win.proxy == proxy) {
+                    win.content_width = Some(w);
+                    win.content_height = Some(h);
+                    if win.floating && (win.width == 0 || win.height == 0) {
+                        win.width = w;
+                        win.height = h;
+                        win.float_geo = Some(Rect::new(win.x, win.y, w, h));
+                    }
+                }
+                state.manage_dirty();
+            }
             _ => {}
         }
     }
