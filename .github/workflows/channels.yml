@@ -20,6 +20,8 @@ jobs:
   aur:
     runs-on: ubuntu-latest
     steps:
+      # aur-auto (pkgs/xrwm-bin/upstream.sh) queries /releases/latest to build aur/xrwm-bin.
+      # We query the latest release tag here so the logged target version strictly matches downstream.
       - name: Query latest GitHub release
         id: release
         env:
