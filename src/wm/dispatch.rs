@@ -258,7 +258,10 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
                 if let Some(win) = state.windows.iter_mut().find(|win| &win.proxy == proxy) {
                     win.content_width = Some(w);
                     win.content_height = Some(h);
-                    if win.floating && !is_resizing {
+                    let has_pending_local_target =
+                        win.last_proposed_w.is_some_and(|pw| pw != win.width)
+                            || win.last_proposed_h.is_some_and(|ph| ph != win.height);
+                    if win.floating && !is_resizing && !has_pending_local_target {
                         win.width = w;
                         win.height = h;
                         win.last_proposed_w = Some(w);

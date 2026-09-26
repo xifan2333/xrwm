@@ -1728,12 +1728,21 @@ impl AppState {
                 } else if is_animating && w.anim_start_geo.is_some_and(|start| start != target) {
                     let start = w.anim_start_geo.unwrap_or(target);
                     let geo = interpolate_rect(start, target, progress);
-                    let is_fully_inside = (geo.x - border_width) >= usable_area.x
-                        && (geo.y - border_width) >= usable_area.y
-                        && (geo.x + geo.width as i32 + border_width)
-                            <= (usable_area.x + usable_area.width as i32)
-                        && (geo.y + geo.height as i32 + border_width)
-                            <= (usable_area.y + usable_area.height as i32);
+                    let b = border_width.max(0) as i64;
+                    let win_left = geo.x as i64 - b;
+                    let win_right = geo.x as i64 + geo.width as i64 + b;
+                    let win_top = geo.y as i64 - b;
+                    let win_bottom = geo.y as i64 + geo.height as i64 + b;
+
+                    let scr_left = usable_area.x as i64;
+                    let scr_right = usable_area.x as i64 + usable_area.width as i64;
+                    let scr_top = usable_area.y as i64;
+                    let scr_bottom = usable_area.y as i64 + usable_area.height as i64;
+
+                    let is_fully_inside = win_left >= scr_left
+                        && win_top >= scr_top
+                        && win_right <= scr_right
+                        && win_bottom <= scr_bottom;
 
                     if is_fully_inside {
                         w.proxy.set_clip_box(0, 0, 0, 0);
