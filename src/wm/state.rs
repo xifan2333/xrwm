@@ -862,7 +862,7 @@ impl AppState {
             }
         }
 
-        // Apply any pending fullscreen requests
+        // Apply any pending fullscreen requests (synchronizing compositor state and client notifications)
         for w in &mut self.windows {
             if w.pending_fullscreen_change {
                 if w.fullscreen {
@@ -875,8 +875,10 @@ impl AppState {
                     if let Some(out) = out_proxy {
                         w.proxy.fullscreen(out);
                     }
+                    w.proxy.inform_fullscreen();
                 } else {
                     w.proxy.exit_fullscreen();
+                    w.proxy.inform_not_fullscreen();
                     // Invalidate proposal cache so the current manage sequence reliably submits
                     // propose_dimensions for the restored layout/floating geometry (River protocol requirement).
                     w.last_proposed_w = None;

@@ -2372,3 +2372,52 @@ fn exit_fullscreen_immediately_submits_propose_dimensions_for_tiled_and_floating
         assert_eq!(harness.proposals(&win), [expected_size]);
     }
 }
+
+#[test]
+fn fullscreen_transitions_send_inform_fullscreen_and_not_fullscreen() {
+    let mut harness = Harness::new();
+    harness.add_output();
+    let _seat = harness.add_seat();
+
+    let win = harness.add_window();
+    harness.manage();
+
+    let seat_item = harness.state.seats.values_mut().next().unwrap();
+    seat_item.set_focused_window(Some(harness.state.windows[0].proxy.clone()));
+
+    // 1. Toggle fullscreen to enter: sends fullscreen(output) AND inform_fullscreen()
+    harness.state.toggle_fullscreen_focused().unwrap();
+    harness.server.requests.clear();
+    harness.manage();
+
+    assert!(harness.state.windows[0].fullscreen);
+    assert!(harness.has_window_request(&win, window::REQ_FULLSCREEN_OPCODE));
+    assert!(harness.has_window_request(&win, window::REQ_INFORM_FULLSCREEN_OPCODE));
+    assert!(!harness.has_window_request(&win, window::REQ_INFORM_NOT_FULLSCREEN_OPCODE));
+
+    // 2. Toggle fullscreen to exit: sends exit_fullscreen() AND inform_not_fullscreen()
+    harness.state.toggle_fullscreen_focused().unwrap();
+    harness.server.requests.clear();
+    harness.manage();
+
+    assert!(!harness.state.windows[0].fullscreen);
+    assert!(harness.has_window_request(&win, window::REQ_EXIT_FULLSCREEN_OPCODE));
+    assert!(harness.has_window_request(&win, window::REQ_INFORM_NOT_FULLSCREEN_OPCODE));
+    assert!(!harness.has_window_request(&win, window::REQ_INFORM_FULLSCREEN_OPCODE));
+
+    // 3. Window matching fullscreen rule: sends inform_fullscreen() upon initial management
+    harness.rule(&["fullscreen"]);
+    let win_rule = harness.add_window();
+    harness.server.requests.clear();
+    harness.manage();
+
+    let rule_window = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == win_rule.protocol_id())
+        .unwrap();
+    assert!(rule_window.fullscreen);
+    assert!(harness.has_window_request(&win_rule, window::REQ_FULLSCREEN_OPCODE));
+    assert!(harness.has_window_request(&win_rule, window::REQ_INFORM_FULLSCREEN_OPCODE));
+}
