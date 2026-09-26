@@ -2581,3 +2581,119 @@ fn tag_switch_with_animation_immediately_hides_fullscreen_window() {
     assert!(!harness.has_window_request(&win, window::REQ_SHOW_OPCODE));
     assert!(harness.state.windows[0].fullscreen);
 }
+
+#[test]
+fn focus_coordination_on_window_close_selects_replacement_or_clears_focus() {
+    let mut harness = Harness::new();
+    harness.add_output();
+    let seat = harness.add_seat();
+
+    let win1 = harness.add_window();
+    let win2 = harness.add_window();
+    harness.manage();
+
+    let win1_id = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == win1.protocol_id())
+        .unwrap()
+        .id;
+    let win2_id = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == win2.protocol_id())
+        .unwrap()
+        .id;
+    let win2_proxy = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.id == win2_id)
+        .unwrap()
+        .proxy
+        .clone();
+
+    let seat_item = harness.state.seats.values_mut().next().unwrap();
+    seat_item.set_focused_window(Some(win2_proxy));
+    harness.manage();
+    assert_eq!(harness.state.focused_window_id(), Some(win2_id));
+
+    // 1. Close win2: focus should automatically coordinate to the remaining visible living window (win1)
+    harness.server.requests.clear();
+    harness.event(&win2, window::EVT_CLOSED_OPCODE, vec![]);
+    harness.dispatch_events();
+    harness.manage();
+
+    assert_eq!(harness.state.focused_window_id(), Some(win1_id));
+    assert!(harness.has_seat_request(&seat, seat::REQ_FOCUS_WINDOW_OPCODE));
+
+    // 2. Close win1 (last window): focus should coordinate to clear_focus
+    harness.server.requests.clear();
+    harness.event(&win1, window::EVT_CLOSED_OPCODE, vec![]);
+    harness.dispatch_events();
+    harness.manage();
+
+    assert_eq!(harness.state.focused_window_id(), None);
+    assert!(harness.has_seat_request(&seat, seat::REQ_CLEAR_FOCUS_OPCODE));
+
+    let status_json = harness.state.format_json_status();
+    assert!(status_json.contains("\"focused_window_id\":null"));
+    assert!(
+        status_json
+            .contains("\"focused_window\":{\"app_id\":\"\",\"floating\":false,\"title\":\"\"}")
+    );
+}
+
+#[test]
+fn focus_coordination_on_tag_switch_and_empty_tag() {
+    let mut harness = Harness::new();
+    harness.add_output();
+    let seat = harness.add_seat();
+
+    let win1 = harness.add_window(); // Tag 1
+    harness.rule(&["tags", "2"]);
+    let win2 = harness.add_window(); // Tag 2
+    harness.manage();
+
+    let win1_id = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == win1.protocol_id())
+        .unwrap()
+        .id;
+    let win2_id = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == win2.protocol_id())
+        .unwrap()
+        .id;
+
+    // Initially focused on Tag 1: win1 is focused
+    assert_eq!(harness.state.focused_window_id(), Some(win1_id));
+
+    // Switch to Tag 2: win1 is hidden, win2 is visible -> focus coordinates to win2
+    harness.server.requests.clear();
+    harness.state.set_focused_tags(2).unwrap();
+    harness.manage();
+
+    assert_eq!(harness.state.focused_window_id(), Some(win2_id));
+    assert!(harness.has_seat_request(&seat, seat::REQ_FOCUS_WINDOW_OPCODE));
+
+    // Switch to Tag 4 (empty tag): no windows visible -> focus coordinates to clear_focus
+    harness.server.requests.clear();
+    harness.state.set_focused_tags(4).unwrap();
+    harness.manage();
+
+    assert_eq!(harness.state.focused_window_id(), None);
+    assert!(harness.has_seat_request(&seat, seat::REQ_CLEAR_FOCUS_OPCODE));
+
+    // Operating commands on empty tag correctly reports no view focused
+    let res = harness.state.handle_ipc_command(&IpcCommand::Close);
+    assert_eq!(res, Ok("no view focused to close".to_string()));
+    let res_fs = harness.state.toggle_fullscreen_focused();
+    assert_eq!(res_fs, Err("no view focused".to_string()));
+}
