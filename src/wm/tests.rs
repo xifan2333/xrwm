@@ -2697,3 +2697,145 @@ fn focus_coordination_on_tag_switch_and_empty_tag() {
     let res_fs = harness.state.toggle_fullscreen_focused();
     assert_eq!(res_fs, Err("no view focused".to_string()));
 }
+
+#[test]
+fn floating_window_dimensions_synchronization_avoids_reproposal_and_infinite_animation() {
+    let mut harness = Harness::new();
+    harness.state.anim.enabled = true;
+    harness.state.anim.duration = Duration::from_millis(150);
+    harness.add_output();
+    let _seat = harness.add_seat();
+
+    let win = harness.add_window();
+    harness.manage();
+    harness.render();
+
+    // Toggle window to floating
+    harness.state.toggle_float_focused().unwrap();
+    assert!(harness.state.windows[0].floating);
+
+    // Client responds with preferred floating dimensions
+    harness.event(
+        &win,
+        window::EVT_DIMENSIONS_OPCODE,
+        vec![Argument::Int(720), Argument::Int(540)],
+    );
+    harness.dispatch_events();
+
+    assert_eq!(harness.state.windows[0].width, 720);
+    assert_eq!(harness.state.windows[0].height, 540);
+    assert_eq!(harness.state.windows[0].effective_width(), 720);
+    assert_eq!(harness.state.windows[0].effective_height(), 540);
+    assert_eq!(harness.state.windows[0].float_geo.unwrap().width, 720);
+    assert_eq!(harness.state.windows[0].float_geo.unwrap().height, 540);
+
+    // Initial manage sequence after dimension synchronization
+    harness.server.requests.clear();
+    harness.manage();
+    harness.render();
+
+    // Must NOT propose dimensions repeatedly to the floating window
+    assert!(harness.proposals(&win).is_empty());
+
+    // Simulate animation completing
+    harness.state.anim.start_time = Some(Instant::now() - Duration::from_millis(200));
+
+    // Next manage/render cycle: must be completely stable and not restart animation
+    harness.manage();
+    harness.render();
+
+    assert!(!harness.state.anim.is_animating());
+    assert!(!harness.has_wm_request(wm::REQ_MANAGE_DIRTY_OPCODE));
+}
+
+#[test]
+fn new_window_creation_with_existing_floating_window_transfers_focus_and_arranges_tiled_correctly()
+{
+    let mut harness = Harness::new();
+    harness.add_output();
+    let seat = harness.add_seat();
+
+    // 1. Create first window and toggle it to floating
+    let _win1 = harness.add_window();
+    harness.manage();
+    harness.render();
+
+    let win1_id = harness.state.windows[0].id;
+    assert_eq!(harness.state.focused_window_id(), Some(win1_id));
+
+    harness.state.toggle_float_focused().unwrap();
+    assert!(harness.state.windows[0].floating);
+
+    // 2. Create second window (new tiled window) while floating window exists and is focused
+    let win2 = harness.add_window();
+    let win2_id = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == win2.protocol_id())
+        .unwrap()
+        .id;
+
+    // Focus MUST transfer to the newly spawned window
+    assert_eq!(harness.state.focused_window_id(), Some(win2_id));
+
+    harness.server.requests.clear();
+    harness.manage();
+    assert!(harness.has_seat_request(&seat, seat::REQ_FOCUS_WINDOW_OPCODE));
+
+    harness.render();
+
+    // win2 (tiled) must occupy the full usable area for 1 tiled window, completely unaffected by win1's floating geometry
+    let win2_item = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.id == win2_id)
+        .unwrap();
+    assert!(!win2_item.floating);
+    assert_eq!(win2_item.x, 4);
+    assert_eq!(win2_item.y, 4);
+    assert_eq!(win2_item.width, 1912);
+    assert_eq!(win2_item.height, 1072);
+
+    // 3. Create third window (second tiled window): must attach cleanly in tiled layout without interference from floating win1
+    let win3 = harness.add_window();
+    let win3_id = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == win3.protocol_id())
+        .unwrap()
+        .id;
+    assert_eq!(harness.state.focused_window_id(), Some(win3_id));
+
+    harness.manage();
+    harness.render();
+
+    // win1 remains floating
+    let win1_item = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.id == win1_id)
+        .unwrap();
+    assert!(win1_item.floating);
+
+    // win2 and win3 are arranged as 2 tiled windows (master-stack split)
+    let win2_item = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.id == win2_id)
+        .unwrap();
+    let win3_item = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.id == win3_id)
+        .unwrap();
+    assert!(!win2_item.floating);
+    assert!(!win3_item.floating);
+    assert!(win2_item.width < 1912);
+    assert!(win3_item.width < 1912);
+}
