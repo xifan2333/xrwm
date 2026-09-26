@@ -2506,3 +2506,76 @@ fn floating_window_dimensions_event_sets_initial_geometry() {
     assert_eq!(win_item.float_geo.unwrap().width, 640);
     assert_eq!(win_item.float_geo.unwrap().height, 480);
 }
+
+#[test]
+fn tag_switch_hides_and_shows_fullscreen_and_preserves_fullscreen_state() {
+    let mut harness = Harness::new();
+    harness.add_output();
+    let _seat = harness.add_seat();
+
+    let win = harness.add_window();
+    harness.manage();
+    harness.render();
+
+    let seat_item = harness.state.seats.values_mut().next().unwrap();
+    seat_item.set_focused_window(Some(harness.state.windows[0].proxy.clone()));
+
+    // Make window fullscreen on tag 1
+    harness.state.toggle_fullscreen_focused().unwrap();
+    harness.manage();
+    harness.render();
+
+    assert!(harness.state.windows[0].fullscreen);
+    assert!(harness.has_window_request(&win, window::REQ_SHOW_OPCODE));
+
+    // Switch tags: tag 1 -> tag 2 (window is on tag 1, which becomes inactive)
+    harness.server.requests.clear();
+    harness.state.set_focused_tags(2).unwrap();
+    harness.manage();
+    harness.render();
+
+    // The window MUST be hidden via REQ_HIDE_OPCODE, while retaining fullscreen = true
+    assert!(harness.has_window_request(&win, window::REQ_HIDE_OPCODE));
+    assert!(!harness.has_window_request(&win, window::REQ_SHOW_OPCODE));
+    assert!(harness.state.windows[0].fullscreen);
+
+    // Switch tags back: tag 2 -> tag 1 (window becomes active again)
+    harness.server.requests.clear();
+    harness.state.set_focused_tags(1).unwrap();
+    harness.manage();
+    harness.render();
+
+    // The window MUST be shown via REQ_SHOW_OPCODE, still retaining fullscreen = true
+    assert!(harness.has_window_request(&win, window::REQ_SHOW_OPCODE));
+    assert!(!harness.has_window_request(&win, window::REQ_HIDE_OPCODE));
+    assert!(harness.state.windows[0].fullscreen);
+}
+
+#[test]
+fn tag_switch_with_animation_immediately_hides_fullscreen_window() {
+    let mut harness = Harness::new();
+    harness.state.anim.enabled = true;
+    harness.add_output();
+    let _seat = harness.add_seat();
+
+    let win = harness.add_window();
+    harness.manage();
+    harness.render();
+
+    let seat_item = harness.state.seats.values_mut().next().unwrap();
+    seat_item.set_focused_window(Some(harness.state.windows[0].proxy.clone()));
+
+    harness.state.toggle_fullscreen_focused().unwrap();
+    harness.manage();
+    harness.render();
+
+    // Switch tag to 2: animation starts, old tag fullscreen window MUST be hidden immediately
+    harness.server.requests.clear();
+    harness.state.set_focused_tags(2).unwrap();
+    assert!(harness.state.anim.is_animating());
+    harness.render();
+
+    assert!(harness.has_window_request(&win, window::REQ_HIDE_OPCODE));
+    assert!(!harness.has_window_request(&win, window::REQ_SHOW_OPCODE));
+    assert!(harness.state.windows[0].fullscreen);
+}
