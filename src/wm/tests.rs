@@ -2839,3 +2839,216 @@ fn new_window_creation_with_existing_floating_window_transfers_focus_and_arrange
     assert!(win2_item.width < 1912);
     assert!(win3_item.width < 1912);
 }
+
+#[test]
+fn monocle_maximizes_all_tiled_windows_on_output() {
+    let mut harness = Harness::new();
+    harness.state.anim.enabled = false;
+    harness.add_output();
+
+    let win1 = harness.add_window();
+    let win2 = harness.add_window();
+    let win3 = harness.add_window();
+
+    harness.manage();
+    harness.render();
+
+    // Initially master-stack layout: windows have split widths
+    assert!(harness.state.windows[0].width < 1920);
+    assert!(harness.state.windows[1].width < 1920);
+    assert!(harness.state.windows[2].width < 1920);
+
+    // Toggle monocle mode
+    let res = harness.state.toggle_monocle();
+    assert_eq!(res, Ok("monocle mode enabled".to_string()));
+
+    harness.manage();
+    harness.render();
+
+    // ALL 3 tiled windows must be maximized to fill the usable area
+    let win1_item = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == win1.protocol_id())
+        .unwrap();
+    let win2_item = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == win2.protocol_id())
+        .unwrap();
+    let win3_item = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == win3.protocol_id())
+        .unwrap();
+
+    assert_eq!(win1_item.width, 1920);
+    assert_eq!(win1_item.height, 1080);
+    assert_eq!(win2_item.width, 1920);
+    assert_eq!(win2_item.height, 1080);
+    assert_eq!(win3_item.width, 1920);
+    assert_eq!(win3_item.height, 1080);
+}
+
+#[test]
+fn monocle_mode_is_isolated_per_output() {
+    let mut harness = Harness::new();
+    harness.state.anim.enabled = false;
+    let out1 = harness.add_output_with_id();
+    let out2 = harness.add_output_with_id();
+    harness.set_output_position(&out2, 1920, 0);
+
+    let out1_id = harness
+        .state
+        .outputs
+        .iter()
+        .find(|(id, _)| id.protocol_id() == out1.protocol_id())
+        .unwrap()
+        .0
+        .clone();
+    let out2_id = harness
+        .state
+        .outputs
+        .iter()
+        .find(|(id, _)| id.protocol_id() == out2.protocol_id())
+        .unwrap()
+        .0
+        .clone();
+
+    // 2 windows on out1
+    let win1 = harness.add_window();
+    let win2 = harness.add_window();
+
+    // 2 windows on out2
+    let win3 = harness.add_window();
+    let win4 = harness.add_window();
+    harness
+        .state
+        .windows
+        .iter_mut()
+        .find(|w| w.proxy.id().protocol_id() == win3.protocol_id())
+        .unwrap()
+        .output = Some(out2_id.clone());
+    harness
+        .state
+        .windows
+        .iter_mut()
+        .find(|w| w.proxy.id().protocol_id() == win4.protocol_id())
+        .unwrap()
+        .output = Some(out2_id);
+
+    harness.manage();
+    harness.render();
+
+    // Focus out1 and toggle monocle
+    harness.state.focused_output = Some(out1_id);
+    harness.state.toggle_monocle().unwrap();
+
+    harness.manage();
+    harness.render();
+
+    // Out1 windows must be in monocle mode (width = 1920)
+    let win1_item = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == win1.protocol_id())
+        .unwrap();
+    let win2_item = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == win2.protocol_id())
+        .unwrap();
+    assert_eq!(win1_item.width, 1920);
+    assert_eq!(win2_item.width, 1920);
+
+    // Out2 windows must remain in normal master-stack layout (width < 1920)
+    let win3_item = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == win3.protocol_id())
+        .unwrap();
+    let win4_item = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == win4.protocol_id())
+        .unwrap();
+    assert!(win3_item.width < 1920);
+    assert!(win4_item.width < 1920);
+}
+
+#[test]
+fn spatial_focus_navigation_does_not_reverse_wrap() {
+    let mut harness = Harness::new();
+    harness.state.anim.enabled = false;
+    harness.add_output();
+    let _seat = harness.add_seat();
+
+    // Tiled window at x=1000, y=200
+    let win_tiled = harness.add_window();
+
+    // Floating window at x=100, y=200 (to the left of tiled window)
+    harness
+        .state
+        .handle_ipc_command(&IpcCommand::RuleAdd {
+            app_id: Some("float_app".into()),
+            title: None,
+            action: vec!["float".into()],
+        })
+        .unwrap();
+
+    let win_float = harness.add_window();
+    harness.set_app_id(&win_float, "float_app");
+
+    harness.manage();
+    harness.render();
+
+    let float_id = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == win_float.protocol_id())
+        .unwrap()
+        .id;
+    if let Some(fw) = harness.state.windows.iter_mut().find(|w| w.id == float_id) {
+        fw.x = 100;
+        fw.y = 200;
+    }
+    if let Some(tw) = harness
+        .state
+        .windows
+        .iter_mut()
+        .find(|w| w.proxy.id().protocol_id() == win_tiled.protocol_id())
+    {
+        tw.x = 1000;
+        tw.y = 200;
+    }
+
+    let seat_item = harness.state.seats.values_mut().next().unwrap();
+    seat_item.set_focused_window(Some(
+        harness
+            .state
+            .windows
+            .iter()
+            .find(|w| w.id == float_id)
+            .unwrap()
+            .proxy
+            .clone(),
+    ));
+
+    // Navigating left from floating window when no tiled window is on the left
+    harness.state.execute_action_tokens(&[
+        "focus-view".into(),
+        "-skip-floating".into(),
+        "left".into(),
+    ]);
+
+    // Focus MUST remain on the floating window and not jump to the window on the right
+    assert_eq!(harness.state.focused_window_id(), Some(float_id));
+}
