@@ -424,12 +424,15 @@ impl AppState {
     pub fn attach_window(&mut self, item: WindowItem) {
         let focused_id = self.focused_window_id();
         let target_out = item.output.clone();
+        let is_floating = item.floating;
 
         let output_indices: Vec<usize> = self
             .windows
             .iter()
             .enumerate()
-            .filter(|(_, w)| target_out.is_none() || w.output == target_out)
+            .filter(|(_, w)| {
+                (target_out.is_none() || w.output == target_out) && w.floating == is_floating
+            })
             .map(|(i, _)| i)
             .collect();
 

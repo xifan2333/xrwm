@@ -122,7 +122,7 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
 
                 state.attach_window(WindowItem {
                     id: vid,
-                    proxy: id,
+                    proxy: id.clone(),
                     node,
                     initial_managed: false,
                     initial_rendered: false,
@@ -150,6 +150,10 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                     last_proposed_w: None,
                     last_proposed_h: None,
                 });
+
+                for seat in state.seats.values_mut() {
+                    seat.set_focused_window(Some(id.clone()));
+                }
             }
             Event::Output { id } => {
                 let ls_out = state
