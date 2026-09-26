@@ -1603,6 +1603,8 @@ impl AppState {
                 .map(|o| o.usable_area)
                 .or_else(|| self.outputs.values().next().map(|o| o.usable_area));
             let Some(usable_area) = usable_area else {
+                w.proxy.hide();
+                w.node.set_position(hide_x, hide_y);
                 continue;
             };
 
@@ -1634,6 +1636,9 @@ impl AppState {
                 let (render_geo, is_visible) = if is_interactive {
                     w.proxy.set_clip_box(0, 0, 0, 0);
                     (target, true)
+                } else if w.fullscreen {
+                    w.proxy.set_clip_box(0, 0, 0, 0);
+                    (target, is_in_current)
                 } else if is_tag_animating {
                     let is_shared = is_in_current && (w.tags & self.tag_anim_old_mask) != 0;
                     if is_shared {
