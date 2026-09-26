@@ -215,6 +215,12 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
                 if let Some(w) = state.windows.iter_mut().find(|w| &w.proxy == proxy) {
                     w.closed = true;
                 }
+                for seat in state.seats.values_mut() {
+                    if seat.focused.as_ref() == Some(proxy) {
+                        seat.set_focused_window(None);
+                    }
+                }
+                state.reconcile_focus();
                 state.manage_dirty();
             }
             Event::AppId { app_id } => {
