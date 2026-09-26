@@ -2,7 +2,7 @@ use std::io::{Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 
-use super::server::MAX_SUN_LEN;
+use super::MAX_SUN_LEN;
 use super::*;
 
 #[test]

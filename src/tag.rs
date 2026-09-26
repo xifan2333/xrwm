@@ -78,4 +78,5 @@ impl TagState {
 }
 
 #[cfg(test)]
+#[path = "tag_test.rs"]
 mod tests;
