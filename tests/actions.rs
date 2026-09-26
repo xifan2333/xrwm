@@ -1278,3 +1278,13 @@ fn test_rule_add_tags_direct_bitmask_and_zero_rejection() {
     assert!(list.contains("-app-id app_16 tags 16"));
     assert!(list.contains("-app-id app_32 tags 32"));
 }
+
+#[test]
+fn test_toggle_floating_views_ipc_command_parsing() {
+    let mut state = AppState::new();
+    // When no output exists, gracefully returns error
+    assert_eq!(
+        state.handle_ipc_command(&IpcCommand::ToggleFloatingViews),
+        Err("no focused output".to_string())
+    );
+}

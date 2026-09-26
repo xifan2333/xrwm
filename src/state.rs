@@ -146,6 +146,7 @@ pub struct OutputItem {
     pub tag_state: TagState,
     pub previous_focused_tags: TagMask,
     pub monocle: bool,
+    pub floating_hidden: bool,
 }
 
 pub struct AppState {
@@ -453,15 +454,27 @@ impl AppState {
         default_tag_state: TagState,
         w: &WindowItem,
     ) -> bool {
-        if outputs.len() <= 1 {
-            return default_tag_state.is_view_visible(w.tags);
+        let (out_tag_state, floating_hidden) = if outputs.len() <= 1 {
+            (
+                default_tag_state,
+                outputs
+                    .values()
+                    .next()
+                    .map(|o| o.floating_hidden)
+                    .unwrap_or(false),
+            )
+        } else {
+            let o = w.output.as_ref().and_then(|id| outputs.get(id));
+            (
+                o.map(|o| o.tag_state).unwrap_or(default_tag_state),
+                o.map(|o| o.floating_hidden).unwrap_or(false),
+            )
+        };
+
+        if w.floating && !w.fullscreen && floating_hidden {
+            return false;
         }
-        let out_tag_state = w
-            .output
-            .as_ref()
-            .and_then(|id| outputs.get(id))
-            .map(|o| o.tag_state)
-            .unwrap_or(default_tag_state);
+
         out_tag_state.is_view_visible(w.tags)
     }
 
@@ -1463,6 +1476,20 @@ impl AppState {
                 w.node.set_position(hide_x, hide_y);
                 continue;
             };
+
+            let is_output_floating_hidden = w
+                .output
+                .as_ref()
+                .and_then(|id| self.outputs.get(id))
+                .map(|o| o.floating_hidden)
+                .or_else(|| self.outputs.values().next().map(|o| o.floating_hidden))
+                .unwrap_or(false);
+
+            if w.floating && !w.fullscreen && is_output_floating_hidden {
+                w.proxy.hide();
+                w.node.set_position(hide_x, hide_y);
+                continue;
+            }
 
             let slide_offset = if let Some(dir) = self.tag_slide_dir {
                 match dir {

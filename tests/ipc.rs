@@ -320,6 +320,10 @@ fn test_parse_cli_args() {
         parse_cli_args(&["swap".into(), "left".into()]).unwrap(),
         IpcCommand::Swap("left".into())
     );
+    assert_eq!(
+        parse_cli_args(&["toggle-floating-views".into()]).unwrap(),
+        IpcCommand::ToggleFloatingViews
+    );
     assert_eq!(parse_cli_args(&["ping".into()]).unwrap(), IpcCommand::Ping);
     assert_eq!(
         parse_cli_args(&["close".into()]).unwrap(),
