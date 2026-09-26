@@ -6,6 +6,7 @@ pub mod dispatch;
 pub mod rule;
 pub mod seat;
 pub mod state;
+pub mod status;
 
 #[cfg(test)]
 mod tests;
@@ -25,8 +26,12 @@ pub use state::AttachMode;
 pub use state::MIN_WINDOW_DIMENSION;
 pub use state::OutputItem;
 pub use state::WindowItem;
-pub use state::hex_to_river_rgba;
 pub use state::reap_zombies;
 pub use state::spawn_init_script;
 pub use state::spawn_init_script_at;
 pub use state::spawn_init_script_from_config;
+pub use status::broadcast_status;
+pub use status::format_json_status;
+pub use status::format_waybar_status;
+pub use status::hex_to_river_rgba;
+pub use status::parse_hex_color;
