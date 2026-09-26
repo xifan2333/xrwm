@@ -18,7 +18,7 @@ use crate::protocol::{
     river_node_v1 as node, river_output_v1 as output, river_seat_v1 as seat,
     river_window_manager_v1 as wm, river_window_v1 as window,
 };
-use crate::wm::LayerShellFocus;
+use crate::seat::LayerShellFocus;
 
 #[derive(Default)]
 struct ServerState {
@@ -1098,7 +1098,7 @@ fn focus_follows_cursor_normal_vs_always_pointer_movement_in_same_window() {
     harness.manage();
 
     // Focus window1 via pointer enter in Normal mode
-    harness.state.focus_follows_cursor = crate::wm::FocusFollowsCursor::Normal;
+    harness.state.focus_follows_cursor = crate::FocusFollowsCursor::Normal;
     harness.pointer_enter(&seat, &window1);
     assert_eq!(harness.state.focused_window_id(), Some(win1_id));
 
@@ -1119,7 +1119,7 @@ fn focus_follows_cursor_normal_vs_always_pointer_movement_in_same_window() {
     assert_eq!(harness.state.focused_window_id(), Some(win2_id));
 
     // Switch to Always mode: moving pointer within window1 DOES refocus window1
-    harness.state.focus_follows_cursor = crate::wm::FocusFollowsCursor::Always;
+    harness.state.focus_follows_cursor = crate::FocusFollowsCursor::Always;
     harness.pointer_position(&seat, 12, 12);
     assert_eq!(harness.state.focused_window_id(), Some(win1_id));
 
@@ -1130,7 +1130,7 @@ fn focus_follows_cursor_normal_vs_always_pointer_movement_in_same_window() {
     assert_eq!(harness.state.focused_window_id(), Some(win2_id));
 
     // In Disabled mode: moving pointer within window1 does NOT refocus window1
-    harness.state.focus_follows_cursor = crate::wm::FocusFollowsCursor::Disabled;
+    harness.state.focus_follows_cursor = crate::FocusFollowsCursor::Disabled;
     harness.pointer_position(&seat, 15, 15);
     assert_eq!(harness.state.focused_window_id(), Some(win2_id));
 }
@@ -1181,7 +1181,7 @@ fn tiled_drag_resize_and_swap_applies_immediately_on_release_without_extra_event
 
     // 1. Tiled resize drag release: immediately applies final ratio & geometry, and schedules follow-up manage
     let seat_item = harness.state.seats.values_mut().next().unwrap();
-    seat_item.op = crate::wm::SeatOp::TiledResize { start_ratio: 0.55 };
+    seat_item.op = crate::SeatOp::TiledResize { start_ratio: 0.55 };
     seat_item.op_dx = 200;
     seat_item.op_release = true;
 
@@ -1200,7 +1200,7 @@ fn tiled_drag_resize_and_swap_applies_immediately_on_release_without_extra_event
     let current_x2 = harness.state.windows[1].x;
     harness.state.pointer = (50, 50); // Inside win1 (master slot)
     let seat_item = harness.state.seats.values_mut().next().unwrap();
-    seat_item.op = crate::wm::SeatOp::TiledMove {
+    seat_item.op = crate::SeatOp::TiledMove {
         proxy: harness.state.windows[1].proxy.clone(),
         start_win_id: win2_id,
     };
@@ -1230,7 +1230,7 @@ fn pointer_commands_execute_on_empty_desktop_and_focus_hovered_window() {
     let seat_item = harness.state.seats.values_mut().next().unwrap();
     assert!(seat_item.hovered.is_none());
     seat_item.pending_action =
-        crate::wm::seat::PointerAction::Command(vec!["set-focused-tags".into(), "2".into()]);
+        crate::seat::PointerAction::Command(vec!["set-focused-tags".into(), "2".into()]);
 
     harness.manage();
     assert_eq!(harness.state.tag_state.focused, 2);
@@ -1274,7 +1274,7 @@ fn pointer_commands_execute_on_empty_desktop_and_focus_hovered_window() {
     // Pointer hovers win2 and triggers "close"
     let seat_item = harness.state.seats.values_mut().next().unwrap();
     seat_item.hovered = Some(win2_proxy);
-    seat_item.pending_action = crate::wm::seat::PointerAction::Command(vec!["close".into()]);
+    seat_item.pending_action = crate::seat::PointerAction::Command(vec!["close".into()]);
 
     harness.manage();
     assert_eq!(harness.state.focused_window_id(), Some(win2_id));
@@ -1953,15 +1953,12 @@ fn multi_output_zoom_attach_and_drag_resize_column_determination() {
         .clone();
     let seat_item = harness.state.seats.values_mut().next().unwrap();
     seat_item.hovered = Some(win3_proxy.clone());
-    seat_item.pending_action = crate::wm::seat::PointerAction::Resize;
+    seat_item.pending_action = crate::seat::PointerAction::Resize;
 
     harness.manage();
 
     let seat_item = harness.state.seats.values().next().unwrap();
-    assert!(matches!(
-        seat_item.op,
-        crate::wm::SeatOp::TiledResize { .. }
-    ));
+    assert!(matches!(seat_item.op, crate::SeatOp::TiledResize { .. }));
 }
 
 #[test]

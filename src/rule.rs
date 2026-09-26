@@ -4,8 +4,8 @@ use std::collections::HashMap;
 use wayland_backend::client::ObjectId;
 
 use crate::layout::Rect;
+use crate::state::{OutputItem, WindowItem};
 use crate::tag::TagMask;
-use crate::wm::state::{OutputItem, WindowItem};
 
 #[derive(Debug, Clone)]
 pub struct WindowRule {

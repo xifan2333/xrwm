@@ -1,6 +1,6 @@
 //! Spatial and directional navigation logic across windows and outputs.
 
-use crate::wm::state::AppState;
+use crate::state::AppState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
@@ -111,7 +111,7 @@ pub fn pick_adjacent_output<T: Clone>(
 /// but the currently focused window (even if floating) is preserved as the spatial and
 /// order reference for navigation into tiled windows.
 pub fn find_target_window(state: &AppState, dir: Direction, skip_floating: bool) -> Option<u32> {
-    let candidates: Vec<&crate::wm::state::WindowItem> = state
+    let candidates: Vec<&crate::state::WindowItem> = state
         .windows
         .iter()
         .filter(|w| !w.closed && (!skip_floating || !w.floating) && state.is_window_visible(w))
@@ -259,7 +259,7 @@ pub fn find_target_output(
 
     let mut output_list: Vec<(
         &wayland_backend::client::ObjectId,
-        &crate::wm::state::OutputItem,
+        &crate::state::OutputItem,
     )> = state.outputs.iter().collect();
     output_list.sort_by_key(|(_, o)| (o.x, o.y));
 

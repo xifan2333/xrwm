@@ -13,8 +13,8 @@ use crate::protocol::{
     river_window_manager_v1::RiverWindowManagerV1, river_window_v1::RiverWindowV1,
     river_xkb_bindings_v1::RiverXkbBindingsV1,
 };
-use crate::wm::seat::SeatItem;
-use crate::wm::state::{AppState, OutputItem, WindowItem};
+use crate::seat::SeatItem;
+use crate::state::{AppState, OutputItem, WindowItem};
 
 impl Dispatch<wl_registry::WlRegistry, ()> for AppState {
     fn event(
@@ -253,9 +253,9 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
             Event::Dimensions { width, height } => {
                 let w = width as u32;
                 let h = height as u32;
-                let is_resizing = state.seats.values().any(|s| {
-                    matches!(&s.op, crate::wm::seat::SeatOp::Resize { proxy: p, .. } if p == proxy)
-                });
+                let is_resizing = state.seats.values().any(
+                    |s| matches!(&s.op, crate::seat::SeatOp::Resize { proxy: p, .. } if p == proxy),
+                );
                 if let Some(win) = state.windows.iter_mut().find(|win| &win.proxy == proxy) {
                     win.content_width = Some(w);
                     win.content_height = Some(h);
@@ -424,13 +424,13 @@ impl Dispatch<RiverLayerShellSeatV1, ObjectId> for AppState {
         if let Some(seat) = state.seats.get_mut(data) {
             match event {
                 Event::FocusExclusive => {
-                    seat.layer_focus = crate::wm::seat::LayerShellFocus::Exclusive;
+                    seat.layer_focus = crate::seat::LayerShellFocus::Exclusive;
                 }
                 Event::FocusNonExclusive => {
-                    seat.layer_focus = crate::wm::seat::LayerShellFocus::NonExclusive;
+                    seat.layer_focus = crate::seat::LayerShellFocus::NonExclusive;
                 }
                 Event::FocusNone => {
-                    seat.layer_focus = crate::wm::seat::LayerShellFocus::None;
+                    seat.layer_focus = crate::seat::LayerShellFocus::None;
                 }
             }
         }
@@ -452,7 +452,7 @@ impl Dispatch<RiverSeatV1, ()> for AppState {
                 state.unhide_cursor();
                 if let Some(seat) = state.seats.get_mut(&proxy.id()) {
                     seat.hovered = Some(window.clone());
-                    if state.focus_follows_cursor != crate::wm::FocusFollowsCursor::Disabled {
+                    if state.focus_follows_cursor != crate::FocusFollowsCursor::Disabled {
                         seat.set_focused_window(Some(window.clone()));
                         if let Some(win) = state.windows.iter().find(|w| w.proxy == window)
                             && let Some(ref out_id) = win.output
@@ -496,7 +496,7 @@ impl Dispatch<RiverSeatV1, ()> for AppState {
             Event::PointerPosition { x, y } => {
                 state.unhide_cursor();
                 state.pointer = (x, y);
-                if state.focus_follows_cursor == crate::wm::FocusFollowsCursor::Always
+                if state.focus_follows_cursor == crate::FocusFollowsCursor::Always
                     && let Some(seat) = state.seats.get_mut(&proxy.id())
                     && let Some(window) = seat.hovered.clone()
                     && seat.focused.as_ref() != Some(&window)

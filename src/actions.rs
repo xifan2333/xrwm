@@ -3,15 +3,15 @@
 use std::time::Duration;
 
 use crate::ipc::IpcCommand;
+use crate::state::AppState;
+use crate::state::AttachMode;
+use crate::state::WindowRule;
+use crate::state::reap_zombies;
+use crate::state::spawn_init_script;
 use crate::tag::TAG_NONE;
 use crate::tag::TagMask;
-use crate::wm::state::AppState;
-use crate::wm::state::AttachMode;
-use crate::wm::state::WindowRule;
-use crate::wm::state::reap_zombies;
-use crate::wm::state::spawn_init_script;
 
-pub use crate::wm::nav::{Direction, find_target_output, find_target_window, pick_adjacent_output};
+pub use crate::nav::{Direction, find_target_output, find_target_window, pick_adjacent_output};
 
 impl AppState {
     /// Closes the currently focused window.
@@ -118,8 +118,8 @@ impl AppState {
 
             w.x = new_x;
             w.y = new_y;
-            w.width = new_w.max(crate::wm::MIN_WINDOW_DIMENSION);
-            w.height = new_h.max(crate::wm::MIN_WINDOW_DIMENSION);
+            w.width = new_w.max(crate::MIN_WINDOW_DIMENSION);
+            w.height = new_h.max(crate::MIN_WINDOW_DIMENSION);
             w.float_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
             w.visual_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
 
@@ -226,12 +226,12 @@ impl AppState {
 
     #[inline]
     pub fn find_target_window(&self, dir: Direction, skip_floating: bool) -> Option<u32> {
-        crate::wm::nav::find_target_window(self, dir, skip_floating)
+        crate::nav::find_target_window(self, dir, skip_floating)
     }
 
     #[inline]
     pub fn find_target_output(&self, dir_str: &str) -> Option<wayland_backend::client::ObjectId> {
-        crate::wm::nav::find_target_output(self, dir_str)
+        crate::nav::find_target_output(self, dir_str)
     }
 
     /// Focuses output in the specified direction.
@@ -259,11 +259,11 @@ impl AppState {
         }
 
         // Warp pointer if cursor_warp is enabled
-        if self.cursor_warp != crate::wm::CursorWarp::Disabled
+        if self.cursor_warp != crate::CursorWarp::Disabled
             && let Some(out) = self.outputs.get(&out_id)
         {
             let (cx, cy) = match (self.cursor_warp, dest_win) {
-                (crate::wm::CursorWarp::OnFocusChange, Some(w)) => (
+                (crate::CursorWarp::OnFocusChange, Some(w)) => (
                     w.x + w.effective_width() as i32 / 2,
                     w.y + w.effective_height() as i32 / 2,
                 ),
@@ -350,7 +350,7 @@ impl AppState {
             let out_id = win.output.clone();
             for seat in self.seats.values_mut() {
                 seat.set_focused_window(Some(proxy.clone()));
-                if self.cursor_warp == crate::wm::CursorWarp::OnFocusChange {
+                if self.cursor_warp == crate::CursorWarp::OnFocusChange {
                     seat.pending_warp = Some((cx, cy));
                 }
             }
@@ -500,7 +500,7 @@ impl AppState {
     }
 
     /// Sets cursor warp mode.
-    pub fn set_cursor_warp(&mut self, warp: crate::wm::CursorWarp) -> Result<String, String> {
+    pub fn set_cursor_warp(&mut self, warp: crate::CursorWarp) -> Result<String, String> {
         self.cursor_warp = warp;
         Ok(format!("cursor warp set to {:?}", warp).to_lowercase())
     }
@@ -508,7 +508,7 @@ impl AppState {
     /// Sets focus-follows-cursor mode.
     pub fn set_focus_follows_cursor(
         &mut self,
-        mode: crate::wm::FocusFollowsCursor,
+        mode: crate::FocusFollowsCursor,
     ) -> Result<String, String> {
         self.focus_follows_cursor = mode;
         Ok(format!("focus-follows-cursor set to {:?}", mode).to_lowercase())
@@ -711,10 +711,10 @@ impl AppState {
             if w.floating {
                 if horizontal {
                     w.width =
-                        (w.width as i32 + delta).max(crate::wm::MIN_WINDOW_DIMENSION as i32) as u32;
+                        (w.width as i32 + delta).max(crate::MIN_WINDOW_DIMENSION as i32) as u32;
                 } else {
-                    w.height = (w.height as i32 + delta).max(crate::wm::MIN_WINDOW_DIMENSION as i32)
-                        as u32;
+                    w.height =
+                        (w.height as i32 + delta).max(crate::MIN_WINDOW_DIMENSION as i32) as u32;
                 }
                 w.float_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
                 let new_w = w.width;
@@ -844,8 +844,8 @@ impl AppState {
 
     /// Unmaps a key binding in the specified mode.
     pub fn unmap_key(&mut self, mode: &str, modifiers: &str, key: &str) -> Result<String, String> {
-        let mods = crate::wm::binds::parse_modifiers(modifiers)?;
-        let Some(keysym) = crate::wm::binds::resolve_keysym(key, mods) else {
+        let mods = crate::binds::parse_modifiers(modifiers)?;
+        let Some(keysym) = crate::binds::resolve_keysym(key, mods) else {
             return Err(format!("Unknown keysym: {key}"));
         };
         let mode_norm = mode.trim();
@@ -882,8 +882,8 @@ impl AppState {
         modifiers: &str,
         button: &str,
     ) -> Result<String, String> {
-        let mods = crate::wm::binds::parse_modifiers(modifiers)?;
-        let Some(btn_code) = crate::wm::binds::parse_button(button) else {
+        let mods = crate::binds::parse_modifiers(modifiers)?;
+        let Some(btn_code) = crate::binds::parse_button(button) else {
             return Err(format!("Unknown pointer button: {button}"));
         };
         let mode_norm = mode.trim();
@@ -1074,19 +1074,19 @@ impl AppState {
                 Ok(format!("border width set to {w}px"))
             }
             IpcCommand::BorderColorFocused(c) => {
-                crate::wm::state::parse_hex_color(c)?;
+                crate::state::parse_hex_color(c)?;
                 self.border_color_focused = c.clone();
                 self.manage_dirty();
                 Ok(format!("focused border color set to {c}"))
             }
             IpcCommand::BorderColorUnfocused(c) => {
-                crate::wm::state::parse_hex_color(c)?;
+                crate::state::parse_hex_color(c)?;
                 self.border_color_unfocused = c.clone();
                 self.manage_dirty();
                 Ok(format!("unfocused border color set to {c}"))
             }
             IpcCommand::BorderColorUrgent(c) => {
-                crate::wm::state::parse_hex_color(c)?;
+                crate::state::parse_hex_color(c)?;
                 self.border_color_urgent = c.clone();
                 self.manage_dirty();
                 Ok(format!("urgent border color set to {c}"))
@@ -1222,8 +1222,8 @@ impl AppState {
                 key,
                 action,
             } => {
-                let mods = crate::wm::binds::parse_modifiers(modifiers)?;
-                let Some(keysym) = crate::wm::binds::resolve_keysym(key, mods) else {
+                let mods = crate::binds::parse_modifiers(modifiers)?;
+                let Some(keysym) = crate::binds::resolve_keysym(key, mods) else {
                     return Err(format!("Unknown keysym: {key}"));
                 };
                 let mode_norm = self
@@ -1232,7 +1232,7 @@ impl AppState {
                     .find(|m| m.eq_ignore_ascii_case(mode.trim()))
                     .cloned()
                     .unwrap_or_else(|| mode.trim().to_ascii_lowercase());
-                let pending = crate::wm::binds::PendingKeyBinding {
+                let pending = crate::binds::PendingKeyBinding {
                     mode: mode_norm.clone(),
                     modifiers: mods,
                     keysym,
@@ -1283,8 +1283,8 @@ impl AppState {
                 button,
                 action,
             } => {
-                let mods = crate::wm::binds::parse_modifiers(modifiers)?;
-                let Some(btn_code) = crate::wm::binds::parse_button(button) else {
+                let mods = crate::binds::parse_modifiers(modifiers)?;
+                let Some(btn_code) = crate::binds::parse_button(button) else {
                     return Err(format!("Unknown pointer button: {button}"));
                 };
                 let mode_norm = self
@@ -1293,8 +1293,8 @@ impl AppState {
                     .find(|m| m.eq_ignore_ascii_case(mode.trim()))
                     .cloned()
                     .unwrap_or_else(|| mode.trim().to_ascii_lowercase());
-                let ptr_action = crate::wm::seat::PointerAction::from_tokens(action);
-                let pending = crate::wm::binds::PendingPointerBinding {
+                let ptr_action = crate::seat::PointerAction::from_tokens(action);
+                let pending = crate::binds::PendingPointerBinding {
                     mode: mode_norm.clone(),
                     modifiers: mods,
                     button: btn_code,
