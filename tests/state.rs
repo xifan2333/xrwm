@@ -1,4 +1,8 @@
-use super::*;
+#![allow(clippy::unwrap_used)]
+
+use std::os::unix::net::UnixStream;
+
+use xrwm::state::*;
 
 #[test]
 fn test_attach_mode_parse() {

@@ -1,7 +1,9 @@
+#![allow(clippy::unwrap_used)]
+
 use std::time::Duration;
 
-use super::*;
-use crate::layout::Rect;
+use xrwm::animation::*;
+use xrwm::layout::Rect;
 
 #[test]
 fn test_ease_out_cubic() {

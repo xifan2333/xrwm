@@ -1,4 +1,8 @@
-use super::*;
+#![allow(clippy::unwrap_used)]
+
+use xkbcommon::xkb;
+use xrwm::binds::*;
+use xrwm::protocol::river_seat_v1::Modifiers;
 
 #[test]
 fn test_parse_modifiers() {

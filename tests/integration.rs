@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used)]
+
 //! Exercise window management through a socket-backed Wayland protocol peer.
 
 use std::os::fd::{OwnedFd, RawFd};
@@ -11,14 +13,14 @@ use wayland_backend::server::{
 };
 use wayland_client::{Connection, EventQueue, Proxy};
 
-use super::AppState;
-use crate::ipc::IpcCommand;
-use crate::protocol::{
+use xrwm::ipc::IpcCommand;
+use xrwm::protocol::{
     river_layer_shell_seat_v1 as layer_seat, river_layer_shell_v1 as layer_shell,
     river_node_v1 as node, river_output_v1 as output, river_seat_v1 as seat,
     river_window_manager_v1 as wm, river_window_v1 as window,
 };
-use crate::seat::LayerShellFocus;
+use xrwm::seat::LayerShellFocus;
+use xrwm::state::AppState;
 
 #[derive(Default)]
 struct ServerState {
@@ -739,7 +741,7 @@ fn output_usable_area_follows_geometry_changes_without_layer_shell() {
     assert_eq!(output.height, 1080);
     assert_eq!(
         output.usable_area,
-        crate::layout::Rect::new(0, 0, 1920, 1080)
+        xrwm::layout::Rect::new(0, 0, 1920, 1080)
     );
     assert!(!output.has_custom_usable_area);
 
@@ -753,7 +755,7 @@ fn output_usable_area_follows_geometry_changes_without_layer_shell() {
     assert_eq!(output.y, 100);
     assert_eq!(
         output.usable_area,
-        crate::layout::Rect::new(1920, 100, 1920, 1080)
+        xrwm::layout::Rect::new(1920, 100, 1920, 1080)
     );
     assert!(!output.has_custom_usable_area);
 
@@ -767,13 +769,13 @@ fn output_usable_area_follows_geometry_changes_without_layer_shell() {
     assert_eq!(output.height, 720);
     assert_eq!(
         output.usable_area,
-        crate::layout::Rect::new(1920, 100, 1280, 720)
+        xrwm::layout::Rect::new(1920, 100, 1280, 720)
     );
     assert!(!output.has_custom_usable_area);
 
     // 3. If custom usable area was set (e.g. by layer-shell exclusive area), geometry updates do not overwrite it
     let output_mut = harness.state.outputs.get_mut(&client_out_id).unwrap();
-    output_mut.usable_area = crate::layout::Rect::new(1920, 132, 1280, 688);
+    output_mut.usable_area = xrwm::layout::Rect::new(1920, 132, 1280, 688);
     output_mut.has_custom_usable_area = true;
 
     harness.set_output_position(&out, 0, 0);
@@ -782,7 +784,7 @@ fn output_usable_area_follows_geometry_changes_without_layer_shell() {
     assert_eq!(output.y, 0);
     assert_eq!(
         output.usable_area,
-        crate::layout::Rect::new(1920, 132, 1280, 688)
+        xrwm::layout::Rect::new(1920, 132, 1280, 688)
     );
     assert!(output.has_custom_usable_area);
 }
@@ -963,7 +965,7 @@ fn window_completely_offscreen_during_slide_animation_is_hidden_not_leaked() {
     // Simulate tag animation where window 1 is on old tag (1), focused tag is now 2
     harness.state.tag_state.focused = 2;
     harness.state.tag_anim_old_mask = 1;
-    harness.state.tag_slide_dir = Some(crate::animation::SlideDirection::Right);
+    harness.state.tag_slide_dir = Some(xrwm::animation::SlideDirection::Right);
     // At progress ~0.95, the window has slid completely outside the screen (x = 0 - 1920 = -1920) while animation is actively running
     harness.state.anim.start_time = Some(Instant::now() - Duration::from_millis(9500));
 
@@ -991,8 +993,8 @@ fn stationary_floating_window_stays_visible_during_unrelated_animation() {
     // Simulate window dragged onto coordinates outside output bounds (e.g. x = 2000)
     harness.state.windows[0].x = 2000;
     harness.state.windows[0].y = 100;
-    harness.state.windows[0].anim_start_geo = Some(crate::layout::Rect::new(2000, 100, 400, 300));
-    harness.state.windows[0].anim_target_geo = Some(crate::layout::Rect::new(2000, 100, 400, 300));
+    harness.state.windows[0].anim_start_geo = Some(xrwm::layout::Rect::new(2000, 100, 400, 300));
+    harness.state.windows[0].anim_target_geo = Some(xrwm::layout::Rect::new(2000, 100, 400, 300));
 
     // An unrelated animation is active globally
     harness.state.anim.start_time = Some(Instant::now());
@@ -1098,7 +1100,7 @@ fn focus_follows_cursor_normal_vs_always_pointer_movement_in_same_window() {
     harness.manage();
 
     // Focus window1 via pointer enter in Normal mode
-    harness.state.focus_follows_cursor = crate::FocusFollowsCursor::Normal;
+    harness.state.focus_follows_cursor = xrwm::FocusFollowsCursor::Normal;
     harness.pointer_enter(&seat, &window1);
     assert_eq!(harness.state.focused_window_id(), Some(win1_id));
 
@@ -1119,7 +1121,7 @@ fn focus_follows_cursor_normal_vs_always_pointer_movement_in_same_window() {
     assert_eq!(harness.state.focused_window_id(), Some(win2_id));
 
     // Switch to Always mode: moving pointer within window1 DOES refocus window1
-    harness.state.focus_follows_cursor = crate::FocusFollowsCursor::Always;
+    harness.state.focus_follows_cursor = xrwm::FocusFollowsCursor::Always;
     harness.pointer_position(&seat, 12, 12);
     assert_eq!(harness.state.focused_window_id(), Some(win1_id));
 
@@ -1130,7 +1132,7 @@ fn focus_follows_cursor_normal_vs_always_pointer_movement_in_same_window() {
     assert_eq!(harness.state.focused_window_id(), Some(win2_id));
 
     // In Disabled mode: moving pointer within window1 does NOT refocus window1
-    harness.state.focus_follows_cursor = crate::FocusFollowsCursor::Disabled;
+    harness.state.focus_follows_cursor = xrwm::FocusFollowsCursor::Disabled;
     harness.pointer_position(&seat, 15, 15);
     assert_eq!(harness.state.focused_window_id(), Some(win2_id));
 }
@@ -1181,7 +1183,7 @@ fn tiled_drag_resize_and_swap_applies_immediately_on_release_without_extra_event
 
     // 1. Tiled resize drag release: immediately applies final ratio & geometry, and schedules follow-up manage
     let seat_item = harness.state.seats.values_mut().next().unwrap();
-    seat_item.op = crate::SeatOp::TiledResize { start_ratio: 0.55 };
+    seat_item.op = xrwm::SeatOp::TiledResize { start_ratio: 0.55 };
     seat_item.op_dx = 200;
     seat_item.op_release = true;
 
@@ -1200,7 +1202,7 @@ fn tiled_drag_resize_and_swap_applies_immediately_on_release_without_extra_event
     let current_x2 = harness.state.windows[1].x;
     harness.state.pointer = (50, 50); // Inside win1 (master slot)
     let seat_item = harness.state.seats.values_mut().next().unwrap();
-    seat_item.op = crate::SeatOp::TiledMove {
+    seat_item.op = xrwm::SeatOp::TiledMove {
         proxy: harness.state.windows[1].proxy.clone(),
         start_win_id: win2_id,
     };
@@ -1230,7 +1232,7 @@ fn pointer_commands_execute_on_empty_desktop_and_focus_hovered_window() {
     let seat_item = harness.state.seats.values_mut().next().unwrap();
     assert!(seat_item.hovered.is_none());
     seat_item.pending_action =
-        crate::seat::PointerAction::Command(vec!["set-focused-tags".into(), "2".into()]);
+        xrwm::seat::PointerAction::Command(vec!["set-focused-tags".into(), "2".into()]);
 
     harness.manage();
     assert_eq!(harness.state.tag_state.focused, 2);
@@ -1274,7 +1276,7 @@ fn pointer_commands_execute_on_empty_desktop_and_focus_hovered_window() {
     // Pointer hovers win2 and triggers "close"
     let seat_item = harness.state.seats.values_mut().next().unwrap();
     seat_item.hovered = Some(win2_proxy);
-    seat_item.pending_action = crate::seat::PointerAction::Command(vec!["close".into()]);
+    seat_item.pending_action = xrwm::seat::PointerAction::Command(vec!["close".into()]);
 
     harness.manage();
     assert_eq!(harness.state.focused_window_id(), Some(win2_id));
@@ -1392,7 +1394,7 @@ fn dimensions_rule_combined_with_output_rule_centers_on_target_output() {
     // Test 3: target output with exclusive layer-shell margins
     if let Some(out2_item) = harness.state.outputs.get_mut(&out2_id) {
         out2_item.has_custom_usable_area = true;
-        out2_item.usable_area = crate::layout::Rect::new(1920, 30, 1920, 1050);
+        out2_item.usable_area = xrwm::layout::Rect::new(1920, 30, 1920, 1050);
     }
 
     let win_margins = harness.add_window();
@@ -1646,7 +1648,7 @@ fn title_change_does_not_reset_manual_tags_geometry_or_output() {
     harness.state.windows[0].y = 150;
     harness.state.windows[0].width = 777;
     harness.state.windows[0].height = 555;
-    harness.state.windows[0].float_geo = Some(crate::layout::Rect::new(100, 150, 777, 555));
+    harness.state.windows[0].float_geo = Some(xrwm::layout::Rect::new(100, 150, 777, 555));
 
     // 3. Terminal changes title (e.g. launching vim)
     harness.set_title(&win, "vim - main.rs");
@@ -1953,12 +1955,12 @@ fn multi_output_zoom_attach_and_drag_resize_column_determination() {
         .clone();
     let seat_item = harness.state.seats.values_mut().next().unwrap();
     seat_item.hovered = Some(win3_proxy.clone());
-    seat_item.pending_action = crate::seat::PointerAction::Resize;
+    seat_item.pending_action = xrwm::seat::PointerAction::Resize;
 
     harness.manage();
 
     let seat_item = harness.state.seats.values().next().unwrap();
-    assert!(matches!(seat_item.op, crate::SeatOp::TiledResize { .. }));
+    assert!(matches!(seat_item.op, xrwm::SeatOp::TiledResize { .. }));
 }
 
 #[test]
@@ -2168,7 +2170,7 @@ fn test_migrate_float_geometry_across_outputs() {
     harness.state.windows[0].y = 100;
     harness.state.windows[0].width = 600;
     harness.state.windows[0].height = 400;
-    harness.state.windows[0].float_geo = Some(crate::layout::Rect::new(100, 100, 600, 400));
+    harness.state.windows[0].float_geo = Some(xrwm::layout::Rect::new(100, 100, 600, 400));
 
     // Toggle float to tile it: saves float_geo at (100, 100)
     harness.state.toggle_float_focused().unwrap();
@@ -2200,7 +2202,7 @@ fn test_migrate_float_geometry_across_outputs() {
     // 2. Output unplug / removal: window floating on out2 (x=2100) migrated to fallback out1
     harness.state.windows[0].x = 2100;
     harness.state.windows[0].y = 200;
-    harness.state.windows[0].float_geo = Some(crate::layout::Rect::new(2100, 200, 600, 400));
+    harness.state.windows[0].float_geo = Some(xrwm::layout::Rect::new(2100, 200, 600, 400));
 
     harness.event(&out2, output::EVT_REMOVED_OPCODE, vec![]);
     harness.dispatch_events();

@@ -1,4 +1,8 @@
-use super::*;
+#![allow(clippy::unwrap_used)]
+
+use std::time::Duration;
+
+use xrwm::*;
 
 #[test]
 fn test_app_state_ipc_gaps() {
@@ -290,20 +294,17 @@ fn test_app_state_modal_modes_and_relative_ratio() {
 
     // Cursor warp and focus-follows-cursor tests
     state.execute_action_tokens(&["set-cursor-warp".into(), "on-output-change".into()]);
-    assert_eq!(state.cursor_warp, crate::CursorWarp::OnOutputChange);
+    assert_eq!(state.cursor_warp, xrwm::CursorWarp::OnOutputChange);
     state.execute_action_tokens(&["set-cursor-warp".into(), "disabled".into()]);
-    assert_eq!(state.cursor_warp, crate::CursorWarp::Disabled);
+    assert_eq!(state.cursor_warp, xrwm::CursorWarp::Disabled);
 
     state.execute_action_tokens(&["focus-follows-cursor".into(), "disabled".into()]);
     assert_eq!(
         state.focus_follows_cursor,
-        crate::FocusFollowsCursor::Disabled
+        xrwm::FocusFollowsCursor::Disabled
     );
     state.execute_action_tokens(&["focus-follows-cursor".into(), "always".into()]);
-    assert_eq!(
-        state.focus_follows_cursor,
-        crate::FocusFollowsCursor::Always
-    );
+    assert_eq!(state.focus_follows_cursor, xrwm::FocusFollowsCursor::Always);
 
     // Hide cursor tests
     assert!(state.set_hide_cursor_timeout(3000).is_err());
@@ -334,7 +335,7 @@ fn test_workspace_slide_direction() {
     state.set_focused_tags(2).unwrap();
     assert_eq!(
         state.tag_slide_dir,
-        Some(crate::animation::SlideDirection::Right)
+        Some(xrwm::animation::SlideDirection::Right)
     );
     assert_eq!(state.tag_anim_old_mask, 1);
 
@@ -342,7 +343,7 @@ fn test_workspace_slide_direction() {
     state.set_focused_tags(1).unwrap();
     assert_eq!(
         state.tag_slide_dir,
-        Some(crate::animation::SlideDirection::Left)
+        Some(xrwm::animation::SlideDirection::Left)
     );
     assert_eq!(state.tag_anim_old_mask, 2);
 }
@@ -502,7 +503,7 @@ fn wait_for_process_exit(pid: u32) {
 #[test]
 #[allow(clippy::zombie_processes)]
 fn test_reap_zombies_cleans_exited_children() {
-    let _guard = crate::state::PROCESS_TEST_MUTEX.lock().unwrap();
+    let _guard = xrwm::state::PROCESS_TEST_MUTEX.lock().unwrap();
     let child1 = std::process::Command::new("true").spawn().unwrap();
     let child2 = std::process::Command::new("true").spawn().unwrap();
     let child3 = std::process::Command::new("true").spawn().unwrap();
@@ -530,7 +531,7 @@ fn test_reap_zombies_cleans_exited_children() {
 
 #[test]
 fn test_reap_zombies_does_not_block_on_running_child() {
-    let _guard = crate::state::PROCESS_TEST_MUTEX.lock().unwrap();
+    let _guard = xrwm::state::PROCESS_TEST_MUTEX.lock().unwrap();
     // Spawn a long-running process
     let mut child = std::process::Command::new("sleep")
         .arg("10")
@@ -553,7 +554,7 @@ fn test_reap_zombies_does_not_block_on_running_child() {
 #[test]
 #[allow(clippy::zombie_processes)]
 fn test_spawn_and_reload_actions_reap_children() {
-    let _guard = crate::state::PROCESS_TEST_MUTEX.lock().unwrap();
+    let _guard = xrwm::state::PROCESS_TEST_MUTEX.lock().unwrap();
     let mut state = AppState::new();
 
     // Spawn a child and wait for it to exit
@@ -618,7 +619,7 @@ fn validate_action_tokens(action: &[String]) {
             action
         );
     } else {
-        let parsed = crate::ipc::parse_cli_args(action).unwrap_or_else(|e| {
+        let parsed = xrwm::ipc::parse_cli_args(action).unwrap_or_else(|e| {
             panic!("Invalid action tokens in map: {:?}, error: {}", action, e);
         });
         let mut test_state = AppState::new();
@@ -651,7 +652,7 @@ fn test_examples_init_all_commands_are_valid() {
             line
         );
 
-        let cmd = crate::ipc::parse_cli_args(&tokens).unwrap_or_else(|e| {
+        let cmd = xrwm::ipc::parse_cli_args(&tokens).unwrap_or_else(|e| {
             panic!(
                 "Failed to parse CLI args at line {}: {}\nError: {}",
                 line_no + 1,
@@ -680,7 +681,7 @@ fn test_examples_init_all_commands_are_valid() {
         let tags = 1 << (i - 1);
         let action1 = vec!["set-focused-tags".into(), tags.to_string()];
         validate_action_tokens(&action1);
-        let cmd1 = crate::ipc::parse_cli_args(&[
+        let cmd1 = xrwm::ipc::parse_cli_args(&[
             "map".into(),
             "normal".into(),
             "Super".into(),
@@ -693,7 +694,7 @@ fn test_examples_init_all_commands_are_valid() {
 
         let action2 = vec!["set-view-tags".into(), tags.to_string()];
         validate_action_tokens(&action2);
-        let cmd2 = crate::ipc::parse_cli_args(&[
+        let cmd2 = xrwm::ipc::parse_cli_args(&[
             "map".into(),
             "normal".into(),
             "Super+Shift".into(),
@@ -711,7 +712,7 @@ fn test_stack_ratio_keybindings_parsing_and_handling() {
     let mut state = AppState::new();
     state.layout_config.stack_split_ratio = 0.50;
 
-    let cmd_left = crate::ipc::parse_cli_args(&[
+    let cmd_left = xrwm::ipc::parse_cli_args(&[
         "map".into(),
         "normal".into(),
         "Super".into(),
@@ -735,7 +736,7 @@ fn test_stack_ratio_keybindings_parsing_and_handling() {
         panic!("Expected IpcCommand::Map");
     }
 
-    let cmd_right = crate::ipc::parse_cli_args(&[
+    let cmd_right = xrwm::ipc::parse_cli_args(&[
         "map".into(),
         "normal".into(),
         "Super".into(),
@@ -1199,7 +1200,7 @@ fn test_remapping_replaces_duplicate_bindings_without_accumulation() {
     assert_eq!(state.pending_pointer_bindings.len(), 1);
     assert_eq!(
         state.configured_pointer_bindings[0].action,
-        crate::seat::PointerAction::Move
+        xrwm::seat::PointerAction::Move
     );
 
     // Re-map with different action replaces the pointer binding
@@ -1214,7 +1215,7 @@ fn test_remapping_replaces_duplicate_bindings_without_accumulation() {
     assert_eq!(state.pending_pointer_bindings.len(), 1);
     assert_eq!(
         state.configured_pointer_bindings[0].action,
-        crate::seat::PointerAction::Resize
+        xrwm::seat::PointerAction::Resize
     );
 
     // Multiple reloads do not accumulate pointer bindings

@@ -1,9 +1,10 @@
+#![allow(clippy::unwrap_used)]
+
 use std::io::{Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 
-use super::MAX_SUN_LEN;
-use super::*;
+use xrwm::ipc::*;
 
 #[test]
 fn test_parse_cli_args() {
@@ -289,27 +290,27 @@ fn test_parse_cli_args() {
     );
     assert_eq!(
         parse_cli_args(&["default-attach-mode".into(), "bottom".into()]).unwrap(),
-        IpcCommand::DefaultAttachMode(crate::AttachMode::Bottom)
+        IpcCommand::DefaultAttachMode(xrwm::AttachMode::Bottom)
     );
     assert_eq!(
         parse_cli_args(&["default-attach-mode".into(), "after".into(), "2".into()]).unwrap(),
-        IpcCommand::DefaultAttachMode(crate::AttachMode::After(2))
+        IpcCommand::DefaultAttachMode(xrwm::AttachMode::After(2))
     );
     assert_eq!(
         parse_cli_args(&["set-cursor-warp".into(), "on-output-change".into()]).unwrap(),
-        IpcCommand::SetCursorWarp(crate::CursorWarp::OnOutputChange)
+        IpcCommand::SetCursorWarp(xrwm::CursorWarp::OnOutputChange)
     );
     assert_eq!(
         parse_cli_args(&["set-cursor-warp".into(), "disabled".into()]).unwrap(),
-        IpcCommand::SetCursorWarp(crate::CursorWarp::Disabled)
+        IpcCommand::SetCursorWarp(xrwm::CursorWarp::Disabled)
     );
     assert_eq!(
         parse_cli_args(&["focus-follows-cursor".into(), "always".into()]).unwrap(),
-        IpcCommand::FocusFollowsCursor(crate::FocusFollowsCursor::Always)
+        IpcCommand::FocusFollowsCursor(xrwm::FocusFollowsCursor::Always)
     );
     assert_eq!(
         parse_cli_args(&["main-location".into(), "top".into()]).unwrap(),
-        IpcCommand::MainLocation(crate::layout::MainLocation::Top)
+        IpcCommand::MainLocation(xrwm::layout::MainLocation::Top)
     );
     assert_eq!(
         parse_cli_args(&["swap".into(), "next".into()]).unwrap(),

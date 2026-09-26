@@ -1,4 +1,6 @@
-use super::*;
+#![allow(clippy::unwrap_used)]
+
+use xrwm::layout::*;
 
 #[test]
 fn test_empty_layout() {

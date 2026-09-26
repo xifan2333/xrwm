@@ -1,31 +1,9 @@
-pub mod actions;
-pub mod animation;
-pub mod binds;
-pub mod dispatch;
-pub mod ipc;
-pub mod layout;
-pub mod nav;
-pub mod protocol;
-pub mod rule;
-pub mod seat;
-pub mod state;
-pub mod status;
-pub mod tag;
-
-#[cfg(test)]
-mod tests;
-
-pub use actions::*;
-pub use binds::*;
-pub use nav::*;
-pub use rule::*;
-pub use seat::*;
-pub use state::*;
-
 use std::os::fd::AsFd;
 
 use rustix::event::{PollFd, PollFlags, Timespec};
 use wayland_client::Connection;
+use xrwm::ipc;
+use xrwm::state::{AppState, reap_zombies, spawn_init_script};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
