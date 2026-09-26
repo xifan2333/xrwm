@@ -1637,6 +1637,10 @@ impl AppState {
                     w.proxy.set_clip_box(0, 0, 0, 0);
                     (target, true)
                 } else if w.fullscreen {
+                    // Fullscreen windows are positioned by the compositor and cannot slide.
+                    // When on an inactive tag, immediately hide them to prevent covering other workspaces,
+                    // while fully preserving their fullscreen state (w.fullscreen remains true).
+                    // When returning to this tag, w.proxy.show() will be invoked to unhide the window.
                     w.proxy.set_clip_box(0, 0, 0, 0);
                     (target, is_in_current)
                 } else if is_tag_animating {
