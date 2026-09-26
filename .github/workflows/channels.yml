@@ -3,6 +3,14 @@ name: channels
 on:
   workflow_dispatch:
     inputs:
+      ref:
+        description: "Release tag (e.g. v0.1.2)"
+        required: false
+        type: string
+      version:
+        description: "Release version (e.g. 0.1.2)"
+        required: false
+        type: string
       dry_run:
         description: "Dry-run mode (skip actual AUR publishing)"
         required: false

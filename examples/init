@@ -53,6 +53,7 @@ xrwm map normal "Super+Shift" P toggle-floating-views
 xrwm map normal Super F toggle-fullscreen
 xrwm map normal None F11 toggle-fullscreen
 xrwm map normal "Super+Shift" Return zoom
+xrwm map normal "Super+Shift" R reload
 xrwm map normal "Super+Shift" Q exit
 
 # 7. 焦点流转 HJKL
