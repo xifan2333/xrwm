@@ -3196,17 +3196,38 @@ fn test_floating_rule_dimensions_invariant_against_client_buffer_dimensions() {
         Some(xrwm::layout::Rect::new(480, 270, 960, 540))
     );
 
-    // In render start, content clipping must clip the oversized buffer to the target 960x540
+    // Strict river-classic: while client committed an unconfigured buffer (1280x720),
+    // the window is held back and kept hidden, avoiding oversized buffer flashes or crude clipping.
     harness.render();
-    assert!(harness.has_window_request(&window, window::REQ_SET_CLIP_BOX_OPCODE));
+    assert!(harness.has_window_request(&window, window::REQ_HIDE_OPCODE));
+    assert!(!harness.has_window_request(&window, window::REQ_SET_CLIP_BOX_OPCODE));
 
-    // When client resizes and commits 960x540, dimensions stay stable without reproposal loop
+    // When client resizes and commits 960x540, the window is dimension configured and revealed.
     harness.event(
         &window,
         window::EVT_DIMENSIONS_OPCODE,
         vec![Argument::Int(960), Argument::Int(540)],
     );
     harness.dispatch_events();
+
+    harness.server.requests.clear();
+    harness.render();
+    assert!(harness.has_window_request(&window, window::REQ_SHOW_OPCODE));
+    let clip_args = harness
+        .server
+        .requests
+        .iter()
+        .find(|msg| msg.sender_id == window && msg.opcode == window::REQ_SET_CLIP_BOX_OPCODE)
+        .map(|msg| match msg.args.as_slice() {
+            [
+                Argument::Int(x),
+                Argument::Int(y),
+                Argument::Int(w),
+                Argument::Int(h),
+            ] => (*x, *y, *w, *h),
+            _ => (-1, -1, -1, -1),
+        });
+    assert_eq!(clip_args, Some((0, 0, 0, 0)));
 
     harness.server.requests.clear();
     harness.manage();
