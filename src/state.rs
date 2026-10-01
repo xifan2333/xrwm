@@ -1592,7 +1592,20 @@ impl AppState {
                         (geo, false)
                     }
                 } else {
-                    w.proxy.set_clip_box(0, 0, 0, 0);
+                    if (w.content_width.is_some_and(|cw| cw > target.width)
+                        || w.content_height.is_some_and(|ch| ch > target.height))
+                        && target.width > 0
+                        && target.height > 0
+                    {
+                        w.proxy.set_clip_box(
+                            0,
+                            0,
+                            target.width.min(i32::MAX as u32) as i32,
+                            target.height.min(i32::MAX as u32) as i32,
+                        );
+                    } else {
+                        w.proxy.set_clip_box(0, 0, 0, 0);
+                    }
                     w.anim_start_geo = Some(target);
                     w.anim_target_geo = Some(target);
                     (target, true)
