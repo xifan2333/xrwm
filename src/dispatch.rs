@@ -262,10 +262,20 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
                 if let Some(win) = state.windows.iter_mut().find(|win| &win.proxy == proxy) {
                     win.content_width = Some(w);
                     win.content_height = Some(h);
-                    let has_pending_local_target =
-                        win.last_proposed_w.is_some_and(|pw| pw != win.width)
-                            || win.last_proposed_h.is_some_and(|ph| ph != win.height);
-                    if win.floating && !is_resizing && !has_pending_local_target {
+                    let has_dimensions_rule = state.rules.iter().any(|r| {
+                        r.dimensions.is_some()
+                            && r.app_id.as_deref().is_none_or(|pat| {
+                                crate::rule::glob_match(pat, win.app_id.as_deref().unwrap_or(""))
+                            })
+                            && r.title.as_deref().is_none_or(|pat| {
+                                crate::rule::glob_match(pat, win.title.as_deref().unwrap_or(""))
+                            })
+                    });
+
+                    // Strictly align with river-classic:
+                    // Floating geometry (float_geo / view.float_box) with an explicit dimensions rule
+                    // is invariant and must never be overwritten by intermediate or unconfigured client commits.
+                    if win.floating && !is_resizing && !has_dimensions_rule {
                         win.width = w;
                         win.height = h;
                         win.last_proposed_w = Some(w);
