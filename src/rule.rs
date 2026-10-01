@@ -171,6 +171,7 @@ pub fn apply_rules_to_window(
     {
         w.width = width;
         w.height = height;
+        w.rule_dimensions = Some((width, height));
     }
 
     // Position and centering logic: strict river-classic

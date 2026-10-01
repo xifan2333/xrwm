@@ -110,6 +110,8 @@ pub struct WindowItem {
     pub height: u32,
     pub content_width: Option<u32>,
     pub content_height: Option<u32>,
+    pub rule_dimensions: Option<(u32, u32)>,
+    pub dimension_events: u32,
     // Animation & visual geometry tracking
     pub visual_geo: Option<Rect>,
     pub anim_start_geo: Option<Rect>,
@@ -128,6 +130,30 @@ impl WindowItem {
     #[inline]
     pub fn effective_height(&self) -> u32 {
         self.content_height.unwrap_or(self.height)
+    }
+
+    /// Returns true if this window has satisfied its target dimension requirements
+    /// per river-classic transaction semantics.
+    ///
+    /// For windows with an explicit dimensions rule, initial unconfigured oversized
+    /// buffer commits (such as imv's default 1280x720 when 960x540 is requested)
+    /// are held back from rendering until the client commits a buffer within the
+    /// requested target size bounds. Non-exact sizing (such as terminal cell grid
+    /// rounding) is immediately allowed if within requested dimensions, or released
+    /// after a second dimension event to ensure windows are never stuck hidden.
+    #[inline]
+    pub fn is_dimension_configured(&self) -> bool {
+        if let Some((rw, rh)) = self.rule_dimensions {
+            if self.initial_rendered || self.dimension_events >= 2 {
+                return true;
+            }
+            match (self.content_width, self.content_height) {
+                (Some(cw), Some(ch)) => cw <= rw && ch <= rh,
+                _ => false,
+            }
+        } else {
+            true
+        }
     }
 }
 
@@ -1332,7 +1358,7 @@ impl AppState {
                 .unwrap_or(self.tag_state);
             let is_visible = out_tag_state.is_view_visible(w.tags);
             let target = Rect::new(w.x, w.y, w.width, w.height);
-            if !is_any_pointer_op {
+            if !is_any_pointer_op && w.is_dimension_configured() {
                 if !w.initial_managed {
                     if is_visible {
                         let start_w = ((target.width as u64 * 7 / 10) as u32).max(10);
@@ -1515,7 +1541,7 @@ impl AppState {
             let is_in_current = out_tag_state.is_view_visible(w.tags);
             let is_in_old = is_tag_animating && (w.tags & self.tag_anim_old_mask) != 0;
 
-            if is_in_current || is_in_old {
+            if (is_in_current || is_in_old) && w.is_dimension_configured() {
                 let is_interactive = active_move_proxy.as_ref() == Some(&w.proxy);
                 let target = Rect::new(w.x, w.y, w.width, w.height);
 
@@ -1592,20 +1618,7 @@ impl AppState {
                         (geo, false)
                     }
                 } else {
-                    if (w.content_width.is_some_and(|cw| cw > target.width)
-                        || w.content_height.is_some_and(|ch| ch > target.height))
-                        && target.width > 0
-                        && target.height > 0
-                    {
-                        w.proxy.set_clip_box(
-                            0,
-                            0,
-                            target.width.min(i32::MAX as u32) as i32,
-                            target.height.min(i32::MAX as u32) as i32,
-                        );
-                    } else {
-                        w.proxy.set_clip_box(0, 0, 0, 0);
-                    }
+                    w.proxy.set_clip_box(0, 0, 0, 0);
                     w.anim_start_geo = Some(target);
                     w.anim_target_geo = Some(target);
                     (target, true)
@@ -1615,11 +1628,11 @@ impl AppState {
                 if is_visible {
                     w.proxy.show();
                     w.node.set_position(render_geo.x, render_geo.y);
+                    w.initial_rendered = true;
                 } else {
                     w.proxy.hide();
                     w.node.set_position(hide_x, hide_y);
                 }
-                w.initial_rendered = true;
             } else {
                 w.proxy.hide();
                 w.node.set_position(hide_x, hide_y);

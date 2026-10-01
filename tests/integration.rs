@@ -986,8 +986,14 @@ fn stationary_floating_window_stays_visible_during_unrelated_animation() {
     // Floating window
     harness.rule(&["float"]);
     harness.rule(&["dimensions", "400", "300"]);
-    let _win = harness.add_window();
+    let win = harness.add_window();
     harness.manage();
+    harness.event(
+        &win,
+        window::EVT_DIMENSIONS_OPCODE,
+        vec![Argument::Int(400), Argument::Int(300)],
+    );
+    harness.dispatch_events();
     harness.render();
 
     // Simulate window dragged onto coordinates outside output bounds (e.g. x = 2000)
@@ -3196,11 +3202,13 @@ fn test_floating_rule_dimensions_invariant_against_client_buffer_dimensions() {
         Some(xrwm::layout::Rect::new(480, 270, 960, 540))
     );
 
-    // In render start, content clipping must clip the oversized buffer to the target 960x540
+    // Strict river-classic: while client committed an unconfigured buffer (1280x720),
+    // the window is held back and kept hidden, avoiding oversized buffer flashes or crude clipping.
     harness.render();
-    assert!(harness.has_window_request(&window, window::REQ_SET_CLIP_BOX_OPCODE));
+    assert!(harness.has_window_request(&window, window::REQ_HIDE_OPCODE));
+    assert!(!harness.has_window_request(&window, window::REQ_SET_CLIP_BOX_OPCODE));
 
-    // When client resizes and commits 960x540, dimensions stay stable without reproposal loop
+    // When client resizes and commits 960x540, the window is dimension configured and revealed.
     harness.event(
         &window,
         window::EVT_DIMENSIONS_OPCODE,
@@ -3209,8 +3217,52 @@ fn test_floating_rule_dimensions_invariant_against_client_buffer_dimensions() {
     harness.dispatch_events();
 
     harness.server.requests.clear();
+    harness.render();
+    assert!(harness.has_window_request(&window, window::REQ_SHOW_OPCODE));
+    let clip_args = harness
+        .server
+        .requests
+        .iter()
+        .find(|msg| msg.sender_id == window && msg.opcode == window::REQ_SET_CLIP_BOX_OPCODE)
+        .map(|msg| match msg.args.as_slice() {
+            [
+                Argument::Int(x),
+                Argument::Int(y),
+                Argument::Int(w),
+                Argument::Int(h),
+            ] => (*x, *y, *w, *h),
+            _ => (-1, -1, -1, -1),
+        });
+    assert_eq!(clip_args, Some((0, 0, 0, 0)));
+
+    harness.server.requests.clear();
     harness.manage();
     assert!(harness.proposals(&window).is_empty());
+}
+
+#[test]
+fn test_floating_terminal_cell_rounding_reveals_immediately() {
+    let mut harness = Harness::new();
+    harness.add_output();
+    harness.rule_with_match(Some("foot"), None, &["float"]);
+    harness.rule_with_match(Some("foot"), None, &["dimensions", "960", "540"]);
+
+    let window = harness.add_window();
+    harness.set_app_id(&window, "foot");
+    harness.manage();
+
+    // Terminal emulator commits best-effort grid size within bounds (e.g. 952x536) on first event
+    harness.event(
+        &window,
+        window::EVT_DIMENSIONS_OPCODE,
+        vec![Argument::Int(952), Argument::Int(536)],
+    );
+    harness.dispatch_events();
+
+    harness.server.requests.clear();
+    harness.render();
+    // Must immediately reveal without requiring a second dimensions event or getting stuck hidden
+    assert!(harness.has_window_request(&window, window::REQ_SHOW_OPCODE));
 }
 
 #[test]

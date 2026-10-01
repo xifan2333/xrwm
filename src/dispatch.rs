@@ -145,6 +145,8 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                     height: 0,
                     content_width: None,
                     content_height: None,
+                    rule_dimensions: None,
+                    dimension_events: 0,
                     visual_geo: None,
                     anim_start_geo: None,
                     anim_target_geo: None,
@@ -262,15 +264,20 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
                 if let Some(win) = state.windows.iter_mut().find(|win| &win.proxy == proxy) {
                     win.content_width = Some(w);
                     win.content_height = Some(h);
-                    let has_dimensions_rule = state.rules.iter().any(|r| {
-                        r.dimensions.is_some()
-                            && r.app_id.as_deref().is_none_or(|pat| {
-                                crate::rule::glob_match(pat, win.app_id.as_deref().unwrap_or(""))
-                            })
-                            && r.title.as_deref().is_none_or(|pat| {
-                                crate::rule::glob_match(pat, win.title.as_deref().unwrap_or(""))
-                            })
-                    });
+                    win.dimension_events = win.dimension_events.saturating_add(1);
+                    let has_dimensions_rule = win.rule_dimensions.is_some()
+                        || state.rules.iter().any(|r| {
+                            r.dimensions.is_some()
+                                && r.app_id.as_deref().is_none_or(|pat| {
+                                    crate::rule::glob_match(
+                                        pat,
+                                        win.app_id.as_deref().unwrap_or(""),
+                                    )
+                                })
+                                && r.title.as_deref().is_none_or(|pat| {
+                                    crate::rule::glob_match(pat, win.title.as_deref().unwrap_or(""))
+                                })
+                        });
 
                     // Strictly align with river-classic:
                     // Floating geometry (float_geo / view.float_box) with an explicit dimensions rule
