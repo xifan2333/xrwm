@@ -57,15 +57,16 @@ pub fn glob_match(pattern: &str, text: &str) -> bool {
 
 /// Applies matching window rules to a newly mapped or metadata-updated window.
 ///
-/// Rules specifying floating mode or decorations apply on initial creation and
-/// update whenever metadata changes.
+/// Designed strictly after river-classic:
+/// - Floating windows or windows with dimension rules without an explicit position
+///   rule are centered on the target output's usable area.
+/// - Floating geometry is clean and never polluted by residual tiled layout coordinates.
 pub fn apply_rules_to_window(
     rules: &[WindowRule],
     w: &mut WindowItem,
     usable_area: Option<Rect>,
     outputs: &HashMap<ObjectId, OutputItem>,
 ) {
-    // Collect all matching rules for this window
     let matching_rules: Vec<&WindowRule> = rules
         .iter()
         .filter(|r| {
@@ -80,6 +81,8 @@ pub fn apply_rules_to_window(
             app_matches && title_matches
         })
         .collect();
+
+    let was_floating = w.floating;
 
     // Pass 1: resolve output, floating, ssd, tags, fullscreen
     for r in &matching_rules {
@@ -134,46 +137,62 @@ pub fn apply_rules_to_window(
         }
     }
 
-    // Initial dimension and position rules only apply before initial management
-    if !w.initial_managed {
-        // Determine effective usable area based on resolved target output
-        let effective_usable_area = w
-            .output
-            .as_ref()
-            .and_then(|id| outputs.get(id))
-            .map(|o| {
-                if o.usable_area.width > 0 && o.usable_area.height > 0 {
-                    o.usable_area
-                } else if o.width > 0 && o.height > 0 {
-                    Rect::new(o.x, o.y, o.width, o.height)
-                } else {
-                    o.usable_area
-                }
-            })
-            .or(usable_area);
+    // Determine effective usable area based on resolved target output
+    let effective_usable_area = w
+        .output
+        .as_ref()
+        .and_then(|id| outputs.get(id))
+        .map(|o| {
+            if o.usable_area.width > 0 && o.usable_area.height > 0 {
+                o.usable_area
+            } else if o.width > 0 && o.height > 0 {
+                Rect::new(o.x, o.y, o.width, o.height)
+            } else {
+                o.usable_area
+            }
+        })
+        .or(usable_area);
 
-        // Pass 2: apply dimensions and position using effective_usable_area
-        for r in &matching_rules {
-            if let Some((width, height)) = r.dimensions {
-                w.width = width;
-                w.height = height;
-                if let Some(usable) = effective_usable_area {
-                    let cx = (usable.x as i64 + ((usable.width as i64 - width as i64) / 2).max(0))
-                        .clamp(i32::MIN as i64, i32::MAX as i64)
-                        as i32;
-                    let cy = (usable.y as i64 + ((usable.height as i64 - height as i64) / 2).max(0))
-                        .clamp(i32::MIN as i64, i32::MAX as i64)
-                        as i32;
-                    w.x = cx;
-                    w.y = cy;
-                    w.float_geo = Some(Rect::new(cx, cy, width, height));
-                }
-            }
-            if let Some((px, py)) = r.position {
-                w.x = px;
-                w.y = py;
-                w.float_geo = Some(Rect::new(px, py, w.width, w.height));
-            }
+    let mut matched_dimensions = None;
+    let mut matched_position = None;
+
+    for r in &matching_rules {
+        if r.dimensions.is_some() {
+            matched_dimensions = r.dimensions;
+        }
+        if r.position.is_some() {
+            matched_position = r.position;
+        }
+    }
+
+    // Apply dimensions to window (river-classic: view.pending.box width/height)
+    if (!w.initial_managed || !was_floating)
+        && let Some((width, height)) = matched_dimensions
+    {
+        w.width = width;
+        w.height = height;
+    }
+
+    // Position and centering logic: strict river-classic
+    // If an explicit position rule is given, use it.
+    // Otherwise, if dimensions rule was specified OR the window is floating, center on target usable area.
+    if !w.initial_managed || !was_floating || w.float_geo.is_none() {
+        if let Some((px, py)) = matched_position {
+            w.x = px;
+            w.y = py;
+            w.float_geo = Some(Rect::new(px, py, w.width, w.height));
+        } else if (matched_dimensions.is_some() || w.floating)
+            && let Some(usable) = effective_usable_area
+            && w.width > 0
+            && w.height > 0
+        {
+            let cx = (usable.x as i64 + ((usable.width as i64 - w.width as i64) / 2).max(0))
+                .clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+            let cy = (usable.y as i64 + ((usable.height as i64 - w.height as i64) / 2).max(0))
+                .clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+            w.x = cx;
+            w.y = cy;
+            w.float_geo = Some(Rect::new(cx, cy, w.width, w.height));
         }
     }
 }

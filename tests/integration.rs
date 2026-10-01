@@ -3126,3 +3126,33 @@ fn test_toggle_floating_views_hides_and_restores() {
     // Focus is recalled to the floating window
     assert_eq!(harness.state.focused_window_id(), Some(float_id));
 }
+
+#[test]
+fn test_floating_window_strictly_centers_on_output_per_river_classic() {
+    let mut harness = Harness::new();
+    harness.add_output(); // Default output: x=0, y=0, width=1920, height=1080
+    harness.rule_with_match(Some("imv"), None, &["float"]);
+    harness.rule_with_match(Some("imv"), None, &["dimensions", "960", "540"]);
+
+    let window = harness.add_window();
+    harness.set_app_id(&window, "imv");
+    harness.manage();
+
+    let win_item = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == window.protocol_id())
+        .unwrap();
+
+    assert!(win_item.floating);
+    assert_eq!(win_item.width, 960);
+    assert_eq!(win_item.height, 540);
+    // Strict river-classic: (1920 - 960) / 2 = 480, (1080 - 540) / 2 = 270
+    assert_eq!(win_item.x, 480);
+    assert_eq!(win_item.y, 270);
+    assert_eq!(
+        win_item.float_geo,
+        Some(xrwm::layout::Rect::new(480, 270, 960, 540))
+    );
+}

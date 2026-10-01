@@ -258,6 +258,7 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
                 let is_resizing = state.seats.values().any(
                     |s| matches!(&s.op, crate::seat::SeatOp::Resize { proxy: p, .. } if p == proxy),
                 );
+                let focused_out_id = state.get_focused_output_id();
                 if let Some(win) = state.windows.iter_mut().find(|win| &win.proxy == proxy) {
                     win.content_width = Some(w);
                     win.content_height = Some(h);
@@ -269,6 +270,49 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
                         win.height = h;
                         win.last_proposed_w = Some(w);
                         win.last_proposed_h = Some(h);
+
+                        // Strict river-classic: center floating window on usable area unless positioned by rule
+                        let has_position_rule = state.rules.iter().any(|r| {
+                            r.position.is_some()
+                                && r.app_id.as_deref().is_none_or(|pat| {
+                                    crate::rule::glob_match(
+                                        pat,
+                                        win.app_id.as_deref().unwrap_or(""),
+                                    )
+                                })
+                                && r.title.as_deref().is_none_or(|pat| {
+                                    crate::rule::glob_match(pat, win.title.as_deref().unwrap_or(""))
+                                })
+                        });
+
+                        if !has_position_rule && (win.float_geo.is_none() || !win.initial_managed) {
+                            let usable = win
+                                .output
+                                .as_ref()
+                                .or(focused_out_id.as_ref())
+                                .and_then(|id| state.outputs.get(id))
+                                .map(|o| {
+                                    if o.usable_area.width > 0 && o.usable_area.height > 0 {
+                                        o.usable_area
+                                    } else {
+                                        Rect::new(o.x, o.y, o.width, o.height)
+                                    }
+                                });
+
+                            if let Some(usable) = usable {
+                                let cx = (usable.x as i64
+                                    + ((usable.width as i64 - w as i64) / 2).max(0))
+                                .clamp(i32::MIN as i64, i32::MAX as i64)
+                                    as i32;
+                                let cy = (usable.y as i64
+                                    + ((usable.height as i64 - h as i64) / 2).max(0))
+                                .clamp(i32::MIN as i64, i32::MAX as i64)
+                                    as i32;
+                                win.x = cx;
+                                win.y = cy;
+                            }
+                        }
+
                         win.float_geo = Some(Rect::new(win.x, win.y, w, h));
                     }
                 }

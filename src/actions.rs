@@ -36,6 +36,7 @@ impl AppState {
             return Err("no view focused".to_string());
         };
 
+        let focused_out_id = self.get_focused_output_id();
         if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
             w.floating = !w.floating;
             let is_floating = w.floating;
@@ -52,6 +53,27 @@ impl AppState {
                     w.width = saved.width;
                     w.height = saved.height;
                 } else {
+                    let usable = w
+                        .output
+                        .as_ref()
+                        .or(focused_out_id.as_ref())
+                        .and_then(|id| self.outputs.get(id))
+                        .map(|o| o.usable_area);
+                    if let Some(usable) = usable
+                        && w.width > 0
+                        && w.height > 0
+                    {
+                        let cx = (usable.x as i64
+                            + ((usable.width as i64 - w.width as i64) / 2).max(0))
+                        .clamp(i32::MIN as i64, i32::MAX as i64)
+                            as i32;
+                        let cy = (usable.y as i64
+                            + ((usable.height as i64 - w.height as i64) / 2).max(0))
+                        .clamp(i32::MIN as i64, i32::MAX as i64)
+                            as i32;
+                        w.x = cx;
+                        w.y = cy;
+                    }
                     w.float_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
                 }
             } else {
