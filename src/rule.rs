@@ -165,16 +165,13 @@ pub fn apply_rules_to_window(
         }
     }
 
-    if let Some((width, height)) = matched_dimensions {
-        w.rule_dimensions = Some((width, height));
-    }
-
     // Apply dimensions to window (river-classic: view.pending.box width/height)
     if (!w.initial_managed || !was_floating)
         && let Some((width, height)) = matched_dimensions
     {
         w.width = width;
         w.height = height;
+        w.rule_dimensions = Some((width, height));
     }
 
     // Position and centering logic: strict river-classic

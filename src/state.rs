@@ -135,21 +135,21 @@ impl WindowItem {
     /// Returns true if this window has satisfied its target dimension requirements
     /// per river-classic transaction semantics.
     ///
-    /// For windows with an explicit dimensions rule, initial unconfigured buffer commits
-    /// (e.g. imv's default 1280x720) are held back from rendering until the client
-    /// acknowledges and commits the proposed rule dimensions. If the client commits twice
-    /// (or after rendering once), it is also considered configured so non-exact grid/cell
-    /// dimensions are never permanently blocked.
+    /// For windows with an explicit dimensions rule, initial unconfigured oversized
+    /// buffer commits (such as imv's default 1280x720 when 960x540 is requested)
+    /// are held back from rendering until the client commits a buffer within the
+    /// requested target size bounds. Non-exact sizing (such as terminal cell grid
+    /// rounding) is immediately allowed if within requested dimensions, or released
+    /// after a second dimension event to ensure windows are never stuck hidden.
     #[inline]
     pub fn is_dimension_configured(&self) -> bool {
         if let Some((rw, rh)) = self.rule_dimensions {
             if self.initial_rendered || self.dimension_events >= 2 {
                 return true;
             }
-            if let (Some(cw), Some(ch)) = (self.content_width, self.content_height) {
-                cw == rw && ch == rh
-            } else {
-                true
+            match (self.content_width, self.content_height) {
+                (Some(cw), Some(ch)) => cw <= rw && ch <= rh,
+                _ => false,
             }
         } else {
             true

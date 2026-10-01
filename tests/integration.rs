@@ -986,8 +986,14 @@ fn stationary_floating_window_stays_visible_during_unrelated_animation() {
     // Floating window
     harness.rule(&["float"]);
     harness.rule(&["dimensions", "400", "300"]);
-    let _win = harness.add_window();
+    let win = harness.add_window();
     harness.manage();
+    harness.event(
+        &win,
+        window::EVT_DIMENSIONS_OPCODE,
+        vec![Argument::Int(400), Argument::Int(300)],
+    );
+    harness.dispatch_events();
     harness.render();
 
     // Simulate window dragged onto coordinates outside output bounds (e.g. x = 2000)
@@ -3232,6 +3238,31 @@ fn test_floating_rule_dimensions_invariant_against_client_buffer_dimensions() {
     harness.server.requests.clear();
     harness.manage();
     assert!(harness.proposals(&window).is_empty());
+}
+
+#[test]
+fn test_floating_terminal_cell_rounding_reveals_immediately() {
+    let mut harness = Harness::new();
+    harness.add_output();
+    harness.rule_with_match(Some("foot"), None, &["float"]);
+    harness.rule_with_match(Some("foot"), None, &["dimensions", "960", "540"]);
+
+    let window = harness.add_window();
+    harness.set_app_id(&window, "foot");
+    harness.manage();
+
+    // Terminal emulator commits best-effort grid size within bounds (e.g. 952x536) on first event
+    harness.event(
+        &window,
+        window::EVT_DIMENSIONS_OPCODE,
+        vec![Argument::Int(952), Argument::Int(536)],
+    );
+    harness.dispatch_events();
+
+    harness.server.requests.clear();
+    harness.render();
+    // Must immediately reveal without requiring a second dimensions event or getting stuck hidden
+    assert!(harness.has_window_request(&window, window::REQ_SHOW_OPCODE));
 }
 
 #[test]
