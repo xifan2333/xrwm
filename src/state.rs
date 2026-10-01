@@ -1207,8 +1207,10 @@ impl AppState {
                         let i2 = self.windows.iter().position(|w| w.id == target_id);
                         if let (Some(idx1), Some(idx2)) = (i1, i2) {
                             self.windows.swap(idx1, idx2);
-                            tracing::info!(
-                                "Tiled pointer drop: swapped window {start_win_id} with {target_id}"
+                            tracing::debug!(
+                                source_window_id = start_win_id,
+                                target_window_id = target_id,
+                                "Swapped tiled windows on pointer drop"
                             );
                         }
                     }
@@ -1713,10 +1715,17 @@ pub fn spawn_init_script_from_config(
 ) -> Option<std::io::Result<std::process::Child>> {
     let init_script = config_dir.join("xrwm").join("init");
     if init_script.is_file() {
-        tracing::info!("Spawning xrwm init script: {:?}", init_script);
+        tracing::info!(
+            init_script = %init_script.display(),
+            "Spawning xrwm init script"
+        );
         let res = spawn_init_script_at(&init_script);
         if let Err(ref e) = res {
-            tracing::error!("Failed to spawn xrwm init script {:?}: {e}", init_script);
+            tracing::error!(
+                init_script = %init_script.display(),
+                error = %e,
+                "Failed to spawn xrwm init script"
+            );
         }
         Some(res)
     } else {

@@ -85,8 +85,9 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
         use crate::protocol::river_window_manager_v1::Event;
         match event {
             Event::Unavailable => {
-                eprintln!(
-                    "Error: Another window manager is already running on this river compositor."
+                tracing::error!(
+                    error = "RiverWindowManagerV1 unavailable",
+                    "Another window manager is already running on this river compositor"
                 );
                 std::process::exit(1);
             }

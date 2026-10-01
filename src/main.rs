@@ -36,14 +36,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Default: Run as Window Manager daemon
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("xrwm=info")),
-        )
-        .with_writer(std::io::stderr)
-        .init();
-    tracing::info!("xrwm - River 0.4+ Wayland Window Manager starting...");
+    xrwm::init_daemon_logging();
+    tracing::info!(
+        version = env!("CARGO_PKG_VERSION"),
+        "xrwm - River 0.4+ Wayland Window Manager starting"
+    );
 
     let mut state = AppState::new();
 
@@ -57,7 +54,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     event_queue.roundtrip(&mut state)?;
 
     if state.river_wm.is_none() {
-        eprintln!("river_window_manager_v1 global not found! Is river running?");
+        tracing::error!(
+            global = "river_window_manager_v1",
+            "River window manager global not found, compositor is not running or unavailable"
+        );
         std::process::exit(1);
     }
 
@@ -66,11 +66,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = match ipc::create_ipc_server_at(&socket_path) {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("Failed to bind IPC socket at {socket_path:?}: {e}");
+            tracing::error!(
+                socket_path = %socket_path.display(),
+                error = %e,
+                "Failed to bind IPC socket"
+            );
             std::process::exit(1);
         }
     };
-    tracing::info!("IPC server listening on {socket_path:?}");
+    tracing::info!(
+        socket_path = %socket_path.display(),
+        "IPC server listening"
+    );
     let _ipc_guard = ipc::IpcServerGuard::for_path(socket_path).ok();
     listener.set_nonblocking(true)?;
 

@@ -39,7 +39,11 @@ impl AppState {
         if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
             w.floating = !w.floating;
             let is_floating = w.floating;
-            tracing::info!("toggle_float_focused: window {id} -> floating={is_floating}");
+            tracing::debug!(
+                window_id = id,
+                floating = is_floating,
+                "Toggled window floating"
+            );
 
             if is_floating {
                 if let Some(saved) = w.float_geo {
@@ -141,7 +145,11 @@ impl AppState {
             w.fullscreen = !w.fullscreen;
             w.pending_fullscreen_change = true;
             let is_fs = w.fullscreen;
-            tracing::info!("toggle_fullscreen_focused: window {id} -> fullscreen={is_fs}");
+            tracing::debug!(
+                window_id = id,
+                fullscreen = is_fs,
+                "Toggled window fullscreen"
+            );
             self.manage_dirty();
             Ok(format!("window {id} fullscreen={is_fs}"))
         } else {
@@ -1475,8 +1483,15 @@ impl AppState {
                 reap_zombies();
                 let cmd = &action[1];
                 let args = &action[2..];
-                tracing::info!("Binding spawn: {cmd} {args:?}");
-                let _ = std::process::Command::new(cmd).args(args).spawn();
+                tracing::debug!(command = cmd, ?args, "Spawned keybinding action");
+                if let Err(e) = std::process::Command::new(cmd).args(args).spawn() {
+                    tracing::warn!(
+                        command = cmd,
+                        ?args,
+                        error = %e,
+                        "Failed to spawn keybinding action"
+                    );
+                }
             }
             return;
         }
@@ -1484,11 +1499,11 @@ impl AppState {
         match crate::ipc::parse_cli_args(action) {
             Ok(cmd) => {
                 if let Err(e) = self.handle_ipc_command(&cmd) {
-                    tracing::warn!("Action execution error for {action:?}: {e}");
+                    tracing::warn!(?action, error = %e, "Action execution error");
                 }
             }
             Err(e) => {
-                tracing::warn!("Unknown action tokens {action:?}: {e}");
+                tracing::warn!(?action, error = %e, "Unknown action tokens");
             }
         }
     }
