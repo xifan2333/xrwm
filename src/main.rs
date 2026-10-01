@@ -36,13 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Default: Run as Window Manager daemon
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("xrwm=info")),
-        )
-        .with_writer(std::io::stderr)
-        .init();
+    xrwm::init_daemon_logging();
     tracing::info!("xrwm - River 0.4+ Wayland Window Manager starting...");
 
     let mut state = AppState::new();
