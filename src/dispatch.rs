@@ -331,6 +331,19 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
                         }
 
                         win.float_geo = Some(Rect::new(win.x, win.y, w, h));
+                    } else if win.floating
+                        && !is_resizing
+                        && has_dimensions_rule
+                        && (w != win.width || h != win.height)
+                        && win.dimension_events <= 1
+                    {
+                        // When a client with an explicit dimensions rule commits an initial unconfigured
+                        // oversized buffer (such as imv's default 1280x720 due to EGL preallocation),
+                        // invalidate the proposal cache so the upcoming manage cycle re-proposes the target
+                        // dimensions. This dispatches an xdg_toplevel.configure to wake sleeping clients
+                        // and apply their pending resize without requiring manual mouse/keyboard interaction.
+                        win.last_proposed_w = None;
+                        win.last_proposed_h = None;
                     }
                 }
                 state.manage_dirty();
