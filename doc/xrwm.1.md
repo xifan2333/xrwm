@@ -270,6 +270,17 @@ on every state change without polling.
 `$XDG_RUNTIME_DIR/xrwm-$WAYLAND_DISPLAY.sock`
 : UNIX domain socket used for IPC communication. If `$WAYLAND_DISPLAY` contains path separators, special characters, or exceeds safe length bounds, a sanitized prefix and stable hash are used instead. When `$XDG_RUNTIME_DIR` exceeds socket length limits, a user-private fallback directory under `/tmp/xrwm-<uid>/` is used.
 
+# ENVIRONMENT
+
+**XRWM_LOG_FORMAT**
+: Specifies the logging output format for the **xrwm** daemon. Supported values:
+
+- **json** or **jsonl** (default): Emits flattened JSON Lines (JSONL) to standard error, optimized for log forwarders, **jq(1)** queries, and AI diagnostic agents without ANSI escape sequences.
+- **text**, **compact**, or **human**: Emits compact human-readable text logs to standard error.
+
+**RUST_LOG**
+: Sets the logging verbosity filter using standard **tracing-subscriber(3)** syntax (e.g. `RUST_LOG=xrwm=debug`). Defaults to `xrwm=info`. Interactive user actions (such as floating/fullscreen toggles, drag-and-drop swaps, and keybinding spawn events) are emitted at `DEBUG` level to keep daemon output quiet and clean during normal operation.
+
 # AUTHORS
 
 Developed by xifan2333 and contributors.
