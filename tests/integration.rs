@@ -3202,13 +3202,29 @@ fn test_floating_rule_dimensions_invariant_against_client_buffer_dimensions() {
         Some(xrwm::layout::Rect::new(480, 270, 960, 540))
     );
 
-    // Strict river-classic: while client committed an unconfigured buffer (1280x720),
-    // the window is held back and kept hidden, avoiding oversized buffer flashes or crude clipping.
+    // Windows on active tags are immediately revealed via show, allowing the compositor
+    // to deliver wl_surface.frame callbacks so the client can swap its resized buffer.
+    // Crudely hiding windows causes circular frame callback deadlocks in Wayland.
     harness.render();
-    assert!(harness.has_window_request(&window, window::REQ_HIDE_OPCODE));
-    assert!(!harness.has_window_request(&window, window::REQ_SET_CLIP_BOX_OPCODE));
+    assert!(harness.has_window_request(&window, window::REQ_SHOW_OPCODE));
+    assert!(!harness.has_window_request(&window, window::REQ_HIDE_OPCODE));
+    let initial_clip = harness
+        .server
+        .requests
+        .iter()
+        .find(|msg| msg.sender_id == window && msg.opcode == window::REQ_SET_CLIP_BOX_OPCODE)
+        .map(|msg| match msg.args.as_slice() {
+            [
+                Argument::Int(x),
+                Argument::Int(y),
+                Argument::Int(w),
+                Argument::Int(h),
+            ] => (*x, *y, *w, *h),
+            _ => (-1, -1, -1, -1),
+        });
+    assert_eq!(initial_clip, Some((0, 0, 0, 0)));
 
-    // When client resizes and commits 960x540, the window is dimension configured and revealed.
+    // When client resizes and commits 960x540, the window content dimensions converge seamlessly.
     harness.event(
         &window,
         window::EVT_DIMENSIONS_OPCODE,
