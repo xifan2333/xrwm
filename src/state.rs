@@ -31,7 +31,8 @@ use crate::tag::TagState;
 pub const MIN_WINDOW_DIMENSION: u32 = 100;
 
 pub use crate::status::{
-    broadcast_status, format_json_status, format_waybar_status, hex_to_river_rgba, parse_hex_color,
+    StatusSubscription, broadcast_status, format_json_status, format_tag_status,
+    format_waybar_status, format_window_status, hex_to_river_rgba, parse_hex_color,
 };
 
 pub use crate::rule::{WindowRule, apply_rules_to_window, glob_match};
@@ -192,7 +193,7 @@ pub struct AppState {
     pub anim: AnimationController,
     pub tag_slide_dir: Option<crate::animation::SlideDirection>,
     pub tag_anim_old_mask: TagMask,
-    pub status_listeners: Vec<(UnixStream, Option<String>)>,
+    pub status_listeners: Vec<(UnixStream, StatusSubscription)>,
     pub should_exit: bool,
 }
 
@@ -1680,6 +1681,16 @@ impl AppState {
     #[inline]
     pub fn format_waybar_status(&self) -> String {
         crate::status::format_waybar_status(self)
+    }
+
+    #[inline]
+    pub fn format_tag_status(&self, tag: u8) -> String {
+        crate::status::format_tag_status(self, tag)
+    }
+
+    #[inline]
+    pub fn format_window_status(&self) -> String {
+        crate::status::format_window_status(self)
     }
 }
 

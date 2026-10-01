@@ -23,4 +23,5 @@ pub use nav::*;
 pub use rule::*;
 pub use seat::*;
 pub use state::*;
+pub use status::*;
 pub use tag::*;

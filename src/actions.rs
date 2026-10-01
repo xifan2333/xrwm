@@ -1423,8 +1423,17 @@ impl AppState {
                 modifiers,
                 button,
             } => self.unmap_pointer(mode, modifiers, button),
-            IpcCommand::Status { stream: _, format } => {
-                if format.as_deref() == Some("waybar") {
+            IpcCommand::Status {
+                stream: _,
+                format,
+                tag,
+                window,
+            } => {
+                if *window {
+                    Ok(self.format_window_status())
+                } else if let Some(t) = tag {
+                    Ok(self.format_tag_status(*t))
+                } else if format.as_deref() == Some("waybar") {
                     Ok(self.format_waybar_status())
                 } else {
                     Ok(self.format_json_status())

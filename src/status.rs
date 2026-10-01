@@ -44,6 +44,14 @@ pub fn parse_hex_color(hex_str: &str) -> Result<(u32, u32, u32, u32), String> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum StatusSubscription {
+    FullJson,
+    WaybarLegacy,
+    Tag(u8),
+    Window,
+}
+
 pub fn hex_to_river_rgba(hex_str: &str) -> (u32, u32, u32, u32) {
     parse_hex_color(hex_str).unwrap_or((u32::MAX, u32::MAX, u32::MAX, u32::MAX))
 }
@@ -55,18 +63,24 @@ pub fn broadcast_status(state: &mut AppState) {
     let broadcast_deadline = std::time::Instant::now() + std::time::Duration::from_millis(10);
     let json_status = format_json_status(state);
     let waybar_status = format_waybar_status(state);
+    let window_status = format_window_status(state);
+    let tag_statuses: Vec<String> = (1..=32).map(|t| format_tag_status(state, t)).collect();
 
-    state.status_listeners.retain_mut(|(client, fmt)| {
+    state.status_listeners.retain_mut(|(client, sub)| {
         let now = std::time::Instant::now();
         if now >= broadcast_deadline {
             // Do not evict healthy listeners whose writes were not attempted due to deadline exhaustion
             return true;
         }
         let client_deadline = (now + std::time::Duration::from_millis(2)).min(broadcast_deadline);
-        let text = if fmt.as_deref() == Some("waybar") {
-            &waybar_status
-        } else {
-            &json_status
+        let text = match sub {
+            StatusSubscription::WaybarLegacy => &waybar_status,
+            StatusSubscription::FullJson => &json_status,
+            StatusSubscription::Tag(tag) => {
+                let idx = (tag.saturating_sub(1)) as usize;
+                tag_statuses.get(idx).unwrap_or(&json_status)
+            }
+            StatusSubscription::Window => &window_status,
         };
         let mut msg = text.clone();
         msg.push('\n');
@@ -146,5 +160,42 @@ pub fn format_waybar_status(state: &AppState) -> String {
         "class": if state.layout_config.monocle { "monocle" } else { "tiled" },
     });
 
+    serde_json::to_string(&obj).unwrap_or_default()
+}
+
+pub fn format_tag_status(state: &AppState, tag: u8) -> String {
+    let mask = 1u32
+        .checked_shl((tag.saturating_sub(1)) as u32)
+        .unwrap_or(0);
+    let is_active = (state.tag_state.focused & mask) != 0;
+    let is_occupied = (state.tag_state.occupied & mask) != 0;
+
+    let classes = match (is_active, is_occupied) {
+        (true, true) => serde_json::json!(["focused", "occupied"]),
+        (true, false) => serde_json::json!(["focused"]),
+        (false, true) => serde_json::json!(["occupied"]),
+        (false, false) => serde_json::json!(["empty"]),
+    };
+
+    let obj = serde_json::json!({
+        "text": tag.to_string(),
+        "class": classes,
+        "tooltip": format!("Workspace {tag}"),
+    });
+    serde_json::to_string(&obj).unwrap_or_default()
+}
+
+pub fn format_window_status(state: &AppState) -> String {
+    let focused_id = state.focused_window_id();
+    let focused_win = focused_id.and_then(|id| state.windows.iter().find(|w| w.id == id));
+    let title = focused_win.and_then(|w| w.title.as_deref()).unwrap_or("");
+    let app_id = focused_win.and_then(|w| w.app_id.as_deref()).unwrap_or("");
+    let floating = focused_win.map(|w| w.floating).unwrap_or(false);
+
+    let obj = serde_json::json!({
+        "text": title,
+        "tooltip": if app_id.is_empty() { title.to_string() } else { format!("{app_id}: {title}") },
+        "class": if floating { "floating" } else { "tiled" },
+    });
     serde_json::to_string(&obj).unwrap_or_default()
 }

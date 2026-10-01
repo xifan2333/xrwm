@@ -49,8 +49,12 @@ fn test_broadcast_status_preserves_healthy_subscribers() {
     let (server1, _client1) = UnixStream::pair().unwrap();
     let (server2, _client2) = UnixStream::pair().unwrap();
 
-    state.status_listeners.push((server1, None));
-    state.status_listeners.push((server2, None));
+    state
+        .status_listeners
+        .push((server1, StatusSubscription::FullJson));
+    state
+        .status_listeners
+        .push((server2, StatusSubscription::FullJson));
 
     state.broadcast_status();
     assert_eq!(state.status_listeners.len(), 2);
@@ -64,8 +68,12 @@ fn test_broadcast_status_drops_broken_pipe_subscriber() {
 
     drop(client1); // peer disconnected
 
-    state.status_listeners.push((server1, None));
-    state.status_listeners.push((server2, None));
+    state
+        .status_listeners
+        .push((server1, StatusSubscription::FullJson));
+    state
+        .status_listeners
+        .push((server2, StatusSubscription::FullJson));
 
     state.broadcast_status();
     // Broken pipe subscriber should be evicted, while healthy one remains

@@ -253,11 +253,14 @@ Can be absolute (e.g. `0.65`) or relative (e.g. `+0.05`, `-0.05`). Defaults to `
 
 ## STATUS & QUERY
 
-**status** [**--format** **waybar**] [**--stream**]
+**status** [**--format** **waybar**] [**--tag** _1..32_] [**--window**] [**--stream**]
 : Queries window manager state. Without flags, outputs a single JSON object with
 tags, window list, geometry, and layout details. With **--format waybar**, outputs
-formatted JSON for Waybar custom modules. With **--stream**, maintains a persistent
-pipe streaming JSON updates on every state change.
+formatted JSON for Waybar custom modules. With **--tag** _N_, outputs tailored JSON
+for the specified workspace tag button (with `.focused`, `.occupied`, or `.empty` classes).
+With **--window**, outputs JSON reflecting the currently focused window title and app-id.
+With **--stream**, maintains a persistent pipe streaming JSON updates in real-time
+on every state change without polling.
 
 # FILES
 

@@ -209,12 +209,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let ipc::IpcCommand::Status {
                         stream: true,
                         format,
+                        tag,
+                        window,
                     } = cmd
                     {
-                        let text = if format.as_deref() == Some("waybar") {
-                            state.format_waybar_status()
+                        let (sub, text) = if window {
+                            (
+                                xrwm::status::StatusSubscription::Window,
+                                state.format_window_status(),
+                            )
+                        } else if let Some(t) = tag {
+                            (
+                                xrwm::status::StatusSubscription::Tag(t),
+                                state.format_tag_status(t),
+                            )
+                        } else if format.as_deref() == Some("waybar") {
+                            (
+                                xrwm::status::StatusSubscription::WaybarLegacy,
+                                state.format_waybar_status(),
+                            )
                         } else {
-                            state.format_json_status()
+                            (
+                                xrwm::status::StatusSubscription::FullJson,
+                                state.format_json_status(),
+                            )
                         };
                         let mut msg = text.into_bytes();
                         msg.push(b'\n');
@@ -222,7 +240,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             + std::time::Duration::from_millis(ipc::IPC_PER_REQUEST_TIMEOUT_MS))
                         .min(ipc_deadline);
                         if ipc::write_ipc_response(&mut stream, &msg, write_deadline).is_ok() {
-                            state.status_listeners.push((stream, format));
+                            state.status_listeners.push((stream, sub));
                         }
                     } else {
                         let response = match state.handle_ipc_command(&cmd) {

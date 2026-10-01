@@ -101,8 +101,14 @@ pub enum IpcCommand {
         action: Option<String>,
     },
     Status {
+        #[serde(default)]
         stream: bool,
+        #[serde(default)]
         format: Option<String>,
+        #[serde(default)]
+        tag: Option<u8>,
+        #[serde(default)]
+        window: bool,
     },
     Exit,
     Reload,
@@ -900,11 +906,22 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
         }
         "status" => {
             let stream = args.iter().any(|a| a == "--stream");
+            let window = args.iter().any(|a| a == "--window");
             let format = args
                 .iter()
                 .position(|a| a == "--format")
                 .and_then(|idx| args.get(idx + 1).cloned());
-            Ok(IpcCommand::Status { stream, format })
+            let tag = args
+                .iter()
+                .position(|a| a == "--tag")
+                .and_then(|idx| args.get(idx + 1))
+                .and_then(|s| s.parse::<u8>().ok());
+            Ok(IpcCommand::Status {
+                stream,
+                format,
+                tag,
+                window,
+            })
         }
         other => Err(format!("Unknown command: {other}")),
     }

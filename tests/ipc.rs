@@ -274,6 +274,32 @@ fn test_parse_cli_args() {
         IpcCommand::Status {
             stream: false,
             format: Some("waybar".into()),
+            tag: None,
+            window: false,
+        }
+    );
+    assert_eq!(
+        parse_cli_args(&[
+            "status".into(),
+            "--tag".into(),
+            "3".into(),
+            "--stream".into()
+        ])
+        .unwrap(),
+        IpcCommand::Status {
+            stream: true,
+            format: None,
+            tag: Some(3),
+            window: false,
+        }
+    );
+    assert_eq!(
+        parse_cli_args(&["status".into(), "--window".into(), "--stream".into()]).unwrap(),
+        IpcCommand::Status {
+            stream: true,
+            format: None,
+            tag: None,
+            window: true,
         }
     );
     assert_eq!(
