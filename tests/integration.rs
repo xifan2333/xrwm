@@ -3156,3 +3156,89 @@ fn test_floating_window_strictly_centers_on_output_per_river_classic() {
         Some(xrwm::layout::Rect::new(480, 270, 960, 540))
     );
 }
+
+#[test]
+fn test_floating_rule_dimensions_invariant_against_client_buffer_dimensions() {
+    let mut harness = Harness::new();
+    harness.add_output(); // Default output: x=0, y=0, width=1920, height=1080
+    harness.rule_with_match(Some("imv"), None, &["float"]);
+    harness.rule_with_match(Some("imv"), None, &["dimensions", "960", "540"]);
+
+    let window = harness.add_window();
+    harness.set_app_id(&window, "imv");
+    harness.manage();
+
+    // Client commits initial unconfigured buffer (e.g. imv default 1280x720)
+    harness.event(
+        &window,
+        window::EVT_DIMENSIONS_OPCODE,
+        vec![Argument::Int(1280), Argument::Int(720)],
+    );
+    harness.dispatch_events();
+
+    let win_item = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == window.protocol_id())
+        .unwrap();
+
+    // Strict river-classic: client buffer dimensions must not overwrite rule dimensions or centered position
+    assert!(win_item.floating);
+    assert_eq!(win_item.content_width, Some(1280));
+    assert_eq!(win_item.content_height, Some(720));
+    assert_eq!(win_item.width, 960);
+    assert_eq!(win_item.height, 540);
+    assert_eq!(win_item.x, 480);
+    assert_eq!(win_item.y, 270);
+    assert_eq!(
+        win_item.float_geo,
+        Some(xrwm::layout::Rect::new(480, 270, 960, 540))
+    );
+
+    // In render start, content clipping must clip the oversized buffer to the target 960x540
+    harness.render();
+    assert!(harness.has_window_request(&window, window::REQ_SET_CLIP_BOX_OPCODE));
+
+    // When client resizes and commits 960x540, dimensions stay stable without reproposal loop
+    harness.event(
+        &window,
+        window::EVT_DIMENSIONS_OPCODE,
+        vec![Argument::Int(960), Argument::Int(540)],
+    );
+    harness.dispatch_events();
+
+    harness.server.requests.clear();
+    harness.manage();
+    assert!(harness.proposals(&window).is_empty());
+}
+
+#[test]
+fn test_title_rule_matches_gtk_application_with_tensaku_title() {
+    let mut harness = Harness::new();
+    harness.add_output();
+    harness.rule_with_match(None, Some("Tensaku"), &["float"]);
+    harness.rule_with_match(None, Some("Tensaku"), &["dimensions", "960", "540"]);
+
+    let window = harness.add_window();
+    harness.set_app_id(&window, "GTK Application");
+    harness.set_title(&window, "Tensaku");
+    harness.manage();
+
+    let win_item = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy.id().protocol_id() == window.protocol_id())
+        .unwrap();
+
+    assert!(win_item.floating);
+    assert_eq!(win_item.width, 960);
+    assert_eq!(win_item.height, 540);
+    assert_eq!(win_item.x, 480);
+    assert_eq!(win_item.y, 270);
+    assert_eq!(
+        win_item.float_geo,
+        Some(xrwm::layout::Rect::new(480, 270, 960, 540))
+    );
+}
