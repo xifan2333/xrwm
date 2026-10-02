@@ -3224,11 +3224,6 @@ fn test_floating_rule_dimensions_invariant_against_client_buffer_dimensions() {
         });
     assert_eq!(initial_clip, Some((0, 180, 960, 540)));
 
-    // When initial unconfigured buffer is committed, manage cycle must re-propose target dimensions
-    // to wake sleeping clients (like imv) without waiting for manual user interaction.
-    harness.manage();
-    assert_eq!(harness.proposals(&window), vec![(960, 540)]);
-
     // When client resizes and commits 960x540, the window content dimensions converge seamlessly.
     harness.event(
         &window,
@@ -3257,45 +3252,6 @@ fn test_floating_rule_dimensions_invariant_against_client_buffer_dimensions() {
     assert_eq!(clip_args, Some((0, 0, 0, 0)));
 
     harness.server.requests.clear();
-    harness.manage();
-    assert!(harness.proposals(&window).is_empty());
-}
-
-#[test]
-fn test_floating_rule_dimensions_reproposes_on_unconfigured_initial_commit() {
-    let mut harness = Harness::new();
-    harness.add_output();
-    harness.rule_with_match(Some("imv"), None, &["float"]);
-    harness.rule_with_match(Some("imv"), None, &["dimensions", "960", "540"]);
-
-    let window = harness.add_window();
-    harness.set_app_id(&window, "imv");
-    harness.manage();
-
-    // Verify initial proposal was sent
-    assert_eq!(harness.proposals(&window), vec![(960, 540)]);
-
-    // Client commits initial unconfigured buffer (1280x720)
-    harness.server.requests.clear();
-    harness.event(
-        &window,
-        window::EVT_DIMENSIONS_OPCODE,
-        vec![Argument::Int(1280), Argument::Int(720)],
-    );
-    harness.dispatch_events();
-
-    // In the next manage cycle, xrwm must re-propose (960, 540) to wake sleeping clients
-    harness.manage();
-    assert_eq!(harness.proposals(&window), vec![(960, 540)]);
-
-    // Once client resizes and commits matching target, proposals settle without infinite loop
-    harness.server.requests.clear();
-    harness.event(
-        &window,
-        window::EVT_DIMENSIONS_OPCODE,
-        vec![Argument::Int(960), Argument::Int(540)],
-    );
-    harness.dispatch_events();
     harness.manage();
     assert!(harness.proposals(&window).is_empty());
 }

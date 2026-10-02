@@ -146,7 +146,6 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                     content_width: None,
                     content_height: None,
                     rule_dimensions: None,
-                    dimension_events: 0,
                     visual_geo: None,
                     anim_start_geo: None,
                     anim_target_geo: None,
@@ -264,7 +263,6 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
                 if let Some(win) = state.windows.iter_mut().find(|win| &win.proxy == proxy) {
                     win.content_width = Some(w);
                     win.content_height = Some(h);
-                    win.dimension_events = win.dimension_events.saturating_add(1);
                     let has_dimensions_rule = win.rule_dimensions.is_some()
                         || state.rules.iter().any(|r| {
                             r.dimensions.is_some()
@@ -331,19 +329,6 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
                         }
 
                         win.float_geo = Some(Rect::new(win.x, win.y, w, h));
-                    } else if win.floating
-                        && !is_resizing
-                        && has_dimensions_rule
-                        && (w != win.width || h != win.height)
-                        && win.dimension_events <= 1
-                    {
-                        // When a client with an explicit dimensions rule commits an initial unconfigured
-                        // oversized buffer (such as imv's default 1280x720 due to EGL preallocation),
-                        // invalidate the proposal cache so the upcoming manage cycle re-proposes the target
-                        // dimensions. This dispatches an xdg_toplevel.configure to wake sleeping clients
-                        // and apply their pending resize without requiring manual mouse/keyboard interaction.
-                        win.last_proposed_w = None;
-                        win.last_proposed_h = None;
                     }
                 }
                 state.manage_dirty();
