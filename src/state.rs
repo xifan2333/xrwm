@@ -1594,16 +1594,39 @@ impl AppState {
                         (geo, false)
                     }
                 } else {
-                    w.proxy.set_clip_box(0, 0, 0, 0);
                     w.anim_start_geo = Some(target);
                     w.anim_target_geo = Some(target);
                     (target, true)
                 };
 
+                let clip_offset_y = if w.floating
+                    && !w.fullscreen
+                    && (w.content_width.is_some_and(|cw| cw > render_geo.width)
+                        || w.content_height.is_some_and(|ch| ch > render_geo.height))
+                    && render_geo.width > 0
+                    && render_geo.height > 0
+                {
+                    let ch = w.content_height.unwrap_or(render_geo.height);
+                    let excess_h = ch.saturating_sub(render_geo.height) as i32;
+                    w.proxy.set_clip_box(
+                        0,
+                        excess_h,
+                        render_geo.width.min(i32::MAX as u32) as i32,
+                        render_geo.height.min(i32::MAX as u32) as i32,
+                    );
+                    excess_h
+                } else {
+                    if !is_animating && !is_tag_animating {
+                        w.proxy.set_clip_box(0, 0, 0, 0);
+                    }
+                    0
+                };
+
                 w.visual_geo = Some(render_geo);
                 if is_visible {
                     w.proxy.show();
-                    w.node.set_position(render_geo.x, render_geo.y);
+                    w.node
+                        .set_position(render_geo.x, render_geo.y - clip_offset_y);
                     w.initial_rendered = true;
                 } else {
                     w.proxy.hide();
