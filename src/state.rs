@@ -111,7 +111,6 @@ pub struct WindowItem {
     pub content_width: Option<u32>,
     pub content_height: Option<u32>,
     pub rule_dimensions: Option<(u32, u32)>,
-    pub dimension_events: u32,
     // Animation & visual geometry tracking
     pub visual_geo: Option<Rect>,
     pub anim_start_geo: Option<Rect>,
