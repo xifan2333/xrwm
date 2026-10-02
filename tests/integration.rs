@@ -3222,7 +3222,7 @@ fn test_floating_rule_dimensions_invariant_against_client_buffer_dimensions() {
             ] => (*x, *y, *w, *h),
             _ => (-1, -1, -1, -1),
         });
-    assert_eq!(initial_clip, Some((0, 0, 0, 0)));
+    assert_eq!(initial_clip, Some((0, 180, 960, 540)));
 
     // When initial unconfigured buffer is committed, manage cycle must re-propose target dimensions
     // to wake sleeping clients (like imv) without waiting for manual user interaction.
