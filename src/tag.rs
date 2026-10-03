@@ -77,4 +77,14 @@ impl TagState {
             .filter(|&i| (self.occupied & Self::tag_index_to_mask(i)) != TAG_NONE)
             .collect()
     }
+
+    #[inline]
+    pub fn is_scratchpad_occupied(&self) -> bool {
+        (self.occupied & TAG_SCRATCHPAD) != TAG_NONE
+    }
+
+    #[inline]
+    pub fn is_scratchpad_focused(&self) -> bool {
+        (self.focused & TAG_SCRATCHPAD) != TAG_NONE
+    }
 }
