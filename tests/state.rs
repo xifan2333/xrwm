@@ -51,10 +51,10 @@ fn test_broadcast_status_preserves_healthy_subscribers() {
 
     state
         .status_listeners
-        .push((server1, StatusSubscription::FullJson));
+        .push(StatusListener::new(server1, StatusSubscription::FullJson));
     state
         .status_listeners
-        .push((server2, StatusSubscription::FullJson));
+        .push(StatusListener::new(server2, StatusSubscription::FullJson));
 
     state.broadcast_status();
     assert_eq!(state.status_listeners.len(), 2);
@@ -70,10 +70,10 @@ fn test_broadcast_status_drops_broken_pipe_subscriber() {
 
     state
         .status_listeners
-        .push((server1, StatusSubscription::FullJson));
+        .push(StatusListener::new(server1, StatusSubscription::FullJson));
     state
         .status_listeners
-        .push((server2, StatusSubscription::FullJson));
+        .push(StatusListener::new(server2, StatusSubscription::FullJson));
 
     state.broadcast_status();
     // Broken pipe subscriber should be evicted, while healthy one remains
@@ -267,4 +267,42 @@ fn test_glob_match_exhaustive() {
     assert!(!glob_match("*测*试*", "这是一个页面"));
     assert!(glob_match("🎉*🚀", "🎉 celebration 🚀"));
     assert!(!glob_match("🎉*🚀", "🎉 celebration 🛸"));
+}
+
+#[test]
+fn test_differential_broadcasting_deduplication() {
+    use std::io::{BufRead, BufReader, Read};
+
+    let mut state = AppState::new();
+    let (server, client) = UnixStream::pair().unwrap();
+    client.set_nonblocking(true).unwrap();
+
+    let listener = StatusListener::new(server, StatusSubscription::Tag(1));
+    state.status_listeners.push(listener);
+
+    // Initial broadcast: state changed from None -> Some(snapshot)
+    state.broadcast_status();
+    assert_eq!(state.status_listeners.len(), 1);
+
+    // Read initial message
+    let mut reader = BufReader::new(client);
+    let mut line = String::new();
+    assert!(reader.read_line(&mut line).unwrap() > 0);
+    assert!(line.contains("\"text\":\"1\""));
+    line.clear();
+
+    // Second broadcast with identical state: MUST NOT SEND ANYTHING (0 bytes written)
+    state.broadcast_status();
+    assert_eq!(state.status_listeners.len(), 1);
+    // Because stream is non-blocking, reading should encounter WouldBlock (no new bytes)
+    let res = reader.get_mut().read(&mut [0u8; 64]);
+    assert!(matches!(res, Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock));
+
+    // Now change tag state: tag 1 focused is turned off (focus tag 2)
+    state.tag_state.focused = 2;
+    state.broadcast_status();
+
+    // Now a new message should be received!
+    assert!(reader.read_line(&mut line).unwrap() > 0);
+    assert!(line.contains("\"class\":[\"empty\"]"));
 }
