@@ -59,7 +59,9 @@ impl TagState {
     pub fn update_occupied_tags(&mut self, all_view_tags: &[TagMask]) {
         let mut mask = TAG_NONE;
         for &t in all_view_tags {
-            mask |= t;
+            if t != TAG_ALL {
+                mask |= t;
+            }
         }
         self.occupied = mask;
     }
@@ -74,5 +76,17 @@ impl TagState {
         (1..=32)
             .filter(|&i| (self.occupied & Self::tag_index_to_mask(i)) != TAG_NONE)
             .collect()
+    }
+
+    /// Returns whether any window is currently placed in the scratchpad drawer (tag 32).
+    #[inline]
+    pub fn is_scratchpad_occupied(&self) -> bool {
+        (self.occupied & TAG_SCRATCHPAD) != TAG_NONE
+    }
+
+    /// Returns whether the scratchpad drawer (tag 32) is currently focused or toggled on.
+    #[inline]
+    pub fn is_scratchpad_focused(&self) -> bool {
+        (self.focused & TAG_SCRATCHPAD) != TAG_NONE
     }
 }

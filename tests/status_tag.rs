@@ -21,6 +21,31 @@ fn test_format_tag_status_classes() {
 }
 
 #[test]
+fn test_format_scratchpad_tag_status() {
+    let mut state = AppState::new();
+    state.tag_state.focused = 1;
+    // Scratchpad (tag 32) occupied
+    state.tag_state.occupied = xrwm::tag::TAG_SCRATCHPAD;
+
+    let t32: serde_json::Value = serde_json::from_str(&format_tag_status(&state, 32)).unwrap();
+    assert_eq!(t32["text"], "32");
+    assert_eq!(t32["class"], serde_json::json!(["occupied"]));
+
+    // When scratchpad drawer is toggled/focused
+    state.tag_state.focused |= xrwm::tag::TAG_SCRATCHPAD;
+    let t32_focused: serde_json::Value =
+        serde_json::from_str(&format_tag_status(&state, 32)).unwrap();
+    assert_eq!(
+        t32_focused["class"],
+        serde_json::json!(["focused", "occupied"])
+    );
+
+    // Regular tag 1 is focused but not occupied
+    let t1: serde_json::Value = serde_json::from_str(&format_tag_status(&state, 1)).unwrap();
+    assert_eq!(t1["class"], serde_json::json!(["focused"]));
+}
+
+#[test]
 fn test_format_window_status() {
     let state = AppState::new();
     let win: serde_json::Value = serde_json::from_str(&format_window_status(&state)).unwrap();

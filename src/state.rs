@@ -571,7 +571,7 @@ impl AppState {
         for (out_id, out) in &mut self.outputs {
             let mut mask = TAG_NONE;
             for w in &self.windows {
-                if !w.closed && w.output == Some(out_id.clone()) {
+                if !w.closed && w.tags != crate::tag::TAG_ALL && w.output == Some(out_id.clone()) {
                     mask |= w.tags;
                 }
             }
@@ -580,7 +580,7 @@ impl AppState {
 
         let mut mask = TAG_NONE;
         for w in &self.windows {
-            if !w.closed {
+            if !w.closed && w.tags != crate::tag::TAG_ALL {
                 mask |= w.tags;
             }
         }
