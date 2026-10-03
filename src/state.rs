@@ -1,7 +1,6 @@
 //! Central application state machine for xrwm.
 
 use std::collections::HashMap;
-use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 
 use wayland_backend::client::ObjectId;
@@ -31,8 +30,9 @@ use crate::tag::TagState;
 pub const MIN_WINDOW_DIMENSION: u32 = 100;
 
 pub use crate::status::{
-    StatusSubscription, broadcast_status, format_json_status, format_tag_status,
-    format_waybar_status, format_window_status, hex_to_river_rgba, parse_hex_color,
+    StatusListener, StatusSubscription, SubscriberSnapshot, broadcast_status, format_json_status,
+    format_tag_status, format_waybar_status, format_window_status, hex_to_river_rgba,
+    parse_hex_color,
 };
 
 pub use crate::rule::{WindowRule, apply_rules_to_window, glob_match};
@@ -194,7 +194,7 @@ pub struct AppState {
     pub anim: AnimationController,
     pub tag_slide_dir: Option<crate::animation::SlideDirection>,
     pub tag_anim_old_mask: TagMask,
-    pub status_listeners: Vec<(UnixStream, StatusSubscription)>,
+    pub status_listeners: Vec<StatusListener>,
     pub should_exit: bool,
 }
 
@@ -1712,6 +1712,66 @@ impl AppState {
     #[inline]
     pub fn format_window_status(&self) -> String {
         crate::status::format_window_status(self)
+    }
+
+    /// Resolves the current snapshot representation for a subscriber to detect state changes.
+    pub fn current_subscriber_snapshot(&self, sub: &StatusSubscription) -> SubscriberSnapshot {
+        match sub {
+            StatusSubscription::Tag(tag) => {
+                let mask = 1u32
+                    .checked_shl((tag.saturating_sub(1)) as u32)
+                    .unwrap_or(0);
+                let (focused_mask, occupied_mask) = if let Some(out_id) =
+                    self.get_focused_output_id()
+                    && let Some(out) = self.outputs.get(&out_id)
+                {
+                    (out.tag_state.focused, out.tag_state.occupied)
+                } else {
+                    (self.tag_state.focused, self.tag_state.occupied)
+                };
+                SubscriberSnapshot::Tag {
+                    focused: (focused_mask & mask) != 0,
+                    occupied: (occupied_mask & mask) != 0,
+                }
+            }
+            StatusSubscription::Window => {
+                let focused_id = self.focused_window_id();
+                let focused_win =
+                    focused_id.and_then(|id| self.windows.iter().find(|w| w.id == id));
+                SubscriberSnapshot::Window {
+                    focused_id,
+                    title: focused_win.and_then(|w| w.title.clone()),
+                    app_id: focused_win.and_then(|w| w.app_id.clone()),
+                    floating: focused_win.map(|w| w.floating).unwrap_or(false),
+                }
+            }
+            StatusSubscription::WaybarLegacy => {
+                let active = self.tag_state.focused_tag_indices();
+                let tags_text = active
+                    .iter()
+                    .map(|i| i.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let focused_id = self.focused_window_id();
+                let focused_win =
+                    focused_id.and_then(|id| self.windows.iter().find(|w| w.id == id));
+                SubscriberSnapshot::WaybarLegacy {
+                    active_tags: tags_text,
+                    focused_title: focused_win.and_then(|w| w.title.clone()),
+                    active_mode: self.active_mode.clone(),
+                    monocle: self.layout_config.monocle,
+                }
+            }
+            StatusSubscription::FullJson => {
+                let s = self.format_json_status();
+                use std::hash::{DefaultHasher, Hash, Hasher};
+                let mut hasher = DefaultHasher::new();
+                s.hash(&mut hasher);
+                SubscriberSnapshot::FullJson {
+                    payload_hash: hasher.finish(),
+                }
+            }
+        }
     }
 }
 
