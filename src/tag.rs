@@ -59,7 +59,9 @@ impl TagState {
     pub fn update_occupied_tags(&mut self, all_view_tags: &[TagMask]) {
         let mut mask = TAG_NONE;
         for &t in all_view_tags {
-            mask |= t;
+            if t != TAG_ALL {
+                mask |= t;
+            }
         }
         self.occupied = mask;
     }
