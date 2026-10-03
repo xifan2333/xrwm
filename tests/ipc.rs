@@ -276,6 +276,8 @@ fn test_parse_cli_args() {
             format: Some("waybar".into()),
             tag: None,
             window: false,
+            scratchpad: false,
+            pinned: false,
         }
     );
     assert_eq!(
@@ -291,6 +293,64 @@ fn test_parse_cli_args() {
             format: None,
             tag: Some(3),
             window: false,
+            scratchpad: false,
+            pinned: false,
+        }
+    );
+    assert_eq!(
+        parse_cli_args(&[
+            "status".into(),
+            "--tag".into(),
+            "scratchpad".into(),
+            "--stream".into()
+        ])
+        .unwrap(),
+        IpcCommand::Status {
+            stream: true,
+            format: None,
+            tag: None,
+            window: false,
+            scratchpad: true,
+            pinned: false,
+        }
+    );
+    assert_eq!(
+        parse_cli_args(&[
+            "status".into(),
+            "--tag".into(),
+            "pinned".into(),
+            "--stream".into()
+        ])
+        .unwrap(),
+        IpcCommand::Status {
+            stream: true,
+            format: None,
+            tag: None,
+            window: false,
+            scratchpad: false,
+            pinned: true,
+        }
+    );
+    assert_eq!(
+        parse_cli_args(&["status".into(), "--scratchpad".into(), "--stream".into()]).unwrap(),
+        IpcCommand::Status {
+            stream: true,
+            format: None,
+            tag: None,
+            window: false,
+            scratchpad: true,
+            pinned: false,
+        }
+    );
+    assert_eq!(
+        parse_cli_args(&["status".into(), "--pinned".into(), "--stream".into()]).unwrap(),
+        IpcCommand::Status {
+            stream: true,
+            format: None,
+            tag: None,
+            window: false,
+            scratchpad: false,
+            pinned: true,
         }
     );
     assert_eq!(
@@ -300,6 +360,8 @@ fn test_parse_cli_args() {
             format: None,
             tag: None,
             window: true,
+            scratchpad: false,
+            pinned: false,
         }
     );
     assert_eq!(

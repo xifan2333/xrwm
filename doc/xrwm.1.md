@@ -253,11 +253,13 @@ Can be absolute (e.g. `0.65`) or relative (e.g. `+0.05`, `-0.05`). Defaults to `
 
 ## STATUS & QUERY
 
-**status** [**--format** **waybar**] [**--tag** _1..32_] [**--window**] [**--stream**]
+**status** [**--format** **waybar**] [**--tag** _1..32|scratchpad|pinned_] [**--scratchpad**] [**--pinned**] [**--window**] [**--stream**]
 : Queries window manager state. Without flags, outputs a single JSON object with
-tags, window list, geometry, and layout details. With **--format waybar**, outputs
-formatted JSON for Waybar custom modules. With **--tag** _N_, outputs tailored JSON
-for the specified workspace tag button (with `.focused`, `.occupied`, or `.empty` classes).
+tags, window list, geometry, layout details, scratchpad summary, and pinned overlay metrics.
+With **--format waybar**, outputs formatted JSON for Waybar custom modules.
+With **--tag** _N_, outputs tailored JSON for the specified workspace tag button (with `.focused`, `.occupied`, or `.empty` classes).
+With **--tag scratchpad** or **--scratchpad**, streams dedicated Scratchpad drawer status JSON (with `.scratchpad`, `.focused`, `.occupied`, `.empty` classes and window counts).
+With **--tag pinned** or **--pinned**, streams global pinned/sticky overlay status JSON (`TAG_ALL`, with `.pinned`, `.occupied`, `.empty` classes and overlay window counts).
 With **--window**, outputs JSON reflecting the currently focused window title and app-id.
 With **--stream**, maintains a persistent pipe streaming JSON updates in real-time
 on every state change without polling.

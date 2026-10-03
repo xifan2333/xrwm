@@ -31,8 +31,8 @@ pub const MIN_WINDOW_DIMENSION: u32 = 100;
 
 pub use crate::status::{
     StatusListener, StatusSubscription, SubscriberSnapshot, broadcast_status, format_json_status,
-    format_tag_status, format_waybar_status, format_window_status, hex_to_river_rgba,
-    parse_hex_color,
+    format_pinned_status, format_scratchpad_status, format_tag_status, format_waybar_status,
+    format_window_status, hex_to_river_rgba, parse_hex_color,
 };
 
 pub use crate::rule::{WindowRule, apply_rules_to_window, glob_match};
@@ -1714,6 +1714,16 @@ impl AppState {
         crate::status::format_window_status(self)
     }
 
+    #[inline]
+    pub fn format_scratchpad_status(&self) -> String {
+        crate::status::format_scratchpad_status(self)
+    }
+
+    #[inline]
+    pub fn format_pinned_status(&self) -> String {
+        crate::status::format_pinned_status(self)
+    }
+
     /// Resolves the current snapshot representation for a subscriber to detect state changes.
     pub fn current_subscriber_snapshot(&self, sub: &StatusSubscription) -> SubscriberSnapshot {
         match sub {
@@ -1769,6 +1779,35 @@ impl AppState {
                 s.hash(&mut hasher);
                 SubscriberSnapshot::FullJson {
                     payload_hash: hasher.finish(),
+                }
+            }
+            StatusSubscription::Scratchpad => {
+                let is_focused = self.tag_state.is_scratchpad_focused();
+                let is_occupied = self.tag_state.is_scratchpad_occupied();
+                let window_count = self
+                    .windows
+                    .iter()
+                    .filter(|w| {
+                        !w.closed
+                            && (w.tags & crate::tag::TAG_SCRATCHPAD) != 0
+                            && w.tags != crate::tag::TAG_ALL
+                    })
+                    .count();
+                SubscriberSnapshot::Scratchpad {
+                    focused: is_focused,
+                    occupied: is_occupied,
+                    window_count,
+                }
+            }
+            StatusSubscription::Pinned => {
+                let window_count = self
+                    .windows
+                    .iter()
+                    .filter(|w| !w.closed && w.tags == crate::tag::TAG_ALL)
+                    .count();
+                SubscriberSnapshot::Pinned {
+                    active: window_count > 0,
+                    window_count,
                 }
             }
         }

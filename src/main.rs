@@ -218,9 +218,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         format,
                         tag,
                         window,
+                        scratchpad,
+                        pinned,
                     } = cmd
                     {
-                        let (sub, text) = if window {
+                        let (sub, text) = if scratchpad {
+                            (
+                                xrwm::status::StatusSubscription::Scratchpad,
+                                state.format_scratchpad_status(),
+                            )
+                        } else if pinned {
+                            (
+                                xrwm::status::StatusSubscription::Pinned,
+                                state.format_pinned_status(),
+                            )
+                        } else if window {
                             (
                                 xrwm::status::StatusSubscription::Window,
                                 state.format_window_status(),

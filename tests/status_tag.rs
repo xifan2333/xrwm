@@ -1,5 +1,7 @@
 use xrwm::state::AppState;
-use xrwm::status::{format_tag_status, format_window_status};
+use xrwm::status::{
+    format_pinned_status, format_scratchpad_status, format_tag_status, format_window_status,
+};
 
 #[test]
 fn test_format_tag_status_classes() {
@@ -51,4 +53,37 @@ fn test_format_window_status() {
     let win: serde_json::Value = serde_json::from_str(&format_window_status(&state)).unwrap();
     assert_eq!(win["text"], "");
     assert_eq!(win["class"], "tiled");
+}
+
+#[test]
+fn test_format_scratchpad_special_status() {
+    let mut state = AppState::new();
+
+    // 1. Empty scratchpad
+    let s_empty: serde_json::Value =
+        serde_json::from_str(&format_scratchpad_status(&state)).unwrap();
+    assert_eq!(s_empty["text"], "󰎤");
+    assert_eq!(s_empty["class"], serde_json::json!(["scratchpad", "empty"]));
+    assert_eq!(s_empty["count"], 0);
+    assert!(s_empty["tooltip"].as_str().unwrap().contains("empty"));
+
+    // 2. Focused scratchpad
+    state.tag_state.focused |= xrwm::tag::TAG_SCRATCHPAD;
+    let s_focused: serde_json::Value =
+        serde_json::from_str(&format_scratchpad_status(&state)).unwrap();
+    assert_eq!(
+        s_focused["class"],
+        serde_json::json!(["scratchpad", "focused"])
+    );
+}
+
+#[test]
+fn test_format_pinned_special_status() {
+    let state = AppState::new();
+
+    // Empty pinned status
+    let p_empty: serde_json::Value = serde_json::from_str(&format_pinned_status(&state)).unwrap();
+    assert_eq!(p_empty["text"], "");
+    assert_eq!(p_empty["class"], serde_json::json!(["pinned", "empty"]));
+    assert_eq!(p_empty["count"], 0);
 }
