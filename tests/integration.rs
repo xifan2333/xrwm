@@ -3310,3 +3310,57 @@ fn test_title_rule_matches_gtk_application_with_tensaku_title() {
         Some(xrwm::layout::Rect::new(480, 270, 960, 540))
     );
 }
+
+#[test]
+fn test_sync_occupied_tags_excludes_tag_all_across_outputs() {
+    let mut harness = Harness::new();
+    let _out1 = harness.add_output_with_id();
+    let _out2 = harness.add_output_with_id();
+    let out1_id = harness.state.outputs.keys().next().unwrap().clone();
+    let out2_id = harness.state.outputs.keys().nth(1).unwrap().clone();
+
+    // Rule for global pinned overlay (e.g. pip-camera)
+    harness.rule_with_match(Some("pip-camera"), None, &["tags", "4294967295"]);
+    // Rule for scratchpad window (tag 32)
+    harness.rule_with_match(Some("scratchpad"), None, &["tags", "2147483648"]);
+    // Rule for browser window (tag 2)
+    harness.rule_with_match(Some("regular-browser"), None, &["tags", "2"]);
+
+    // Output 1: Regular window on tag 1
+    harness.state.focused_output = Some(out1_id.clone());
+    let w1 = harness.add_window();
+    harness.set_app_id(&w1, "regular-term");
+
+    // Output 1: Global pinned overlay (TAG_ALL)
+    let w_pip = harness.add_window();
+    harness.set_app_id(&w_pip, "pip-camera");
+
+    // Output 2: Regular window on tag 2
+    harness.state.focused_output = Some(out2_id.clone());
+    let w2 = harness.add_window();
+    harness.set_app_id(&w2, "regular-browser");
+
+    // Output 2: Scratchpad window (tag 32)
+    let w_scratch = harness.add_window();
+    harness.set_app_id(&w_scratch, "scratchpad");
+
+    harness.manage();
+
+    // 1. Output 1 occupied mask: only regular window on tag 1 (bit 0 = 1).
+    // TAG_ALL must be excluded and must not mark all tags on out1 as occupied.
+    let out1_occupied = harness.state.outputs[&out1_id].tag_state.occupied;
+    assert_eq!(out1_occupied, 1);
+
+    // 2. Output 2 occupied mask: regular window on tag 2 (bit 1 = 2) and scratchpad (tag 32 = 1 << 31).
+    let out2_occupied = harness.state.outputs[&out2_id].tag_state.occupied;
+    assert_eq!(out2_occupied, 2 | xrwm::tag::TAG_SCRATCHPAD);
+
+    // 3. Global occupied mask: union of regular tags 1, 2 and scratchpad 32.
+    // TAG_ALL must not pollute the global occupied mask.
+    let global_occupied = harness.state.tag_state.occupied;
+    assert_eq!(global_occupied, 1 | 2 | xrwm::tag::TAG_SCRATCHPAD);
+    assert_eq!(
+        global_occupied & xrwm::tag::TAG_ALL,
+        1 | 2 | xrwm::tag::TAG_SCRATCHPAD
+    );
+}

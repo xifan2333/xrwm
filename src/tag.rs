@@ -78,11 +78,13 @@ impl TagState {
             .collect()
     }
 
+    /// Returns whether any window is currently placed in the scratchpad drawer (tag 32).
     #[inline]
     pub fn is_scratchpad_occupied(&self) -> bool {
         (self.occupied & TAG_SCRATCHPAD) != TAG_NONE
     }
 
+    /// Returns whether the scratchpad drawer (tag 32) is currently focused or toggled on.
     #[inline]
     pub fn is_scratchpad_focused(&self) -> bool {
         (self.focused & TAG_SCRATCHPAD) != TAG_NONE
