@@ -1458,8 +1458,14 @@ impl AppState {
                 format,
                 tag,
                 window,
+                scratchpad,
+                pinned,
             } => {
-                if *window {
+                if *scratchpad {
+                    Ok(self.format_scratchpad_status())
+                } else if *pinned {
+                    Ok(self.format_pinned_status())
+                } else if *window {
                     Ok(self.format_window_status())
                 } else if let Some(t) = tag {
                     Ok(self.format_tag_status(*t))

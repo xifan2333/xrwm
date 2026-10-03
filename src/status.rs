@@ -50,6 +50,8 @@ pub enum StatusSubscription {
     WaybarLegacy,
     Tag(u8),
     Window,
+    Scratchpad,
+    Pinned,
 }
 
 /// Subscription snapshot used to deduplicate broadcasts and prevent redundant I/O.
@@ -73,6 +75,14 @@ pub enum SubscriberSnapshot {
     },
     /// Full JSON status snapshot tracking model payload changes.
     FullJson { payload_hash: u64 },
+    /// Scratchpad drawer status snapshot.
+    Scratchpad {
+        focused: bool,
+        occupied: bool,
+        window_count: usize,
+    },
+    /// Global pinned overlays status snapshot.
+    Pinned { active: bool, window_count: usize },
 }
 
 /// Active status event listener tracking subscriber state and last sent snapshot.
@@ -119,6 +129,8 @@ pub fn broadcast_status(state: &mut AppState) {
     let mut cached_window_msg: Option<String> = None;
     let mut cached_waybar_msg: Option<String> = None;
     let mut cached_json_msg: Option<(String, u64)> = None;
+    let mut cached_scratchpad_msg: Option<String> = None;
+    let mut cached_pinned_msg: Option<String> = None;
 
     listeners.retain_mut(|listener| {
         let (current_snapshot, msg_to_send) = match listener.subscription {
@@ -207,6 +219,54 @@ pub fn broadcast_status(state: &mut AppState) {
                     return true;
                 }
                 (snapshot, json_str.as_bytes())
+            }
+            StatusSubscription::Scratchpad => {
+                let is_focused = state.tag_state.is_scratchpad_focused();
+                let is_occupied = state.tag_state.is_scratchpad_occupied();
+                let window_count = state
+                    .windows
+                    .iter()
+                    .filter(|w| {
+                        !w.closed
+                            && (w.tags & crate::tag::TAG_SCRATCHPAD) != 0
+                            && w.tags != crate::tag::TAG_ALL
+                    })
+                    .count();
+                let snapshot = SubscriberSnapshot::Scratchpad {
+                    focused: is_focused,
+                    occupied: is_occupied,
+                    window_count,
+                };
+                if listener.last_snapshot.as_ref() == Some(&snapshot) {
+                    return true;
+                }
+                let msg = cached_scratchpad_msg.get_or_insert_with(|| {
+                    let mut s = format_scratchpad_status(state);
+                    s.push('\n');
+                    s
+                });
+                (snapshot, msg.as_bytes())
+            }
+            StatusSubscription::Pinned => {
+                let window_count = state
+                    .windows
+                    .iter()
+                    .filter(|w| !w.closed && w.tags == crate::tag::TAG_ALL)
+                    .count();
+                let active = window_count > 0;
+                let snapshot = SubscriberSnapshot::Pinned {
+                    active,
+                    window_count,
+                };
+                if listener.last_snapshot.as_ref() == Some(&snapshot) {
+                    return true;
+                }
+                let msg = cached_pinned_msg.get_or_insert_with(|| {
+                    let mut s = format_pinned_status(state);
+                    s.push('\n');
+                    s
+                });
+                (snapshot, msg.as_bytes())
             }
         };
 
@@ -298,6 +358,15 @@ pub fn format_json_status(state: &AppState) -> String {
         "focused_window_id": focused_id,
         "hovered_window_id": hovered_id,
         "pointer": { "x": state.pointer.0, "y": state.pointer.1 },
+        "scratchpad": {
+            "focused": state.tag_state.is_scratchpad_focused(),
+            "occupied": state.tag_state.is_scratchpad_occupied(),
+            "count": state.windows.iter().filter(|w| !w.closed && (w.tags & crate::tag::TAG_SCRATCHPAD) != 0 && w.tags != crate::tag::TAG_ALL).count(),
+        },
+        "pinned": {
+            "active": state.windows.iter().any(|w| !w.closed && w.tags == crate::tag::TAG_ALL),
+            "count": state.windows.iter().filter(|w| !w.closed && w.tags == crate::tag::TAG_ALL).count(),
+        },
         "windows": window_list,
     });
 
@@ -363,6 +432,85 @@ pub fn format_window_status(state: &AppState) -> String {
         "text": title,
         "tooltip": if app_id.is_empty() { title.to_string() } else { format!("{app_id}: {title}") },
         "class": if floating { "floating" } else { "tiled" },
+    });
+    serde_json::to_string(&obj).unwrap_or_default()
+}
+
+/// Formats scratchpad drawer status JSON for Waybar modules.
+pub fn format_scratchpad_status(state: &AppState) -> String {
+    let is_focused = state.tag_state.is_scratchpad_focused();
+    let is_occupied = state.tag_state.is_scratchpad_occupied();
+    let count = state
+        .windows
+        .iter()
+        .filter(|w| {
+            !w.closed && (w.tags & crate::tag::TAG_SCRATCHPAD) != 0 && w.tags != crate::tag::TAG_ALL
+        })
+        .count();
+
+    let classes = match (is_focused, is_occupied) {
+        (true, true) => serde_json::json!(["scratchpad", "focused", "occupied"]),
+        (true, false) => serde_json::json!(["scratchpad", "focused"]),
+        (false, true) => serde_json::json!(["scratchpad", "occupied"]),
+        (false, false) => serde_json::json!(["scratchpad", "empty"]),
+    };
+
+    let tooltip = match (is_focused, count) {
+        (true, 0) => "Scratchpad (empty, open)".to_string(),
+        (true, 1) => "Scratchpad (1 window, open)".to_string(),
+        (true, n) => format!("Scratchpad ({n} windows, open)"),
+        (false, 0) => "Scratchpad (empty)".to_string(),
+        (false, 1) => "Scratchpad (1 window)".to_string(),
+        (false, n) => format!("Scratchpad ({n} windows)"),
+    };
+
+    let obj = serde_json::json!({
+        "text": "󰎤",
+        "class": classes,
+        "tooltip": tooltip,
+        "count": count,
+    });
+    serde_json::to_string(&obj).unwrap_or_default()
+}
+
+/// Formats global pinned/sticky windows status JSON for Waybar modules.
+pub fn format_pinned_status(state: &AppState) -> String {
+    let pinned_windows: Vec<&crate::state::WindowItem> = state
+        .windows
+        .iter()
+        .filter(|w| !w.closed && w.tags == crate::tag::TAG_ALL)
+        .collect();
+    let count = pinned_windows.len();
+    let active = count > 0;
+
+    let classes = if active {
+        serde_json::json!(["pinned", "occupied"])
+    } else {
+        serde_json::json!(["pinned", "empty"])
+    };
+
+    let tooltip = if count == 0 {
+        "No pinned windows".to_string()
+    } else {
+        let titles: Vec<&str> = pinned_windows
+            .iter()
+            .map(|w| {
+                w.app_id
+                    .as_deref()
+                    .or(w.title.as_deref())
+                    .unwrap_or("window")
+            })
+            .collect();
+        format!("Pinned ({count}): {}", titles.join(", "))
+    };
+
+    let text = if active { "󰐃" } else { "" };
+
+    let obj = serde_json::json!({
+        "text": text,
+        "class": classes,
+        "tooltip": tooltip,
+        "count": count,
     });
     serde_json::to_string(&obj).unwrap_or_default()
 }

@@ -306,3 +306,41 @@ fn test_differential_broadcasting_deduplication() {
     assert!(reader.read_line(&mut line).unwrap() > 0);
     assert!(line.contains("\"class\":[\"empty\"]"));
 }
+
+#[test]
+fn test_differential_broadcasting_scratchpad_and_pinned() {
+    use std::io::{BufRead, BufReader, Read};
+
+    let mut state = AppState::new();
+    let (server_sp, client_sp) = UnixStream::pair().unwrap();
+    client_sp.set_nonblocking(true).unwrap();
+    let (server_pin, client_pin) = UnixStream::pair().unwrap();
+    client_pin.set_nonblocking(true).unwrap();
+
+    state.status_listeners.push(StatusListener::new(
+        server_sp,
+        StatusSubscription::Scratchpad,
+    ));
+    state
+        .status_listeners
+        .push(StatusListener::new(server_pin, StatusSubscription::Pinned));
+
+    state.broadcast_status();
+    assert_eq!(state.status_listeners.len(), 2);
+
+    let mut reader_sp = BufReader::new(client_sp);
+    let mut line = String::new();
+    assert!(reader_sp.read_line(&mut line).unwrap() > 0);
+    assert!(line.contains("\"class\":[\"scratchpad\",\"empty\"]"));
+    line.clear();
+
+    let mut reader_pin = BufReader::new(client_pin);
+    assert!(reader_pin.read_line(&mut line).unwrap() > 0);
+    assert!(line.contains("\"class\":[\"pinned\",\"empty\"]"));
+    line.clear();
+
+    // Subsequent broadcast with no change: zero writes
+    state.broadcast_status();
+    let res = reader_sp.get_mut().read(&mut [0u8; 64]);
+    assert!(matches!(res, Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock));
+}

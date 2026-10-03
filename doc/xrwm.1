@@ -321,15 +321,24 @@ Deletes a previously added window rule matching the criteria.
 Prints all active window rules, optionally filtered by action type.
 .SS STATUS & QUERY
 .TP
-\f[B]status\f[R] [\f[B]\(enformat\f[R] \f[B]waybar\f[R]] [\f[B]\(entag\f[R] \f[I]1..32\f[R]] [\f[B]\(enwindow\f[R]] [\f[B]\(enstream\f[R]]
+\f[B]status\f[R] [\f[B]\(enformat\f[R] \f[B]waybar\f[R]] [\f[B]\(entag\f[R] \f[I]1..32|scratchpad|pinned\f[R]] [\f[B]\(enscratchpad\f[R]] [\f[B]\(enpinned\f[R]] [\f[B]\(enwindow\f[R]] [\f[B]\(enstream\f[R]]
 Queries window manager state.
 Without flags, outputs a single JSON object with tags, window list,
-geometry, and layout details.
+geometry, layout details, scratchpad summary, and pinned overlay
+metrics.
 With \f[B]\(enformat waybar\f[R], outputs formatted JSON for Waybar
 custom modules.
 With \f[B]\(entag\f[R] \f[I]N\f[R], outputs tailored JSON for the
 specified workspace tag button (with \f[CR].focused\f[R],
 \f[CR].occupied\f[R], or \f[CR].empty\f[R] classes).
+With \f[B]\(entag scratchpad\f[R] or \f[B]\(enscratchpad\f[R], streams
+dedicated Scratchpad drawer status JSON (with \f[CR].scratchpad\f[R],
+\f[CR].focused\f[R], \f[CR].occupied\f[R], \f[CR].empty\f[R] classes and
+window counts).
+With \f[B]\(entag pinned\f[R] or \f[B]\(enpinned\f[R], streams global
+pinned/sticky overlay status JSON (\f[CR]TAG_ALL\f[R], with
+\f[CR].pinned\f[R], \f[CR].occupied\f[R], \f[CR].empty\f[R] classes and
+overlay window counts).
 With \f[B]\(enwindow\f[R], outputs JSON reflecting the currently focused
 window title and app\-id.
 With \f[B]\(enstream\f[R], maintains a persistent pipe streaming JSON

@@ -109,6 +109,10 @@ pub enum IpcCommand {
         tag: Option<u8>,
         #[serde(default)]
         window: bool,
+        #[serde(default)]
+        scratchpad: bool,
+        #[serde(default)]
+        pinned: bool,
     },
     Exit,
     Reload,
@@ -907,20 +911,33 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
         "status" => {
             let stream = args.iter().any(|a| a == "--stream");
             let window = args.iter().any(|a| a == "--window");
+            let mut pinned = args.iter().any(|a| a == "--pinned");
+            let mut scratchpad = args.iter().any(|a| a == "--scratchpad");
             let format = args
                 .iter()
                 .position(|a| a == "--format")
                 .and_then(|idx| args.get(idx + 1).cloned());
-            let tag = args
+            let tag_arg = args
                 .iter()
                 .position(|a| a == "--tag")
-                .and_then(|idx| args.get(idx + 1))
-                .and_then(|s| s.parse::<u8>().ok());
+                .and_then(|idx| args.get(idx + 1));
+            let mut tag = None;
+            if let Some(t_str) = tag_arg {
+                if t_str == "scratchpad" {
+                    scratchpad = true;
+                } else if t_str == "pinned" {
+                    pinned = true;
+                } else if let Ok(n) = t_str.parse::<u8>() {
+                    tag = Some(n);
+                }
+            }
             Ok(IpcCommand::Status {
                 stream,
                 format,
                 tag,
                 window,
+                scratchpad,
+                pinned,
             })
         }
         other => Err(format!("Unknown command: {other}")),
