@@ -245,6 +245,11 @@ Can be absolute (e.g. `0.65`) or relative (e.g. `+0.05`, `-0.05`). Defaults to `
 - **fullscreen**: Automatically launch window in fullscreen mode.
 - **output** _name|id_: Assign initial target display.
 
+Windows that report a parent window through the compositor (dialogs, file
+pickers, transient popup menus) float by default. An explicit **no-float** rule
+takes precedence, so individual applications can still be forced back into the
+tiling layout.
+
 **rule-del** [**-app-id** _glob_] [**-title** _glob_] _action_
 : Deletes a previously added window rule matching the criteria.
 
