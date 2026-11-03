@@ -20,7 +20,7 @@ use xrwm::protocol::{
     river_window_manager_v1 as wm, river_window_v1 as window,
 };
 use xrwm::seat::LayerShellFocus;
-use xrwm::state::AppState;
+use xrwm::state::{AppState, WindowItem};
 
 #[derive(Default)]
 struct ServerState {
@@ -179,6 +179,23 @@ impl Harness {
             vec![Argument::Object(window.clone())],
         );
         self.dispatch_events();
+    }
+
+    fn set_parent(&mut self, window: &ObjectId, parent: &ObjectId) {
+        self.event(
+            window,
+            window::EVT_PARENT_OPCODE,
+            vec![Argument::Object(parent.clone())],
+        );
+        self.dispatch_events();
+    }
+
+    fn window(&self, id: &ObjectId) -> &WindowItem {
+        self.state
+            .windows
+            .iter()
+            .find(|w| w.proxy.id().protocol_id() == id.protocol_id())
+            .unwrap()
     }
 
     fn pointer_enter(&mut self, seat: &ObjectId, window: &ObjectId) {
@@ -373,6 +390,39 @@ impl Harness {
             })
             .collect()
     }
+}
+
+#[test]
+fn transient_window_with_parent_floats_by_default() {
+    let mut harness = Harness::new();
+    harness.add_output();
+    let parent = harness.add_window();
+    let child = harness.add_window_without_metadata();
+
+    harness.manage();
+    assert!(!harness.window(&child).floating);
+
+    harness.set_parent(&child, &parent);
+    harness.manage();
+    assert!(harness.window(&child).has_parent);
+    assert!(harness.window(&child).floating);
+
+    // The parent itself must stay tiled.
+    assert!(!harness.window(&parent).floating);
+}
+
+#[test]
+fn explicit_no_float_rule_overrides_transient_float() {
+    let mut harness = Harness::new();
+    harness.add_output();
+    harness.rule_with_match(Some("demo"), None, &["no-float"]);
+    let parent = harness.add_window();
+    let child = harness.add_window();
+
+    harness.set_parent(&child, &parent);
+    harness.manage();
+    assert!(harness.window(&child).has_parent);
+    assert!(!harness.window(&child).floating);
 }
 
 #[test]
