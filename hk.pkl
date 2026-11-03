@@ -51,7 +51,7 @@ hooks {
               while IFS= read -r header || [ -n "$header" ]; do
                 header=${header%$'\r'}
                 case "$header" in
-                  \#*) continue ;;
+                  '#'*) continue ;;
                   'fixup! '*|'squash! '*|'amend! '*|'Merge '*) exit 0 ;;
                 esac
                 if [ "${#header}" -gt 100 ]; then
