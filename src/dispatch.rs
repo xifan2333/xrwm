@@ -248,19 +248,15 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
                 );
                 let focused_out_id = state.get_focused_output_id();
                 if let Some(win) = state.windows.iter_mut().find(|win| &win.proxy == proxy) {
-                    let has_dimensions_rule = win.rule_dimensions.is_some()
-                        || state.rules.iter().any(|r| {
-                            r.dimensions.is_some()
-                                && r.app_id.as_deref().is_none_or(|pat| {
-                                    crate::rule::glob_match(
-                                        pat,
-                                        win.app_id.as_deref().unwrap_or(""),
-                                    )
-                                })
-                                && r.title.as_deref().is_none_or(|pat| {
-                                    crate::rule::glob_match(pat, win.title.as_deref().unwrap_or(""))
-                                })
-                        });
+                    let has_dimensions_rule = state.rules.iter().any(|r| {
+                        r.dimensions.is_some()
+                            && r.app_id.as_deref().is_none_or(|pat| {
+                                crate::rule::glob_match(pat, win.app_id.as_deref().unwrap_or(""))
+                            })
+                            && r.title.as_deref().is_none_or(|pat| {
+                                crate::rule::glob_match(pat, win.title.as_deref().unwrap_or(""))
+                            })
+                    });
 
                     let has_position_rule = state.rules.iter().any(|r| {
                         r.position.is_some()

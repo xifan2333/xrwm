@@ -944,14 +944,7 @@ impl AppState {
                     start_y,
                 } => {
                     if let Some(w) = self.windows.iter_mut().find(|w| &w.proxy == proxy) {
-                        let cur_w = w.width;
-                        let cur_h = w.height;
-                        w.update_floating_geometry(Rect::new(
-                            start_x + seat.op_dx,
-                            start_y + seat.op_dy,
-                            cur_w,
-                            cur_h,
-                        ));
+                        w.set_position(start_x + seat.op_dx, start_y + seat.op_dy);
                     }
                 }
                 SeatOp::Resize {
