@@ -45,3 +45,13 @@ _Avoid_: Resize event, configure request
 **Dimension Proposal Invariant**:
 The contract that proposals are emitted monotonically and only when dimensions actually change or are unconfigured, preventing Wayland frame deadlocks.
 _Avoid_: Proposal throttle, dimension lock
+
+## Rendering & Frame Lifecycle
+
+**Frame Plan**:
+A pure, side-effect-free description of all window transformations, clipping rectangles, borders, and Z-orders to be applied during a compositor render sequence.
+_Avoid_: Render state, draw command list, display list
+
+**Render Frame**:
+The concrete visual rectangle and clipping state assigned to a window for the current display refresh tick.
+_Avoid_: Draw frame, buffer geometry
