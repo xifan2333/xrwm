@@ -96,6 +96,8 @@ pub struct WindowItem {
     pub app_id: Option<String>,
     pub title: Option<String>,
     pub tags: TagMask,
+    /// True when the compositor reported a parent window (dialog, file picker, popup menu).
+    pub has_parent: bool,
     pub floating: bool,
     pub fullscreen: bool,
     pub pending_close: bool,

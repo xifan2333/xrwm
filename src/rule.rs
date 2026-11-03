@@ -84,10 +84,15 @@ pub fn apply_rules_to_window(
 
     let was_floating = w.floating;
 
+    // Explicit float decisions are tracked separately so transient windows can fall back
+    // to floating without overriding a `no-float` rule.
+    let mut rule_float: Option<bool> = None;
+
     // Pass 1: resolve output, floating, ssd, tags, fullscreen
     for r in &matching_rules {
         if let Some(float) = r.float {
             w.floating = float;
+            rule_float = Some(float);
         }
         if let Some(ssd) = r.ssd {
             w.ssd = ssd;
@@ -135,6 +140,12 @@ pub fn apply_rules_to_window(
                 }
             }
         }
+    }
+
+    // Transient top-levels (dialogs, file pickers, popup menus) reported via the river
+    // `parent` event float by default; an explicit `no-float` rule still wins.
+    if w.has_parent && rule_float.is_none() {
+        w.floating = true;
     }
 
     // Determine effective usable area based on resolved target output

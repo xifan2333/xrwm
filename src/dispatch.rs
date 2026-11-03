@@ -132,6 +132,7 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                     app_id: None,
                     title: None,
                     tags: current_tags,
+                    has_parent: false,
                     floating: false,
                     fullscreen: false,
                     pending_close: false,
@@ -249,6 +250,17 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
                     .map(|o| o.usable_area);
                 if let Some(w) = state.windows.iter_mut().find(|w| &w.proxy == proxy) {
                     w.title = title;
+                    AppState::apply_rules_to_window(&state.rules, w, usable, &state.outputs);
+                }
+                state.manage_dirty();
+            }
+            Event::Parent { parent } => {
+                let usable = state
+                    .get_focused_output_id()
+                    .and_then(|id| state.outputs.get(&id))
+                    .map(|o| o.usable_area);
+                if let Some(w) = state.windows.iter_mut().find(|w| &w.proxy == proxy) {
+                    w.has_parent = parent.is_some();
                     AppState::apply_rules_to_window(&state.rules, w, usable, &state.outputs);
                 }
                 state.manage_dirty();
