@@ -82,28 +82,28 @@ pub fn apply_rules_to_window(
         })
         .collect();
 
-    let was_floating = w.floating;
-
-    // Explicit float decisions are tracked separately so transient windows can fall back
-    // to floating without overriding a `no-float` rule.
     let mut rule_float: Option<bool> = None;
+    let mut matched_ssd = None;
+    let mut matched_tags = None;
+    let mut matched_fullscreen = None;
+    let mut matched_output = None;
+    let mut matched_dimensions = None;
+    let mut matched_position = None;
 
     // Pass 1: resolve output, floating, ssd, tags, fullscreen
     for r in &matching_rules {
         if let Some(float) = r.float {
-            w.floating = float;
             rule_float = Some(float);
         }
         if let Some(ssd) = r.ssd {
-            w.ssd = ssd;
+            matched_ssd = Some(ssd);
         }
         if !w.initial_managed {
             if let Some(tags) = r.tags {
-                w.tags = tags;
+                matched_tags = Some(tags);
             }
             if let Some(fs) = r.fullscreen {
-                w.fullscreen = fs;
-                w.pending_fullscreen_change = true;
+                matched_fullscreen = Some(fs);
             }
             if let Some(ref out_str) = r.output {
                 let trimmed = out_str.trim();
@@ -136,22 +136,25 @@ pub fn apply_rules_to_window(
 
                 let matched_out = by_name.or(by_id).or(by_index);
                 if let Some((id, _)) = matched_out {
-                    w.output = Some(id.clone());
+                    matched_output = Some(id.clone());
                 }
             }
+        }
+        if r.dimensions.is_some() {
+            matched_dimensions = r.dimensions;
+        }
+        if r.position.is_some() {
+            matched_position = r.position;
         }
     }
 
     // Transient top-levels (dialogs, file pickers, popup menus) reported via the river
     // `parent` event float by default; an explicit `no-float` rule still wins.
-    if w.has_parent && rule_float.is_none() {
-        w.floating = true;
-    }
+    let effective_float = rule_float.or(if w.has_parent { Some(true) } else { None });
 
     // Determine effective usable area based on resolved target output
-    let effective_usable_area = w
-        .output
-        .as_ref()
+    let target_out = matched_output.as_ref().or(w.output.as_ref());
+    let effective_usable_area = target_out
         .and_then(|id| outputs.get(id))
         .map(|o| {
             if o.usable_area.width > 0 && o.usable_area.height > 0 {
@@ -164,47 +167,14 @@ pub fn apply_rules_to_window(
         })
         .or(usable_area);
 
-    let mut matched_dimensions = None;
-    let mut matched_position = None;
-
-    for r in &matching_rules {
-        if r.dimensions.is_some() {
-            matched_dimensions = r.dimensions;
-        }
-        if r.position.is_some() {
-            matched_position = r.position;
-        }
-    }
-
-    // Apply dimensions to window (river-classic: view.pending.box width/height)
-    if (!w.initial_managed || !was_floating)
-        && let Some((width, height)) = matched_dimensions
-    {
-        w.width = width;
-        w.height = height;
-        w.rule_dimensions = Some((width, height));
-    }
-
-    // Position and centering logic: strict river-classic
-    // If an explicit position rule is given, use it.
-    // Otherwise, if dimensions rule was specified OR the window is floating, center on target usable area.
-    if !w.initial_managed || !was_floating || w.float_geo.is_none() {
-        if let Some((px, py)) = matched_position {
-            w.x = px;
-            w.y = py;
-            w.float_geo = Some(Rect::new(px, py, w.width, w.height));
-        } else if (matched_dimensions.is_some() || w.floating)
-            && let Some(usable) = effective_usable_area
-            && w.width > 0
-            && w.height > 0
-        {
-            let cx = (usable.x as i64 + ((usable.width as i64 - w.width as i64) / 2).max(0))
-                .clamp(i32::MIN as i64, i32::MAX as i64) as i32;
-            let cy = (usable.y as i64 + ((usable.height as i64 - w.height as i64) / 2).max(0))
-                .clamp(i32::MIN as i64, i32::MAX as i64) as i32;
-            w.x = cx;
-            w.y = cy;
-            w.float_geo = Some(Rect::new(cx, cy, w.width, w.height));
-        }
-    }
+    let config = crate::window::RuleConfig {
+        float: effective_float,
+        ssd: matched_ssd,
+        tags: matched_tags,
+        fullscreen: matched_fullscreen,
+        output: matched_output,
+        dimensions: matched_dimensions,
+        position: matched_position,
+    };
+    w.apply_rule_properties(config, effective_usable_area);
 }

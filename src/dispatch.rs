@@ -121,38 +121,13 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                     current_tags = out_tags;
                 }
 
-                state.attach_window(WindowItem {
-                    id: vid,
-                    proxy: id.clone(),
+                state.attach_window(WindowItem::new(
+                    vid,
+                    id.clone(),
                     node,
-                    initial_managed: false,
-                    initial_rendered: false,
-                    last_applied_ssd: None,
-                    closed: false,
-                    app_id: None,
-                    title: None,
-                    tags: current_tags,
-                    has_parent: false,
-                    floating: false,
-                    fullscreen: false,
-                    pending_close: false,
-                    pending_fullscreen_change: false,
-                    float_geo: None,
-                    ssd: true,
-                    output: current_out,
-                    x: 0,
-                    y: 0,
-                    width: 0,
-                    height: 0,
-                    content_width: None,
-                    content_height: None,
-                    rule_dimensions: None,
-                    visual_geo: None,
-                    anim_start_geo: None,
-                    anim_target_geo: None,
-                    last_proposed_w: None,
-                    last_proposed_h: None,
-                });
+                    current_tags,
+                    current_out,
+                ));
 
                 for seat in state.seats.values_mut() {
                     seat.set_focused_window(Some(id.clone()));
@@ -222,7 +197,7 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
         match event {
             Event::Closed => {
                 if let Some(w) = state.windows.iter_mut().find(|w| &w.proxy == proxy) {
-                    w.closed = true;
+                    w.mark_closed();
                 }
                 for seat in state.seats.values_mut() {
                     if seat.focused.as_ref() == Some(proxy) {
@@ -238,7 +213,7 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
                     .and_then(|id| state.outputs.get(&id))
                     .map(|o| o.usable_area);
                 if let Some(w) = state.windows.iter_mut().find(|w| &w.proxy == proxy) {
-                    w.app_id = app_id;
+                    w.set_app_id(app_id);
                     AppState::apply_rules_to_window(&state.rules, w, usable, &state.outputs);
                 }
                 state.manage_dirty();
@@ -249,7 +224,7 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
                     .and_then(|id| state.outputs.get(&id))
                     .map(|o| o.usable_area);
                 if let Some(w) = state.windows.iter_mut().find(|w| &w.proxy == proxy) {
-                    w.title = title;
+                    w.set_title(title);
                     AppState::apply_rules_to_window(&state.rules, w, usable, &state.outputs);
                 }
                 state.manage_dirty();
@@ -260,7 +235,7 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
                     .and_then(|id| state.outputs.get(&id))
                     .map(|o| o.usable_area);
                 if let Some(w) = state.windows.iter_mut().find(|w| &w.proxy == proxy) {
-                    w.has_parent = parent.is_some();
+                    w.set_has_parent(parent.is_some());
                     AppState::apply_rules_to_window(&state.rules, w, usable, &state.outputs);
                 }
                 state.manage_dirty();
@@ -273,75 +248,47 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
                 );
                 let focused_out_id = state.get_focused_output_id();
                 if let Some(win) = state.windows.iter_mut().find(|win| &win.proxy == proxy) {
-                    win.content_width = Some(w);
-                    win.content_height = Some(h);
-                    let has_dimensions_rule = win.rule_dimensions.is_some()
-                        || state.rules.iter().any(|r| {
-                            r.dimensions.is_some()
-                                && r.app_id.as_deref().is_none_or(|pat| {
-                                    crate::rule::glob_match(
-                                        pat,
-                                        win.app_id.as_deref().unwrap_or(""),
-                                    )
-                                })
-                                && r.title.as_deref().is_none_or(|pat| {
-                                    crate::rule::glob_match(pat, win.title.as_deref().unwrap_or(""))
-                                })
-                        });
+                    let has_dimensions_rule = state.rules.iter().any(|r| {
+                        r.dimensions.is_some()
+                            && r.app_id.as_deref().is_none_or(|pat| {
+                                crate::rule::glob_match(pat, win.app_id.as_deref().unwrap_or(""))
+                            })
+                            && r.title.as_deref().is_none_or(|pat| {
+                                crate::rule::glob_match(pat, win.title.as_deref().unwrap_or(""))
+                            })
+                    });
 
-                    // Strictly align with river-classic:
-                    // Floating geometry (float_geo / view.float_box) with an explicit dimensions rule
-                    // is invariant and must never be overwritten by intermediate or unconfigured client commits.
-                    if win.floating && !is_resizing && !has_dimensions_rule {
-                        win.width = w;
-                        win.height = h;
-                        win.last_proposed_w = Some(w);
-                        win.last_proposed_h = Some(h);
+                    let has_position_rule = state.rules.iter().any(|r| {
+                        r.position.is_some()
+                            && r.app_id.as_deref().is_none_or(|pat| {
+                                crate::rule::glob_match(pat, win.app_id.as_deref().unwrap_or(""))
+                            })
+                            && r.title.as_deref().is_none_or(|pat| {
+                                crate::rule::glob_match(pat, win.title.as_deref().unwrap_or(""))
+                            })
+                    });
 
-                        // Strict river-classic: center floating window on usable area unless positioned by rule
-                        let has_position_rule = state.rules.iter().any(|r| {
-                            r.position.is_some()
-                                && r.app_id.as_deref().is_none_or(|pat| {
-                                    crate::rule::glob_match(
-                                        pat,
-                                        win.app_id.as_deref().unwrap_or(""),
-                                    )
-                                })
-                                && r.title.as_deref().is_none_or(|pat| {
-                                    crate::rule::glob_match(pat, win.title.as_deref().unwrap_or(""))
-                                })
-                        });
-
-                        if !has_position_rule && (win.float_geo.is_none() || !win.initial_managed) {
-                            let usable = win
-                                .output
-                                .as_ref()
-                                .or(focused_out_id.as_ref())
-                                .and_then(|id| state.outputs.get(id))
-                                .map(|o| {
-                                    if o.usable_area.width > 0 && o.usable_area.height > 0 {
-                                        o.usable_area
-                                    } else {
-                                        Rect::new(o.x, o.y, o.width, o.height)
-                                    }
-                                });
-
-                            if let Some(usable) = usable {
-                                let cx = (usable.x as i64
-                                    + ((usable.width as i64 - w as i64) / 2).max(0))
-                                .clamp(i32::MIN as i64, i32::MAX as i64)
-                                    as i32;
-                                let cy = (usable.y as i64
-                                    + ((usable.height as i64 - h as i64) / 2).max(0))
-                                .clamp(i32::MIN as i64, i32::MAX as i64)
-                                    as i32;
-                                win.x = cx;
-                                win.y = cy;
+                    let usable = win
+                        .output
+                        .as_ref()
+                        .or(focused_out_id.as_ref())
+                        .and_then(|id| state.outputs.get(id))
+                        .map(|o| {
+                            if o.usable_area.width > 0 && o.usable_area.height > 0 {
+                                o.usable_area
+                            } else {
+                                Rect::new(o.x, o.y, o.width, o.height)
                             }
-                        }
+                        });
 
-                        win.float_geo = Some(Rect::new(win.x, win.y, w, h));
-                    }
+                    win.apply_client_dimensions(
+                        w,
+                        h,
+                        is_resizing,
+                        has_dimensions_rule,
+                        has_position_rule,
+                        usable,
+                    );
                 }
                 state.manage_dirty();
             }
@@ -425,11 +372,7 @@ impl Dispatch<RiverOutputV1, ()> for AppState {
                             fallback_usable_area,
                         );
                         if w.fullscreen {
-                            w.fullscreen = false;
-                            w.pending_fullscreen_change = false;
-                            w.proxy.inform_not_fullscreen();
-                            w.last_proposed_w = None;
-                            w.last_proposed_h = None;
+                            w.exit_fullscreen_on_output_removed();
                         }
                     }
                 }

@@ -15,7 +15,6 @@ use crate::layout::{Layout, LayoutConfig, MasterStackLayout, Rect};
 use crate::protocol::{
     river_layer_shell_output_v1::RiverLayerShellOutputV1,
     river_layer_shell_v1::RiverLayerShellV1,
-    river_node_v1::RiverNodeV1,
     river_output_v1::RiverOutputV1,
     river_window_manager_v1::RiverWindowManagerV1,
     river_window_v1::{Edges, RiverWindowV1},
@@ -27,7 +26,7 @@ use crate::tag::TAG_NONE;
 use crate::tag::TagMask;
 use crate::tag::TagState;
 
-pub const MIN_WINDOW_DIMENSION: u32 = 100;
+pub use crate::window::{MIN_WINDOW_DIMENSION, WindowItem};
 
 pub use crate::status::{
     StatusListener, StatusSubscription, SubscriberSnapshot, broadcast_status, format_json_status,
@@ -82,55 +81,6 @@ impl AttachMode {
                 .unwrap_or(total_len),
             AttachMode::After(n) => (*n as usize).min(total_len),
         }
-    }
-}
-
-#[derive(Debug)]
-pub struct WindowItem {
-    pub id: u32,
-    pub proxy: RiverWindowV1,
-    pub node: RiverNodeV1,
-    pub initial_managed: bool,
-    pub initial_rendered: bool,
-    pub closed: bool,
-    pub app_id: Option<String>,
-    pub title: Option<String>,
-    pub tags: TagMask,
-    /// True when the compositor reported a parent window (dialog, file picker, popup menu).
-    pub has_parent: bool,
-    pub floating: bool,
-    pub fullscreen: bool,
-    pub pending_close: bool,
-    pub pending_fullscreen_change: bool,
-    pub float_geo: Option<Rect>,
-    pub ssd: bool,
-    pub last_applied_ssd: Option<bool>,
-    pub output: Option<ObjectId>,
-    pub x: i32,
-    pub y: i32,
-    pub width: u32,
-    pub height: u32,
-    pub content_width: Option<u32>,
-    pub content_height: Option<u32>,
-    pub rule_dimensions: Option<(u32, u32)>,
-    // Animation & visual geometry tracking
-    pub visual_geo: Option<Rect>,
-    pub anim_start_geo: Option<Rect>,
-    pub anim_target_geo: Option<Rect>,
-    // None means no proposal has been sent; zero lets the client choose its size.
-    pub last_proposed_w: Option<u32>,
-    pub last_proposed_h: Option<u32>,
-}
-
-impl WindowItem {
-    #[inline]
-    pub fn effective_width(&self) -> u32 {
-        self.content_width.unwrap_or(self.width)
-    }
-
-    #[inline]
-    pub fn effective_height(&self) -> u32 {
-        self.content_height.unwrap_or(self.height)
     }
 }
 
@@ -386,22 +336,7 @@ impl AppState {
         src_area: Option<Rect>,
         dst_area: Option<Rect>,
     ) -> Rect {
-        let (new_x, new_y) = if let (Some(src), Some(dst)) = (src_area, dst_area) {
-            let rel_x = geo.x - src.x;
-            let rel_y = geo.y - src.y;
-            let new_x = dst.x + rel_x;
-            let new_y = dst.y + rel_y;
-            let max_x = (dst.x + dst.width as i32 - 50).max(dst.x);
-            let max_y = (dst.y + dst.height as i32 - 50).max(dst.y);
-            (new_x.clamp(dst.x, max_x), new_y.clamp(dst.y, max_y))
-        } else if let Some(dst) = dst_area {
-            let cx = dst.x + (dst.width.saturating_sub(geo.width) / 2) as i32;
-            let cy = dst.y + (dst.height.saturating_sub(geo.height) / 2) as i32;
-            (cx, cy)
-        } else {
-            (geo.x, geo.y)
-        };
-        Rect::new(new_x, new_y, geo.width, geo.height)
+        WindowItem::translate_float_geometry(geo, src_area, dst_area)
     }
 
     /// Migrates a window's output and transforms both active and saved floating geometry.
@@ -411,22 +346,7 @@ impl AppState {
         src_area: Option<Rect>,
         dest_area: Option<Rect>,
     ) {
-        w.output = dest_out_id;
-
-        // Translate saved floating geometry if present
-        if let Some(saved) = w.float_geo {
-            w.float_geo = Some(Self::translate_float_geometry(saved, src_area, dest_area));
-        }
-
-        // If currently floating, also translate active coordinates and visual geometry
-        if w.floating {
-            let current_geo = Rect::new(w.x, w.y, w.width, w.height);
-            let new_geo = Self::translate_float_geometry(current_geo, src_area, dest_area);
-            w.x = new_geo.x;
-            w.y = new_geo.y;
-            w.float_geo = Some(new_geo);
-            w.visual_geo = Some(new_geo);
-        }
+        w.migrate_to_output(dest_out_id, src_area, dest_area);
     }
 
     /// Applies matching window rules to a window item.
@@ -591,15 +511,8 @@ impl AppState {
 
     fn propose_initial_dimensions(&mut self) {
         // Windows skipped by layout still need a proposal before River can map them.
-        for w in self.windows.iter_mut().filter(|w| {
-            !w.fullscreen && (w.last_proposed_w.is_none() || w.last_proposed_h.is_none())
-        }) {
-            w.proxy.propose_dimensions(
-                w.width.min(i32::MAX as u32) as i32,
-                w.height.min(i32::MAX as u32) as i32,
-            );
-            w.last_proposed_w = Some(w.width);
-            w.last_proposed_h = Some(w.height);
+        for w in &mut self.windows {
+            w.propose_initial_dimensions();
         }
     }
 
@@ -739,36 +652,18 @@ impl AppState {
 
         // 0. Process any pending close requests inside the manage sequence
         for w in &mut self.windows {
-            if w.pending_close {
-                w.proxy.close();
-                w.pending_close = false;
-            }
+            w.process_pending_close();
         }
 
         // Apply any pending fullscreen requests (synchronizing compositor state and client notifications)
         for w in &mut self.windows {
-            if w.pending_fullscreen_change {
-                if w.fullscreen {
-                    let out_proxy = w
-                        .output
-                        .as_ref()
-                        .and_then(|id| self.outputs.get(id))
-                        .map(|o| &o.proxy)
-                        .or_else(|| self.outputs.values().next().map(|o| &o.proxy));
-                    if let Some(out) = out_proxy {
-                        w.proxy.fullscreen(out);
-                    }
-                    w.proxy.inform_fullscreen();
-                } else {
-                    w.proxy.exit_fullscreen();
-                    w.proxy.inform_not_fullscreen();
-                    // Invalidate proposal cache so the current manage sequence reliably submits
-                    // propose_dimensions for the restored layout/floating geometry (River protocol requirement).
-                    w.last_proposed_w = None;
-                    w.last_proposed_h = None;
-                }
-                w.pending_fullscreen_change = false;
-            }
+            let out_proxy = w
+                .output
+                .as_ref()
+                .and_then(|id| self.outputs.get(id))
+                .map(|o| &o.proxy)
+                .or_else(|| self.outputs.values().next().map(|o| &o.proxy));
+            w.apply_pending_fullscreen(out_proxy);
         }
 
         // 1. Remove closed windows, ending any interactive operation holding them
@@ -1049,10 +944,7 @@ impl AppState {
                     start_y,
                 } => {
                     if let Some(w) = self.windows.iter_mut().find(|w| &w.proxy == proxy) {
-                        w.x = start_x + seat.op_dx;
-                        w.y = start_y + seat.op_dy;
-                        w.float_geo = Some(Rect::new(w.x, w.y, w.width, w.height));
-                        w.visual_geo = Some(Rect::new(w.x, w.y, w.width, w.height));
+                        w.set_position(start_x + seat.op_dx, start_y + seat.op_dy);
                     }
                 }
                 SeatOp::Resize {
@@ -1087,22 +979,12 @@ impl AppState {
                             new_y = *start_y + (*start_height as i32 - new_h);
                         }
 
-                        w.x = new_x;
-                        w.y = new_y;
-                        w.width = new_w as u32;
-                        w.height = new_h as u32;
-                        w.float_geo = Some(Rect::new(w.x, w.y, w.width, w.height));
-                        w.visual_geo = Some(Rect::new(w.x, w.y, w.width, w.height));
-
-                        if w.last_proposed_w != Some(w.width) || w.last_proposed_h != Some(w.height)
-                        {
-                            proxy.propose_dimensions(
-                                w.width.min(i32::MAX as u32) as i32,
-                                w.height.min(i32::MAX as u32) as i32,
-                            );
-                            w.last_proposed_w = Some(w.width);
-                            w.last_proposed_h = Some(w.height);
-                        }
+                        w.update_floating_geometry(Rect::new(
+                            new_x,
+                            new_y,
+                            new_w as u32,
+                            new_h as u32,
+                        ));
                     }
                 }
                 SeatOp::TiledResize { start_ratio } => {
@@ -1177,10 +1059,7 @@ impl AppState {
                 if let Some(target) = target_proxy
                     && let Some(w) = self.windows.iter_mut().find(|w| w.proxy == target)
                 {
-                    let resting = Rect::new(w.x, w.y, w.width, w.height);
-                    w.anim_target_geo = Some(resting);
-                    w.anim_start_geo = Some(resting);
-                    w.visual_geo = Some(resting);
+                    w.finish_interaction();
                 }
 
                 if let SeatOp::TiledMove { start_win_id, .. } = seat.op {
@@ -1283,38 +1162,10 @@ impl AppState {
             let rects = layout_engine.arrange(usable_area, tiled_indices.len(), &out_layout_config);
 
             for (slot, &idx) in tiled_indices.iter().enumerate() {
-                if let Some(rect) = rects.get(slot) {
-                    let w = &mut self.windows[idx];
-                    let target = *rect;
-                    if !w.initial_managed {
-                        let start_w = (target.width * 7 / 10).max(10);
-                        let start_h = (target.height * 7 / 10).max(10);
-                        let start_x = target.x + (target.width as i32 - start_w as i32) / 2;
-                        let start_y = target.y + (target.height as i32 - start_h as i32) / 2;
-                        w.anim_start_geo = Some(Rect::new(start_x, start_y, start_w, start_h));
-                        w.anim_target_geo = Some(target);
-                        any_geo_changed = true;
-                    } else if w.anim_target_geo != Some(target) {
-                        w.anim_start_geo = w.visual_geo.or(w.anim_target_geo).or(Some(target));
-                        w.anim_target_geo = Some(target);
-                        any_geo_changed = true;
-                    }
-                    w.x = rect.x;
-                    w.y = rect.y;
-                    w.width = rect.width;
-                    w.height = rect.height;
-
-                    if w.last_proposed_w != Some(rect.width)
-                        || w.last_proposed_h != Some(rect.height)
-                    {
-                        w.proxy.propose_dimensions(
-                            rect.width.min(i32::MAX as u32) as i32,
-                            rect.height.min(i32::MAX as u32) as i32,
-                        );
-                        w.last_proposed_w = Some(rect.width);
-                        w.last_proposed_h = Some(rect.height);
-                    }
-                    w.proxy.set_tiled(Edges::all());
+                if let Some(rect) = rects.get(slot)
+                    && self.windows[idx].arrange_tiled(*rect)
+                {
+                    any_geo_changed = true;
                 }
             }
         }
@@ -1334,63 +1185,19 @@ impl AppState {
                 .map(|o| o.tag_state)
                 .unwrap_or(self.tag_state);
             let is_visible = out_tag_state.is_view_visible(w.tags);
-            let target = Rect::new(w.x, w.y, w.width, w.height);
-            if !is_any_pointer_op {
-                if !w.initial_managed {
-                    if is_visible {
-                        let start_w = ((target.width as u64 * 7 / 10) as u32).max(10);
-                        let start_h = ((target.height as u64 * 7 / 10) as u32).max(10);
-                        let start_x = (target.x as i64 + (target.width as i64 - start_w as i64) / 2)
-                            .clamp(i32::MIN as i64, i32::MAX as i64)
-                            as i32;
-                        let start_y = (target.y as i64
-                            + (target.height as i64 - start_h as i64) / 2)
-                            .clamp(i32::MIN as i64, i32::MAX as i64)
-                            as i32;
-                        w.anim_start_geo = Some(Rect::new(start_x, start_y, start_w, start_h));
-                        w.anim_target_geo = Some(target);
-                        any_geo_changed = true;
-                    } else {
-                        w.anim_start_geo = Some(target);
-                        w.anim_target_geo = Some(target);
-                        w.visual_geo = Some(target);
-                    }
-                } else if is_visible && w.anim_target_geo != Some(target) {
-                    w.anim_start_geo = w.visual_geo.or(w.anim_target_geo).or(Some(target));
-                    w.anim_target_geo = Some(target);
-                    any_geo_changed = true;
-                } else if !is_visible && w.anim_target_geo != Some(target) {
-                    w.anim_start_geo = Some(target);
-                    w.anim_target_geo = Some(target);
-                    w.visual_geo = Some(target);
-                }
+            if w.arrange_floating(is_visible, is_any_pointer_op) {
+                any_geo_changed = true;
             }
-            if w.last_proposed_w != Some(w.width) || w.last_proposed_h != Some(w.height) {
-                w.proxy.propose_dimensions(
-                    w.width.min(i32::MAX as u32) as i32,
-                    w.height.min(i32::MAX as u32) as i32,
-                );
-                w.last_proposed_w = Some(w.width);
-                w.last_proposed_h = Some(w.height);
-            }
-            w.proxy.set_tiled(Edges::empty());
         }
 
         // Apply decoration requests (SSD / CSD)
         for w in &mut self.windows {
-            if w.last_applied_ssd != Some(w.ssd) {
-                if w.ssd {
-                    w.proxy.use_ssd();
-                } else {
-                    w.proxy.use_csd();
-                }
-                w.last_applied_ssd = Some(w.ssd);
-            }
+            w.apply_ssd();
         }
 
         // Mark all windows as initially managed
         for w in &mut self.windows {
-            w.initial_managed = true;
+            w.mark_initial_managed();
         }
 
         // Trigger animation if geometries changed
@@ -1410,9 +1217,7 @@ impl AppState {
             }
             if !self.anim.enabled {
                 for w in self.windows.iter_mut().filter(|w| !w.closed) {
-                    if let Some(target) = w.anim_target_geo {
-                        w.visual_geo = Some(target);
-                    }
+                    w.sync_visual_to_target();
                 }
             }
         }
@@ -1578,8 +1383,7 @@ impl AppState {
                         (geo, visible, clip)
                     }
                 } else {
-                    w.anim_start_geo = Some(target);
-                    w.anim_target_geo = Some(target);
+                    w.lock_static_geometry(target);
                     (target, true, None)
                 };
 
@@ -1618,12 +1422,11 @@ impl AppState {
                     w.proxy.set_clip_box(0, 0, 0, 0);
                 }
 
-                w.visual_geo = Some(render_geo);
+                w.record_render_frame(render_geo);
                 if is_visible {
                     w.proxy.show();
                     w.node
                         .set_position(render_geo.x, render_geo.y - clip_offset_y);
-                    w.initial_rendered = true;
                 } else {
                     w.proxy.hide();
                     w.node.set_position(hide_x, hide_y);
