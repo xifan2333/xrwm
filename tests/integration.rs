@@ -3154,6 +3154,13 @@ fn test_toggle_floating_views_hides_and_restores() {
         .state
         .execute_action_tokens(&["toggle-floating-views".into()]);
 
+    let waybar_hidden = harness.state.format_waybar_status();
+    assert!(waybar_hidden.contains("floating-hidden"));
+    assert!(waybar_hidden.contains("\"floating_hidden\":true"));
+    let json_hidden = harness.state.format_json_status();
+    assert!(json_hidden.contains("\"floating_hidden\":true"));
+    assert!(json_hidden.contains("\"hidden_floating_count\":1"));
+
     harness.manage();
     // Focus transfers automatically to the underlying tiled window
     assert_eq!(harness.state.focused_window_id(), Some(tiled_id));
@@ -3168,6 +3175,13 @@ fn test_toggle_floating_views_hides_and_restores() {
     harness
         .state
         .execute_action_tokens(&["toggle-floating-views".into()]);
+
+    let waybar_restored = harness.state.format_waybar_status();
+    assert!(!waybar_restored.contains("floating-hidden"));
+    assert!(waybar_restored.contains("\"floating_hidden\":false"));
+    let json_restored = harness.state.format_json_status();
+    assert!(json_restored.contains("\"floating_hidden\":false"));
+    assert!(json_restored.contains("\"hidden_floating_count\":0"));
 
     harness.manage();
     harness.render();
