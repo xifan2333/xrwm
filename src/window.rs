@@ -615,9 +615,11 @@ impl WindowItem {
     }
 
     /// Records the visual geometry rendered during the current frame.
-    pub fn record_render_frame(&mut self, render_geo: Rect) {
+    pub fn record_render_frame(&mut self, render_geo: Rect, is_visible: bool) {
         self.visual_geo = Some(render_geo);
-        self.initial_rendered = true;
+        if is_visible {
+            self.initial_rendered = true;
+        }
     }
 
     /// Resets animation target and start geometries to static resting geometry.
