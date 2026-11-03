@@ -14,6 +14,7 @@ pub mod seat;
 pub mod state;
 pub mod status;
 pub mod tag;
+pub mod window;
 
 pub use actions::*;
 pub use animation::*;
@@ -27,3 +28,4 @@ pub use seat::*;
 pub use state::*;
 pub use status::*;
 pub use tag::*;
+pub use window::*;

@@ -15,7 +15,6 @@ use crate::layout::{Layout, LayoutConfig, MasterStackLayout, Rect};
 use crate::protocol::{
     river_layer_shell_output_v1::RiverLayerShellOutputV1,
     river_layer_shell_v1::RiverLayerShellV1,
-    river_node_v1::RiverNodeV1,
     river_output_v1::RiverOutputV1,
     river_window_manager_v1::RiverWindowManagerV1,
     river_window_v1::{Edges, RiverWindowV1},
@@ -27,7 +26,7 @@ use crate::tag::TAG_NONE;
 use crate::tag::TagMask;
 use crate::tag::TagState;
 
-pub const MIN_WINDOW_DIMENSION: u32 = 100;
+pub use crate::window::{MIN_WINDOW_DIMENSION, WindowItem};
 
 pub use crate::status::{
     StatusListener, StatusSubscription, SubscriberSnapshot, broadcast_status, format_json_status,
@@ -82,55 +81,6 @@ impl AttachMode {
                 .unwrap_or(total_len),
             AttachMode::After(n) => (*n as usize).min(total_len),
         }
-    }
-}
-
-#[derive(Debug)]
-pub struct WindowItem {
-    pub id: u32,
-    pub proxy: RiverWindowV1,
-    pub node: RiverNodeV1,
-    pub initial_managed: bool,
-    pub initial_rendered: bool,
-    pub closed: bool,
-    pub app_id: Option<String>,
-    pub title: Option<String>,
-    pub tags: TagMask,
-    /// True when the compositor reported a parent window (dialog, file picker, popup menu).
-    pub has_parent: bool,
-    pub floating: bool,
-    pub fullscreen: bool,
-    pub pending_close: bool,
-    pub pending_fullscreen_change: bool,
-    pub float_geo: Option<Rect>,
-    pub ssd: bool,
-    pub last_applied_ssd: Option<bool>,
-    pub output: Option<ObjectId>,
-    pub x: i32,
-    pub y: i32,
-    pub width: u32,
-    pub height: u32,
-    pub content_width: Option<u32>,
-    pub content_height: Option<u32>,
-    pub rule_dimensions: Option<(u32, u32)>,
-    // Animation & visual geometry tracking
-    pub visual_geo: Option<Rect>,
-    pub anim_start_geo: Option<Rect>,
-    pub anim_target_geo: Option<Rect>,
-    // None means no proposal has been sent; zero lets the client choose its size.
-    pub last_proposed_w: Option<u32>,
-    pub last_proposed_h: Option<u32>,
-}
-
-impl WindowItem {
-    #[inline]
-    pub fn effective_width(&self) -> u32 {
-        self.content_width.unwrap_or(self.width)
-    }
-
-    #[inline]
-    pub fn effective_height(&self) -> u32 {
-        self.content_height.unwrap_or(self.height)
     }
 }
 
@@ -386,22 +336,7 @@ impl AppState {
         src_area: Option<Rect>,
         dst_area: Option<Rect>,
     ) -> Rect {
-        let (new_x, new_y) = if let (Some(src), Some(dst)) = (src_area, dst_area) {
-            let rel_x = geo.x - src.x;
-            let rel_y = geo.y - src.y;
-            let new_x = dst.x + rel_x;
-            let new_y = dst.y + rel_y;
-            let max_x = (dst.x + dst.width as i32 - 50).max(dst.x);
-            let max_y = (dst.y + dst.height as i32 - 50).max(dst.y);
-            (new_x.clamp(dst.x, max_x), new_y.clamp(dst.y, max_y))
-        } else if let Some(dst) = dst_area {
-            let cx = dst.x + (dst.width.saturating_sub(geo.width) / 2) as i32;
-            let cy = dst.y + (dst.height.saturating_sub(geo.height) / 2) as i32;
-            (cx, cy)
-        } else {
-            (geo.x, geo.y)
-        };
-        Rect::new(new_x, new_y, geo.width, geo.height)
+        WindowItem::translate_float_geometry(geo, src_area, dst_area)
     }
 
     /// Migrates a window's output and transforms both active and saved floating geometry.
@@ -411,22 +346,7 @@ impl AppState {
         src_area: Option<Rect>,
         dest_area: Option<Rect>,
     ) {
-        w.output = dest_out_id;
-
-        // Translate saved floating geometry if present
-        if let Some(saved) = w.float_geo {
-            w.float_geo = Some(Self::translate_float_geometry(saved, src_area, dest_area));
-        }
-
-        // If currently floating, also translate active coordinates and visual geometry
-        if w.floating {
-            let current_geo = Rect::new(w.x, w.y, w.width, w.height);
-            let new_geo = Self::translate_float_geometry(current_geo, src_area, dest_area);
-            w.x = new_geo.x;
-            w.y = new_geo.y;
-            w.float_geo = Some(new_geo);
-            w.visual_geo = Some(new_geo);
-        }
+        w.migrate_to_output(dest_out_id, src_area, dest_area);
     }
 
     /// Applies matching window rules to a window item.
