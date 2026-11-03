@@ -22,7 +22,7 @@ impl AppState {
         };
 
         if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
-            w.pending_close = true;
+            w.request_close();
         }
 
         self.manage_dirty();
@@ -38,47 +38,18 @@ impl AppState {
 
         let focused_out_id = self.get_focused_output_id();
         if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
-            w.floating = !w.floating;
-            let is_floating = w.floating;
+            let usable = w
+                .output
+                .as_ref()
+                .or(focused_out_id.as_ref())
+                .and_then(|id| self.outputs.get(id))
+                .map(|o| o.usable_area);
+            let is_floating = w.toggle_floating(usable);
             tracing::debug!(
                 window_id = id,
                 floating = is_floating,
                 "Toggled window floating"
             );
-
-            if is_floating {
-                if let Some(saved) = w.float_geo {
-                    w.x = saved.x;
-                    w.y = saved.y;
-                    w.width = saved.width;
-                    w.height = saved.height;
-                } else {
-                    let usable = w
-                        .output
-                        .as_ref()
-                        .or(focused_out_id.as_ref())
-                        .and_then(|id| self.outputs.get(id))
-                        .map(|o| o.usable_area);
-                    if let Some(usable) = usable
-                        && w.width > 0
-                        && w.height > 0
-                    {
-                        let cx = (usable.x as i64
-                            + ((usable.width as i64 - w.width as i64) / 2).max(0))
-                        .clamp(i32::MIN as i64, i32::MAX as i64)
-                            as i32;
-                        let cy = (usable.y as i64
-                            + ((usable.height as i64 - w.height as i64) / 2).max(0))
-                        .clamp(i32::MIN as i64, i32::MAX as i64)
-                            as i32;
-                        w.x = cx;
-                        w.y = cy;
-                    }
-                    w.float_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
-                }
-            } else {
-                w.float_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
-            }
 
             let proxy = w.proxy.clone();
             for seat in self.seats.values_mut() {
@@ -122,33 +93,7 @@ impl AppState {
                 return Err("window has no active output".to_string());
             };
 
-            w.floating = true;
-
-            let (new_x, new_y, new_w, new_h) = match dir {
-                Direction::Left => (usable.x, usable.y, usable.width / 2, usable.height),
-                Direction::Right => (
-                    usable.x + (usable.width as i32 / 2),
-                    usable.y,
-                    usable.width - (usable.width / 2),
-                    usable.height,
-                ),
-                Direction::Up => (usable.x, usable.y, usable.width, usable.height / 2),
-                Direction::Down => (
-                    usable.x,
-                    usable.y + (usable.height as i32 / 2),
-                    usable.width,
-                    usable.height - (usable.height / 2),
-                ),
-                _ => unreachable!(),
-            };
-
-            w.x = new_x;
-            w.y = new_y;
-            w.width = new_w.max(crate::MIN_WINDOW_DIMENSION);
-            w.height = new_h.max(crate::MIN_WINDOW_DIMENSION);
-            w.float_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
-            w.visual_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
-
+            w.snap(dir, usable);
             self.manage_dirty();
             Ok(format!("snapped window {id} {edge_str}"))
         } else {
@@ -164,9 +109,7 @@ impl AppState {
         };
 
         if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
-            w.fullscreen = !w.fullscreen;
-            w.pending_fullscreen_change = true;
-            let is_fs = w.fullscreen;
+            let is_fs = w.toggle_fullscreen();
             tracing::debug!(
                 window_id = id,
                 fullscreen = is_fs,
@@ -418,9 +361,9 @@ impl AppState {
         let dest_area = self.outputs.get(&out_id).map(|o| o.usable_area);
 
         if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
-            AppState::migrate_window_to_output(w, Some(out_id.clone()), src_area, dest_area);
+            w.migrate_to_output(Some(out_id.clone()), src_area, dest_area);
             if current_tags {
-                w.tags = dest_tags;
+                w.set_tags(dest_tags);
             }
             if w.fullscreen {
                 w.pending_fullscreen_change = true;
@@ -699,7 +642,7 @@ impl AppState {
         };
 
         if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
-            w.tags = mask;
+            w.set_tags(mask);
             self.sync_occupied_tags();
             self.reconcile_focus();
             self.manage_dirty();
@@ -721,7 +664,7 @@ impl AppState {
             if new_tags == TAG_NONE {
                 return Err("cannot clear all tags on window".to_string());
             }
-            w.tags = new_tags;
+            w.set_tags(new_tags);
             self.sync_occupied_tags();
             self.reconcile_focus();
             self.manage_dirty();
@@ -794,16 +737,7 @@ impl AppState {
                 return Ok(format!("window {id} is not floating, move ignored"));
             }
 
-            match dir {
-                Direction::Left => w.x -= delta,
-                Direction::Right => w.x += delta,
-                Direction::Up => w.y -= delta,
-                Direction::Down => w.y += delta,
-                _ => unreachable!(),
-            }
-
-            w.float_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
-            w.visual_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
+            w.move_by(dir, delta);
             let (new_x, new_y) = (w.x, w.y);
             self.manage_dirty();
             Ok(format!("moved window {id} to ({new_x}, {new_y})"))
@@ -821,14 +755,7 @@ impl AppState {
 
         if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
             if w.floating {
-                if horizontal {
-                    w.width =
-                        (w.width as i32 + delta).max(crate::MIN_WINDOW_DIMENSION as i32) as u32;
-                } else {
-                    w.height =
-                        (w.height as i32 + delta).max(crate::MIN_WINDOW_DIMENSION as i32) as u32;
-                }
-                w.float_geo = Some(crate::layout::Rect::new(w.x, w.y, w.width, w.height));
+                w.resize_by(horizontal, delta);
                 let new_w = w.width;
                 let new_h = w.height;
                 self.manage_dirty();
