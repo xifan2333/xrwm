@@ -63,5 +63,5 @@ The centralized resolution authority on the application state that determines ac
 _Avoid_: Tag manager, workspace router
 
 **Floating Collapse**:
-The per-output visibility state toggled via `toggle-floating-views` that collapses unconstrained windows offscreen while preserving focus and geometry.
+The per-output visibility state toggled via `toggle-floating-views` that collapses unconstrained windows offscreen while preserving geometry and moving focus to a visible tiled window.
 _Avoid_: Minimize all, float hide

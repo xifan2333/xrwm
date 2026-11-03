@@ -399,6 +399,7 @@ impl AppState {
         } else {
             output_id
                 .and_then(|id| self.outputs.get(id))
+                .or_else(|| self.outputs.values().next())
                 .map(|o| o.floating_hidden)
                 .unwrap_or(false)
         }
@@ -440,9 +441,10 @@ impl AppState {
             )
         } else {
             let o = w.output.as_ref().and_then(|id| outputs.get(id));
+            let floating_out = o.or_else(|| outputs.values().next());
             (
                 o.map(|o| o.tag_state).unwrap_or(default_tag_state),
-                o.map(|o| o.floating_hidden).unwrap_or(false),
+                floating_out.map(|o| o.floating_hidden).unwrap_or(false),
             )
         };
 

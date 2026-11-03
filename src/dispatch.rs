@@ -378,6 +378,14 @@ impl Dispatch<RiverOutputV1, ()> for AppState {
                 }
                 if state.focused_output == Some(out_id) {
                     state.focused_output = fallback;
+                    if let Some(out) = state
+                        .focused_output
+                        .as_ref()
+                        .and_then(|id| state.outputs.get(id))
+                    {
+                        state.tag_state = out.tag_state;
+                        state.previous_focused_tags = out.previous_focused_tags;
+                    }
                 }
                 state.manage_dirty();
             }

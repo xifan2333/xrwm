@@ -349,7 +349,9 @@ pub fn format_json_status(state: &AppState) -> String {
                 !w.is_closed()
                     && w.is_floating()
                     && !w.is_fullscreen()
-                    && (focused_out.is_none() || w.output() == focused_out.as_ref())
+                    && (focused_out.is_none()
+                        || state.outputs.len() <= 1
+                        || w.output() == focused_out.as_ref())
             })
             .count()
     } else {
@@ -423,7 +425,7 @@ pub fn format_waybar_status(state: &AppState) -> String {
     let obj = serde_json::json!({
         "text": tags_text,
         "tooltip": tooltip,
-        "class": classes.join(" "),
+        "class": classes,
         "floating_hidden": is_floating_hidden,
     });
 
