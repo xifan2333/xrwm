@@ -1829,10 +1829,7 @@ fn focus_view_skip_floating_navigates_from_floating_to_tiled_windows() {
 
     // 4. Spatial direction: floating window on right (x=1000), navigating left focuses tiled window on left
     if let Some(fw) = harness.state.windows.iter_mut().find(|w| w.id == float_id) {
-        fw.x = 1000;
-        fw.y = 200;
-        fw.width = 400;
-        fw.height = 300;
+        fw.update_floating_geometry(xrwm::layout::Rect::new(1000, 200, 400, 300));
     }
     let seat_item = harness.state.seats.values_mut().next().unwrap();
     seat_item.set_focused_window(Some(float_proxy.clone()));
@@ -3072,8 +3069,7 @@ fn spatial_focus_navigation_does_not_reverse_wrap() {
         .unwrap()
         .id;
     if let Some(fw) = harness.state.windows.iter_mut().find(|w| w.id == float_id) {
-        fw.x = 100;
-        fw.y = 200;
+        fw.set_position(100, 200);
     }
     if let Some(tw) = harness
         .state
@@ -3081,8 +3077,7 @@ fn spatial_focus_navigation_does_not_reverse_wrap() {
         .iter_mut()
         .find(|w| w.proxy.id().protocol_id() == win_tiled.protocol_id())
     {
-        tw.x = 1000;
-        tw.y = 200;
+        tw.set_position(1000, 200);
     }
 
     let seat_item = harness.state.seats.values_mut().next().unwrap();

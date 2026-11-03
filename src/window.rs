@@ -495,6 +495,16 @@ impl WindowItem {
         self.visual_geo = Some(resting);
     }
 
+    /// Sets window coordinates directly (used for spatial positioning and tests).
+    pub fn set_position(&mut self, x: i32, y: i32) {
+        self.x = x;
+        self.y = y;
+        if self.floating {
+            self.float_geo = Some(Rect::new(x, y, self.width, self.height));
+            self.visual_geo = Some(Rect::new(x, y, self.width, self.height));
+        }
+    }
+
     /// Moves floating window by delta pixels in given direction.
     pub fn move_by(&mut self, dir: Direction, delta: i32) {
         if !self.floating {
@@ -669,6 +679,10 @@ impl WindowItem {
             self.y = new_geo.y;
             self.float_geo = Some(new_geo);
             self.visual_geo = Some(new_geo);
+        }
+
+        if self.fullscreen {
+            self.pending_fullscreen_change = true;
         }
     }
 
