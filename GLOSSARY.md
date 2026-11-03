@@ -55,3 +55,13 @@ _Avoid_: Render state, draw command list, display list
 **Render Frame**:
 The concrete visual rectangle and clipping state assigned to a window for the current display refresh tick.
 _Avoid_: Draw frame, buffer geometry
+
+## Tag & Workspace Dispatching
+
+**Tag Dispatcher**:
+The centralized resolution authority on the application state that determines active workspace tag states and window visibility across physical outputs and headless fallbacks.
+_Avoid_: Tag manager, workspace router
+
+**Floating Collapse**:
+The per-output visibility state toggled via `toggle-floating-views` that collapses unconstrained windows offscreen while preserving geometry and moving focus to a visible tiled window.
+_Avoid_: Minimize all, float hide

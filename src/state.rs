@@ -363,10 +363,64 @@ impl AppState {
         crate::rule::apply_rules_to_window(rules, w, usable_area, outputs);
     }
 
-    /// Returns whether the window is visible according to the tag state of its output.
+    /// Resolves the authoritative tag state for a given output ID.
+    ///
+    /// Fallback chain:
+    /// 1. If explicit output ID is provided and exists in `outputs`, returns its `tag_state`.
+    /// 2. If single output or output not found, returns `self.tag_state` (global/focused snapshot).
+    #[inline]
+    pub fn tag_state_for_output(&self, output_id: Option<&ObjectId>) -> TagState {
+        if self.outputs.len() <= 1 {
+            self.tag_state
+        } else {
+            output_id
+                .and_then(|id| self.outputs.get(id))
+                .map(|o| o.tag_state)
+                .unwrap_or(self.tag_state)
+        }
+    }
+
+    /// Resolves the tag state of the currently focused output.
+    #[inline]
+    pub fn focused_output_tag_state(&self) -> TagState {
+        let focused_id = self.get_focused_output_id();
+        self.tag_state_for_output(focused_id.as_ref())
+    }
+
+    /// Determines whether floating windows on the given output are currently collapsed/hidden.
+    #[inline]
+    pub fn is_floating_hidden_for_output(&self, output_id: Option<&ObjectId>) -> bool {
+        if self.outputs.len() <= 1 {
+            self.outputs
+                .values()
+                .next()
+                .map(|o| o.floating_hidden)
+                .unwrap_or(false)
+        } else {
+            output_id
+                .and_then(|id| self.outputs.get(id))
+                .or_else(|| self.outputs.values().next())
+                .map(|o| o.floating_hidden)
+                .unwrap_or(false)
+        }
+    }
+
+    /// Returns whether floating windows on the currently focused output are collapsed/hidden.
+    #[inline]
+    pub fn is_focused_output_floating_hidden(&self) -> bool {
+        let focused_id = self.get_focused_output_id();
+        self.is_floating_hidden_for_output(focused_id.as_ref())
+    }
+
+    /// Returns whether the window is visible according to the tag and floating state of its output.
     #[inline]
     pub fn is_window_visible(&self, w: &WindowItem) -> bool {
-        Self::is_window_visible_with(&self.outputs, self.tag_state, w)
+        let out_id = w.output();
+        if w.is_floating() && !w.is_fullscreen() && self.is_floating_hidden_for_output(out_id) {
+            return false;
+        }
+        let tag_state = self.tag_state_for_output(out_id);
+        tag_state.is_view_visible(w.tags())
     }
 
     /// Evaluates window visibility using the given outputs map and fallback tag state.
@@ -387,9 +441,10 @@ impl AppState {
             )
         } else {
             let o = w.output.as_ref().and_then(|id| outputs.get(id));
+            let floating_out = o.or_else(|| outputs.values().next());
             (
                 o.map(|o| o.tag_state).unwrap_or(default_tag_state),
-                o.map(|o| o.floating_hidden).unwrap_or(false),
+                floating_out.map(|o| o.floating_hidden).unwrap_or(false),
             )
         };
 
@@ -468,11 +523,7 @@ impl AppState {
         if let Some(proxy) = win {
             self.windows
                 .iter()
-                .find(|w| {
-                    &w.proxy == proxy
-                        && !w.closed
-                        && Self::is_window_visible_with(&self.outputs, self.tag_state, w)
-                })
+                .find(|w| &w.proxy == proxy && !w.closed && self.is_window_visible(w))
                 .map(|w| w.id)
         } else {
             None
@@ -1129,14 +1180,7 @@ impl AppState {
             .collect();
 
         for (out_id, usable_area) in active_outputs {
-            let out_tag_state = if self.outputs.len() <= 1 {
-                self.tag_state
-            } else {
-                self.outputs
-                    .get(&out_id)
-                    .map(|o| o.tag_state)
-                    .unwrap_or(self.tag_state)
-            };
+            let out_tag_state = self.tag_state_for_output(Some(&out_id));
             let mut tiled_indices: Vec<usize> = Vec::new();
             for (i, w) in self.windows.iter().enumerate() {
                 let matches_output = match (&w.output, out_id.is_null()) {
@@ -1176,13 +1220,7 @@ impl AppState {
             .iter_mut()
             .filter(|w| w.floating && !w.fullscreen)
         {
-            let out_tag_state = w
-                .output
-                .as_ref()
-                .and_then(|id| self.outputs.get(id))
-                .map(|o| o.tag_state)
-                .unwrap_or(self.tag_state);
-            let is_visible = out_tag_state.is_view_visible(w.tags);
+            let is_visible = Self::is_window_visible_with(&self.outputs, self.tag_state, w);
             if w.arrange_floating(is_visible, is_any_pointer_op) {
                 any_geo_changed = true;
             }
@@ -1283,17 +1321,10 @@ impl AppState {
                 let mask = 1u32
                     .checked_shl((tag.saturating_sub(1)) as u32)
                     .unwrap_or(0);
-                let (focused_mask, occupied_mask) = if let Some(out_id) =
-                    self.get_focused_output_id()
-                    && let Some(out) = self.outputs.get(&out_id)
-                {
-                    (out.tag_state.focused, out.tag_state.occupied)
-                } else {
-                    (self.tag_state.focused, self.tag_state.occupied)
-                };
+                let focused_tag_state = self.focused_output_tag_state();
                 SubscriberSnapshot::Tag {
-                    focused: (focused_mask & mask) != 0,
-                    occupied: (occupied_mask & mask) != 0,
+                    focused: (focused_tag_state.focused & mask) != 0,
+                    occupied: (focused_tag_state.occupied & mask) != 0,
                 }
             }
             StatusSubscription::Window => {
@@ -1322,6 +1353,7 @@ impl AppState {
                     focused_title: focused_win.and_then(|w| w.title.clone()),
                     active_mode: self.active_mode.clone(),
                     monocle: self.layout_config.monocle,
+                    floating_hidden: self.is_focused_output_floating_hidden(),
                 }
             }
             StatusSubscription::FullJson => {

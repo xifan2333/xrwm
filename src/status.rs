@@ -72,6 +72,7 @@ pub enum SubscriberSnapshot {
         focused_title: Option<String>,
         active_mode: String,
         monocle: bool,
+        floating_hidden: bool,
     },
     /// Full JSON status snapshot tracking model payload changes.
     FullJson { payload_hash: u64 },
@@ -116,13 +117,8 @@ pub fn broadcast_status(state: &mut AppState) {
     let mut listeners = std::mem::take(&mut state.status_listeners);
 
     // Resolve active output masks once for all tag subscribers
-    let (focused_mask, occupied_mask) = if let Some(out_id) = state.get_focused_output_id()
-        && let Some(out) = state.outputs.get(&out_id)
-    {
-        (out.tag_state.focused, out.tag_state.occupied)
-    } else {
-        (state.tag_state.focused, state.tag_state.occupied)
-    };
+    let focused_tag_state = state.focused_output_tag_state();
+    let (focused_mask, occupied_mask) = (focused_tag_state.focused, focused_tag_state.occupied);
 
     // Lazy buffers for formatted messages (only computed on demand when a listener actually needs to send)
     let mut cached_tag_msgs: [Option<String>; 32] = Default::default();
@@ -190,6 +186,7 @@ pub fn broadcast_status(state: &mut AppState) {
                     focused_title: focused_win.and_then(|w| w.title.clone()),
                     active_mode: state.active_mode.clone(),
                     monocle: state.layout_config.monocle,
+                    floating_hidden: state.is_focused_output_floating_hidden(),
                 };
                 if listener.last_snapshot.as_ref() == Some(&snapshot) {
                     return true;
@@ -342,6 +339,25 @@ pub fn format_json_status(state: &AppState) -> String {
         .collect();
     window_list.sort_by_key(|v| v["id"].as_u64().unwrap_or(0));
 
+    let is_floating_hidden = state.is_focused_output_floating_hidden();
+    let hidden_floating_count = if is_floating_hidden {
+        let focused_out = state.get_focused_output_id();
+        state
+            .windows
+            .iter()
+            .filter(|w| {
+                !w.is_closed()
+                    && w.is_floating()
+                    && !w.is_fullscreen()
+                    && (focused_out.is_none()
+                        || state.outputs.len() <= 1
+                        || w.output() == focused_out.as_ref())
+            })
+            .count()
+    } else {
+        0
+    };
+
     let obj = serde_json::json!({
         "focused_tags": state.tag_state.focused,
         "occupied_tags": state.tag_state.occupied,
@@ -358,6 +374,8 @@ pub fn format_json_status(state: &AppState) -> String {
         "focused_window_id": focused_id,
         "hovered_window_id": hovered_id,
         "pointer": { "x": state.pointer.0, "y": state.pointer.1 },
+        "floating_hidden": is_floating_hidden,
+        "hidden_floating_count": hidden_floating_count,
         "scratchpad": {
             "focused": state.tag_state.is_scratchpad_focused(),
             "occupied": state.tag_state.is_scratchpad_occupied(),
@@ -384,11 +402,31 @@ pub fn format_waybar_status(state: &AppState) -> String {
     let focused_id = state.focused_window_id();
     let focused_win = focused_id.and_then(|id| state.windows.iter().find(|w| w.id == id));
     let title = focused_win.and_then(|w| w.title.as_deref()).unwrap_or("");
+    let is_floating_hidden = state.is_focused_output_floating_hidden();
+
+    let mut classes = vec![if state.layout_config.monocle {
+        "monocle"
+    } else {
+        "tiled"
+    }];
+    if is_floating_hidden {
+        classes.push("floating-hidden");
+    }
+
+    let tooltip = if is_floating_hidden {
+        format!(
+            "Mode: [{}], Focused: {} (floating views hidden)",
+            state.active_mode, title
+        )
+    } else {
+        format!("Mode: [{}], Focused: {}", state.active_mode, title)
+    };
 
     let obj = serde_json::json!({
         "text": tags_text,
-        "tooltip": format!("Mode: [{}], Focused: {}", state.active_mode, title),
-        "class": if state.layout_config.monocle { "monocle" } else { "tiled" },
+        "tooltip": tooltip,
+        "class": classes,
+        "floating_hidden": is_floating_hidden,
     });
 
     serde_json::to_string(&obj).unwrap_or_default()
@@ -409,15 +447,9 @@ pub fn format_tag_status(state: &AppState, tag: u8) -> String {
     let mask = 1u32
         .checked_shl((tag.saturating_sub(1)) as u32)
         .unwrap_or(0);
-    let (focused_mask, occupied_mask) = if let Some(out_id) = state.get_focused_output_id()
-        && let Some(out) = state.outputs.get(&out_id)
-    {
-        (out.tag_state.focused, out.tag_state.occupied)
-    } else {
-        (state.tag_state.focused, state.tag_state.occupied)
-    };
-    let is_active = (focused_mask & mask) != 0;
-    let is_occupied = (occupied_mask & mask) != 0;
+    let focused_tag_state = state.focused_output_tag_state();
+    let is_active = (focused_tag_state.focused & mask) != 0;
+    let is_occupied = (focused_tag_state.occupied & mask) != 0;
     format_tag_status_from_state(tag, is_active, is_occupied)
 }
 

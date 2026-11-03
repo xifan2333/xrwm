@@ -161,11 +161,7 @@ impl AppState {
             // Hiding floating windows:
             // If the currently focused window on any seat is a floating window on this output,
             // transfer focus to the first visible tiled window on this output so the user keeps focus.
-            let out_tag_state = self
-                .outputs
-                .get(&out_id)
-                .map(|o| o.tag_state)
-                .unwrap_or(self.tag_state);
+            let out_tag_state = self.tag_state_for_output(Some(&out_id));
 
             let first_tiled = self
                 .windows
@@ -194,11 +190,7 @@ impl AppState {
         } else {
             // Restoring floating windows:
             // Transfer focus back to the top visible floating window on this output.
-            let out_tag_state = self
-                .outputs
-                .get(&out_id)
-                .map(|o| o.tag_state)
-                .unwrap_or(self.tag_state);
+            let out_tag_state = self.tag_state_for_output(Some(&out_id));
 
             let top_floating = self
                 .windows
@@ -345,11 +337,7 @@ impl AppState {
             return Err("no view focused".to_string());
         };
 
-        let dest_tags = self
-            .outputs
-            .get(&out_id)
-            .map(|o| o.tag_state.focused)
-            .unwrap_or(self.tag_state.focused);
+        let dest_tags = self.tag_state_for_output(Some(&out_id)).focused;
         let source_out = self
             .windows
             .iter()

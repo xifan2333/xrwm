@@ -125,12 +125,7 @@ pub fn compute_frame_plan(state: &AppState) -> FramePlan {
             continue;
         };
 
-        let is_output_floating_hidden = w
-            .output()
-            .and_then(|id| state.outputs.get(id))
-            .map(|o| o.floating_hidden)
-            .or_else(|| state.outputs.values().next().map(|o| o.floating_hidden))
-            .unwrap_or(false);
+        let is_output_floating_hidden = state.is_floating_hidden_for_output(w.output());
 
         if w.is_floating() && !w.is_fullscreen() && is_output_floating_hidden {
             window_plans.push(WindowFramePlan {
@@ -158,14 +153,7 @@ pub fn compute_frame_plan(state: &AppState) -> FramePlan {
             0
         };
 
-        let out_tag_state = if state.outputs.len() <= 1 {
-            state.tag_state
-        } else {
-            w.output()
-                .and_then(|id| state.outputs.get(id))
-                .map(|o| o.tag_state)
-                .unwrap_or(state.tag_state)
-        };
+        let out_tag_state = state.tag_state_for_output(w.output());
         let is_in_current = out_tag_state.is_view_visible(w.tags());
         let is_in_old = is_tag_animating && (w.tags() & state.tag_anim_old_mask) != 0;
 
