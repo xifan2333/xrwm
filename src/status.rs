@@ -74,6 +74,7 @@ pub enum SubscriberSnapshot {
         monocle: bool,
         floating_hidden: bool,
         capturing: bool,
+        capture_sessions: u32,
     },
     /// Full JSON status snapshot tracking model payload changes.
     FullJson { payload_hash: u64 },
@@ -110,6 +111,7 @@ pub fn hex_to_river_rgba(hex_str: &str) -> (u32, u32, u32, u32) {
     parse_hex_color(hex_str).unwrap_or((u32::MAX, u32::MAX, u32::MAX, u32::MAX))
 }
 
+/// Broadcasts differential status updates to all active IPC status listeners.
 pub fn broadcast_status(state: &mut AppState) {
     if state.status_listeners.is_empty() {
         return;
@@ -182,13 +184,15 @@ pub fn broadcast_status(state: &mut AppState) {
                 let focused_id = state.focused_window_id();
                 let focused_win =
                     focused_id.and_then(|id| state.windows.iter().find(|w| w.id == id));
+                let capture_sessions = output_capture_sessions(state);
                 let snapshot = SubscriberSnapshot::WaybarLegacy {
                     active_tags: tags_text,
                     focused_title: focused_win.and_then(|w| w.title.clone()),
                     active_mode: state.active_mode.clone(),
                     monocle: state.layout_config.monocle,
                     floating_hidden: state.is_focused_output_floating_hidden(),
-                    capturing: is_output_capturing(state),
+                    capturing: capture_sessions > 0,
+                    capture_sessions,
                 };
                 if listener.last_snapshot.as_ref() == Some(&snapshot) {
                     return true;
@@ -310,6 +314,7 @@ pub fn broadcast_status(state: &mut AppState) {
     state.status_listeners = listeners;
 }
 
+/// Serializes the full window manager state into a single-line JSON string.
 pub fn format_json_status(state: &AppState) -> String {
     let focused_id = state.focused_window_id();
     let hovered_id = state.hovered_window_id();
@@ -409,6 +414,7 @@ pub fn format_json_status(state: &AppState) -> String {
     serde_json::to_string(&obj).unwrap_or_default()
 }
 
+/// Formats the Waybar legacy status JSON payload including active tags, mode, and recording state.
 pub fn format_waybar_status(state: &AppState) -> String {
     let active = state.tag_state.focused_tag_indices();
     let tags_text = active
@@ -421,7 +427,8 @@ pub fn format_waybar_status(state: &AppState) -> String {
     let focused_win = focused_id.and_then(|id| state.windows.iter().find(|w| w.id == id));
     let title = focused_win.and_then(|w| w.title.as_deref()).unwrap_or("");
     let is_floating_hidden = state.is_focused_output_floating_hidden();
-    let capturing = is_output_capturing(state);
+    let capture_sessions = output_capture_sessions(state);
+    let capturing = capture_sessions > 0;
 
     let mut classes = vec![if state.layout_config.monocle {
         "monocle"
@@ -455,32 +462,44 @@ pub fn format_waybar_status(state: &AppState) -> String {
         "class": classes,
         "floating_hidden": is_floating_hidden,
         "capturing": capturing,
+        "capture_sessions": capture_sessions,
     });
 
     serde_json::to_string(&obj).unwrap_or_default()
 }
 
-pub fn is_output_capturing(state: &AppState) -> bool {
+/// Computes the total number of active screen capture sessions relevant to the focused output
+/// (combining output-level recordings and window-level shares assigned to that output).
+pub fn output_capture_sessions(state: &AppState) -> u32 {
     let focused_out = state.get_focused_output_id();
-    let output_capturing = if let Some(ref out_id) = focused_out
+    let output_count = if let Some(ref out_id) = focused_out
         && let Some(out) = state.outputs.get(out_id)
     {
-        out.capture_sessions > 0
+        out.capture_sessions
     } else {
-        state.outputs.values().any(|o| o.capture_sessions > 0)
+        state
+            .outputs
+            .values()
+            .map(|o| o.capture_sessions)
+            .fold(0u32, u32::saturating_add)
     };
-    if output_capturing {
-        return true;
-    }
-    // Windows actively shared (e.g. WebRTC) also count as capture sessions,
-    // even when temporarily on an unfocused tag on this output.
-    state.windows.iter().any(|w| {
-        !w.is_closed()
-            && w.capture_sessions() > 0
-            && (focused_out.is_none()
-                || state.outputs.len() <= 1
-                || w.output() == focused_out.as_ref())
-    })
+    let window_count = state
+        .windows
+        .iter()
+        .filter(|w| {
+            !w.is_closed()
+                && (focused_out.is_none()
+                    || state.outputs.len() <= 1
+                    || w.output() == focused_out.as_ref())
+        })
+        .map(|w| w.capture_sessions())
+        .fold(0u32, u32::saturating_add);
+    output_count.saturating_add(window_count)
+}
+
+/// Returns `true` when the focused output or any window on it has an active capture session.
+pub fn is_output_capturing(state: &AppState) -> bool {
+    output_capture_sessions(state) > 0
 }
 
 /// Formats a workspace tag status string directly from boolean flags without serde reflection.

@@ -260,6 +260,7 @@ impl WindowItem {
         self.last_proposed_h
     }
 
+    /// Returns the number of active screen capture sessions recording/sharing this window.
     #[inline]
     pub fn capture_sessions(&self) -> u32 {
         self.capture_sessions

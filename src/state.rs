@@ -1317,6 +1317,7 @@ impl AppState {
     }
 
     /// Resolves the current snapshot representation for a subscriber to detect state changes.
+    /// Computes the current deduplication snapshot for the given status subscription type.
     pub fn current_subscriber_snapshot(&self, sub: &StatusSubscription) -> SubscriberSnapshot {
         match sub {
             StatusSubscription::Tag(tag) => {
@@ -1350,13 +1351,15 @@ impl AppState {
                 let focused_id = self.focused_window_id();
                 let focused_win =
                     focused_id.and_then(|id| self.windows.iter().find(|w| w.id == id));
+                let capture_sessions = crate::status::output_capture_sessions(self);
                 SubscriberSnapshot::WaybarLegacy {
                     active_tags: tags_text,
                     focused_title: focused_win.and_then(|w| w.title.clone()),
                     active_mode: self.active_mode.clone(),
                     monocle: self.layout_config.monocle,
                     floating_hidden: self.is_focused_output_floating_hidden(),
-                    capturing: crate::status::is_output_capturing(self),
+                    capturing: capture_sessions > 0,
+                    capture_sessions,
                 }
             }
             StatusSubscription::FullJson => {

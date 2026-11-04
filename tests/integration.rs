@@ -3454,6 +3454,7 @@ fn test_window_capture_sessions_event_updates_state_and_status() {
     let waybar = harness.state.format_waybar_status();
     assert!(waybar.contains("recording"));
     assert!(waybar.contains("\"capturing\":true"));
+    assert!(waybar.contains("\"capture_sessions\":1"));
     let json = harness.state.format_json_status();
     assert!(json.contains("\"capturing\":true"));
     assert!(json.contains("\"capture_sessions\":1"));
@@ -3524,4 +3525,67 @@ fn test_output_capture_sessions_event_tracks_per_output_recording() {
     assert!(json.contains("\"capture_sessions\":2"));
     let waybar = harness.state.format_waybar_status();
     assert!(waybar.contains("recording"));
+    assert!(waybar.contains("\"capture_sessions\":2"));
+}
+
+#[test]
+fn test_capture_sessions_differential_broadcast_streams_to_waybar_and_json_listeners() {
+    use std::io::{BufRead, BufReader};
+    use std::os::unix::net::UnixStream;
+    use xrwm::status::{StatusListener, StatusSubscription};
+
+    let mut harness = Harness::new();
+    harness.add_output();
+    let window = harness.add_window();
+    harness.manage();
+
+    let (wb_server, wb_client) = UnixStream::pair().unwrap();
+    wb_client.set_nonblocking(true).unwrap();
+    let mut wb_reader = BufReader::new(wb_client);
+
+    let (json_server, json_client) = UnixStream::pair().unwrap();
+    json_client.set_nonblocking(true).unwrap();
+    let mut json_reader = BufReader::new(json_client);
+
+    harness.state.status_listeners.push(StatusListener::new(
+        wb_server,
+        StatusSubscription::WaybarLegacy,
+    ));
+    harness.state.status_listeners.push(StatusListener::new(
+        json_server,
+        StatusSubscription::FullJson,
+    ));
+
+    // Initial broadcast establishes baseline snapshot.
+    harness.state.broadcast_status();
+    let mut line = String::new();
+    assert!(wb_reader.read_line(&mut line).unwrap() > 0);
+    assert!(line.contains("\"capturing\":false"));
+    line.clear();
+    assert!(json_reader.read_line(&mut line).unwrap() > 0);
+    assert!(line.contains("\"capturing\":false"));
+    line.clear();
+
+    // Capture session starts -> differential broadcast automatically pushes updates.
+    harness.event(
+        &window,
+        window::EVT_CAPTURE_SESSIONS_OPCODE,
+        vec![Argument::Uint(1)],
+    );
+    harness.dispatch_events();
+
+    assert!(wb_reader.read_line(&mut line).unwrap() > 0);
+    assert!(line.contains("\"capturing\":true"));
+    assert!(line.contains("\"capture_sessions\":1"));
+    line.clear();
+
+    assert!(json_reader.read_line(&mut line).unwrap() > 0);
+    assert!(line.contains("\"capturing\":true"));
+    assert!(line.contains("\"capture_sessions\":1"));
+    line.clear();
+
+    // Redundant broadcast with unchanged capture state must be deduplicated.
+    harness.state.broadcast_status();
+    let err = wb_reader.read_line(&mut line).unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::WouldBlock);
 }
