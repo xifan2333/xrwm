@@ -3423,3 +3423,238 @@ fn test_sync_occupied_tags_excludes_tag_all_across_outputs() {
         1 | 2 | xrwm::tag::TAG_SCRATCHPAD
     );
 }
+
+#[test]
+fn test_window_capture_sessions_event_updates_state_and_status() {
+    let mut harness = Harness::new();
+    harness.add_output();
+    let window = harness.add_window();
+    harness.manage();
+
+    // Initially no capture sessions.
+    assert_eq!(harness.window(&window).capture_sessions(), 0);
+    assert!(!harness.state.format_waybar_status().contains("recording"));
+    assert!(
+        harness
+            .state
+            .format_json_status()
+            .contains("\"capturing\":false")
+    );
+
+    // River v5 notifies the WM that a capture session started for the window.
+    harness.event(
+        &window,
+        window::EVT_CAPTURE_SESSIONS_OPCODE,
+        vec![Argument::Uint(1)],
+    );
+    harness.dispatch_events();
+
+    assert_eq!(harness.window(&window).capture_sessions(), 1);
+    // Waybar status gains the recording class and capture flags.
+    let waybar = harness.state.format_waybar_status();
+    assert!(waybar.contains("recording"));
+    assert!(waybar.contains("\"capturing\":true"));
+    assert!(waybar.contains("\"capture_sessions\":1"));
+    // The focused window entry itself also reports its own capture sessions.
+    let json: serde_json::Value =
+        serde_json::from_str(&harness.state.format_json_status()).unwrap();
+    assert_eq!(json["capturing"], serde_json::json!(true));
+    assert_eq!(json["capture_sessions"], serde_json::json!(1));
+    let window_id = serde_json::json!(harness.window(&window).id);
+    let entry = json["windows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|w| w["id"] == window_id)
+        .expect("window entry present in JSON status");
+    assert_eq!(entry["capture_sessions"], serde_json::json!(1));
+
+    // Switching to an unfocused tag (tag 2) while the window on tag 1 is still
+    // being shared must keep the recording indicator active.
+    harness
+        .state
+        .execute_action_tokens(&["set-focused-tags".into(), "2".into()]);
+    assert!(harness.state.format_waybar_status().contains("recording"));
+    assert!(
+        harness
+            .state
+            .format_json_status()
+            .contains("\"capturing\":true")
+    );
+    harness
+        .state
+        .execute_action_tokens(&["set-focused-tags".into(), "1".into()]);
+
+    // Ending the session clears the flags.
+    harness.event(
+        &window,
+        window::EVT_CAPTURE_SESSIONS_OPCODE,
+        vec![Argument::Uint(0)],
+    );
+    harness.dispatch_events();
+    assert_eq!(harness.window(&window).capture_sessions(), 0);
+    assert!(!harness.state.format_waybar_status().contains("recording"));
+}
+
+#[test]
+fn test_output_capture_sessions_event_tracks_per_output_recording() {
+    let mut harness = Harness::new();
+    let out1 = harness.add_output_with_id();
+    harness.add_window();
+    harness.manage();
+
+    let client_out1 = harness
+        .state
+        .outputs
+        .iter()
+        .find(|(id, _)| id.protocol_id() == out1.protocol_id())
+        .unwrap()
+        .0
+        .clone();
+
+    // Initial: no output capture.
+    assert_eq!(harness.state.outputs[&client_out1].capture_sessions, 0);
+    assert!(
+        !harness
+            .state
+            .format_json_status()
+            .contains("\"capturing\":true")
+    );
+
+    // Output starts being recorded.
+    harness.event(
+        &out1,
+        output::EVT_CAPTURE_SESSIONS_OPCODE,
+        vec![Argument::Uint(2)],
+    );
+    harness.dispatch_events();
+    assert_eq!(harness.state.outputs[&client_out1].capture_sessions, 2);
+
+    let json = harness.state.format_json_status();
+    assert!(json.contains("\"capturing\":true"));
+    assert!(json.contains("\"capture_sessions\":2"));
+    let waybar = harness.state.format_waybar_status();
+    assert!(waybar.contains("recording"));
+    assert!(waybar.contains("\"capture_sessions\":2"));
+}
+
+#[test]
+fn test_capture_sessions_aggregate_across_outputs_consistently() {
+    let mut harness = Harness::new();
+    let out1 = harness.add_output_with_id();
+    let out2 = harness.add_output_with_id();
+    harness.add_window();
+    harness.manage();
+
+    let client_ids: Vec<_> = harness
+        .state
+        .outputs
+        .keys()
+        .filter(|id| {
+            id.protocol_id() == out1.protocol_id() || id.protocol_id() == out2.protocol_id()
+        })
+        .cloned()
+        .collect();
+    assert_eq!(client_ids.len(), 2);
+
+    // Focus output 1 and record only output 2: capture state is session-wide, so
+    // both Waybar and the full JSON stream must report it.
+    harness.event(
+        &out2,
+        output::EVT_CAPTURE_SESSIONS_OPCODE,
+        vec![Argument::Uint(3)],
+    );
+    harness.dispatch_events();
+
+    let waybar: serde_json::Value =
+        serde_json::from_str(&harness.state.format_waybar_status()).unwrap();
+    let json: serde_json::Value =
+        serde_json::from_str(&harness.state.format_json_status()).unwrap();
+    assert_eq!(waybar["capturing"], serde_json::json!(true));
+    assert_eq!(waybar["capture_sessions"], serde_json::json!(3));
+    assert_eq!(json["capturing"], serde_json::json!(true));
+    assert_eq!(json["capture_sessions"], waybar["capture_sessions"]);
+    assert!(
+        waybar["class"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("recording"))
+    );
+
+    // Stopping the session returns both streams to a non-recording state.
+    harness.event(
+        &out2,
+        output::EVT_CAPTURE_SESSIONS_OPCODE,
+        vec![Argument::Uint(0)],
+    );
+    harness.dispatch_events();
+    let waybar: serde_json::Value =
+        serde_json::from_str(&harness.state.format_waybar_status()).unwrap();
+    let json: serde_json::Value =
+        serde_json::from_str(&harness.state.format_json_status()).unwrap();
+    assert_eq!(waybar["capturing"], serde_json::json!(false));
+    assert_eq!(json["capturing"], serde_json::json!(false));
+    assert_eq!(json["capture_sessions"], serde_json::json!(0));
+}
+
+#[test]
+fn test_capture_sessions_differential_broadcast_streams_to_waybar_and_json_listeners() {
+    use std::io::{BufRead, BufReader};
+    use std::os::unix::net::UnixStream;
+    use xrwm::status::{StatusListener, StatusSubscription};
+
+    let mut harness = Harness::new();
+    harness.add_output();
+    let window = harness.add_window();
+    harness.manage();
+
+    let (wb_server, wb_client) = UnixStream::pair().unwrap();
+    wb_client.set_nonblocking(true).unwrap();
+    let mut wb_reader = BufReader::new(wb_client);
+
+    let (json_server, json_client) = UnixStream::pair().unwrap();
+    json_client.set_nonblocking(true).unwrap();
+    let mut json_reader = BufReader::new(json_client);
+
+    harness.state.status_listeners.push(StatusListener::new(
+        wb_server,
+        StatusSubscription::WaybarLegacy,
+    ));
+    harness.state.status_listeners.push(StatusListener::new(
+        json_server,
+        StatusSubscription::FullJson,
+    ));
+
+    // Initial broadcast establishes baseline snapshot.
+    harness.state.broadcast_status();
+    let mut line = String::new();
+    assert!(wb_reader.read_line(&mut line).unwrap() > 0);
+    assert!(line.contains("\"capturing\":false"));
+    line.clear();
+    assert!(json_reader.read_line(&mut line).unwrap() > 0);
+    assert!(line.contains("\"capturing\":false"));
+    line.clear();
+
+    // Capture session starts -> differential broadcast automatically pushes updates.
+    harness.event(
+        &window,
+        window::EVT_CAPTURE_SESSIONS_OPCODE,
+        vec![Argument::Uint(1)],
+    );
+    harness.dispatch_events();
+
+    assert!(wb_reader.read_line(&mut line).unwrap() > 0);
+    assert!(line.contains("\"capturing\":true"));
+    assert!(line.contains("\"capture_sessions\":1"));
+    line.clear();
+
+    assert!(json_reader.read_line(&mut line).unwrap() > 0);
+    assert!(line.contains("\"capturing\":true"));
+    assert!(line.contains("\"capture_sessions\":1"));
+    line.clear();
+
+    // Redundant broadcast with unchanged capture state must be deduplicated.
+    harness.state.broadcast_status();
+    let err = wb_reader.read_line(&mut line).unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::WouldBlock);
+}

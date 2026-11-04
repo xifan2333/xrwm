@@ -44,6 +44,9 @@ _master_
 _stack_
 : The secondary area of windows arranged beside the master area.
 
+_capture session_
+: An active screen recording or window sharing session (e.g. OBS, screen recorders, WebRTC) reported by the compositor via River protocol v5.
+
 # COMMANDS
 
 ## WINDOW ACTIONS
@@ -260,8 +263,8 @@ tiling layout.
 
 **status** [**--format** **waybar**] [**--tag** _1..32|scratchpad|pinned_] [**--scratchpad**] [**--pinned**] [**--window**] [**--stream**]
 : Queries window manager state. Without flags, outputs a single JSON object with
-tags, window list, geometry, layout details, scratchpad summary, and pinned overlay metrics.
-With **--format waybar**, outputs formatted JSON for Waybar custom modules.
+tags, window list, geometry, layout details, session-wide capture session counts (`capturing` and `capture_sessions`), scratchpad summary, and pinned overlay metrics.
+With **--format waybar**, outputs formatted JSON for Waybar custom modules (adding the `.recording` class and `capturing` flag when screen capture sessions are active).
 With **--tag** _N_, outputs tailored JSON for the specified workspace tag button (with `.focused`, `.occupied`, or `.empty` classes).
 With **--tag scratchpad** or **--scratchpad**, streams dedicated Scratchpad drawer status JSON (with `.scratchpad`, `.focused`, `.occupied`, `.empty` classes and window counts).
 With **--tag pinned** or **--pinned**, streams global pinned/sticky overlay status JSON (`TAG_ALL`, with `.pinned`, `.occupied`, `.empty` classes and overlay window counts).

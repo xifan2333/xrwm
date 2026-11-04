@@ -65,3 +65,9 @@ _Avoid_: Tag manager, workspace router
 **Floating Collapse**:
 The per-output visibility state toggled via `toggle-floating-views` that collapses unconstrained windows offscreen while preserving geometry and moving focus to a visible tiled window.
 _Avoid_: Minimize all, float hide
+
+## Capture & Privacy
+
+**Capture Session**:
+A compositor-reported session in which a window or output is being recorded or shared (e.g. OBS, screen recorders, WebRTC), provided via the River v5 `capture_sessions` event.
+_Avoid_: Recording count, share session

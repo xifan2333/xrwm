@@ -35,7 +35,7 @@ impl Dispatch<wl_registry::WlRegistry, ()> for AppState {
             match interface.as_str() {
                 "river_window_manager_v1" => {
                     let wm =
-                        registry.bind::<RiverWindowManagerV1, _, _>(name, version.min(4), qh, ());
+                        registry.bind::<RiverWindowManagerV1, _, _>(name, version.min(5), qh, ());
                     state.river_wm = Some(wm);
                 }
                 "river_xkb_bindings_v1" => {
@@ -158,6 +158,7 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                         previous_focused_tags: 1,
                         monocle: false,
                         floating_hidden: false,
+                        capture_sessions: 0,
                     },
                 );
                 if state.focused_output.is_none() {
@@ -206,6 +207,12 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
                 }
                 state.reconcile_focus();
                 state.manage_dirty();
+            }
+            Event::CaptureSessions { count } => {
+                if let Some(w) = state.windows.iter_mut().find(|w| &w.proxy == proxy) {
+                    w.set_capture_sessions(count);
+                    state.broadcast_status();
+                }
             }
             Event::AppId { app_id } => {
                 let usable = state
@@ -343,6 +350,12 @@ impl Dispatch<RiverOutputV1, ()> for AppState {
                     }
                 }
             }
+            Event::CaptureSessions { count } => {
+                if let Some(out) = state.outputs.get_mut(&proxy.id()) {
+                    out.capture_sessions = count;
+                    state.broadcast_status();
+                }
+            }
             Event::Removed => {
                 let out_id = proxy.id();
                 let removed_usable_area = state.outputs.get(&out_id).map(|o| o.usable_area);
@@ -389,7 +402,6 @@ impl Dispatch<RiverOutputV1, ()> for AppState {
                 }
                 state.manage_dirty();
             }
-            _ => {}
         }
     }
 }
