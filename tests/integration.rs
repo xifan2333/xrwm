@@ -3423,3 +3423,105 @@ fn test_sync_occupied_tags_excludes_tag_all_across_outputs() {
         1 | 2 | xrwm::tag::TAG_SCRATCHPAD
     );
 }
+
+#[test]
+fn test_window_capture_sessions_event_updates_state_and_status() {
+    let mut harness = Harness::new();
+    harness.add_output();
+    let window = harness.add_window();
+    harness.manage();
+
+    // Initially no capture sessions.
+    assert_eq!(harness.window(&window).capture_sessions(), 0);
+    assert!(!harness.state.format_waybar_status().contains("recording"));
+    assert!(
+        harness
+            .state
+            .format_json_status()
+            .contains("\"capturing\":false")
+    );
+
+    // River v5 notifies the WM that a capture session started for the window.
+    harness.event(
+        &window,
+        window::EVT_CAPTURE_SESSIONS_OPCODE,
+        vec![Argument::Uint(1)],
+    );
+    harness.dispatch_events();
+
+    assert_eq!(harness.window(&window).capture_sessions(), 1);
+    // Waybar status gains the recording class and capture flags.
+    let waybar = harness.state.format_waybar_status();
+    assert!(waybar.contains("recording"));
+    assert!(waybar.contains("\"capturing\":true"));
+    let json = harness.state.format_json_status();
+    assert!(json.contains("\"capturing\":true"));
+    assert!(json.contains("\"capture_sessions\":1"));
+
+    // Switching to an unfocused tag (tag 2) while the window on tag 1 is still
+    // being shared must keep the recording indicator active.
+    harness
+        .state
+        .execute_action_tokens(&["set-focused-tags".into(), "2".into()]);
+    assert!(harness.state.format_waybar_status().contains("recording"));
+    assert!(
+        harness
+            .state
+            .format_json_status()
+            .contains("\"capturing\":true")
+    );
+    harness
+        .state
+        .execute_action_tokens(&["set-focused-tags".into(), "1".into()]);
+
+    // Ending the session clears the flags.
+    harness.event(
+        &window,
+        window::EVT_CAPTURE_SESSIONS_OPCODE,
+        vec![Argument::Uint(0)],
+    );
+    harness.dispatch_events();
+    assert_eq!(harness.window(&window).capture_sessions(), 0);
+    assert!(!harness.state.format_waybar_status().contains("recording"));
+}
+
+#[test]
+fn test_output_capture_sessions_event_tracks_per_output_recording() {
+    let mut harness = Harness::new();
+    let out1 = harness.add_output_with_id();
+    harness.add_window();
+    harness.manage();
+
+    let client_out1 = harness
+        .state
+        .outputs
+        .iter()
+        .find(|(id, _)| id.protocol_id() == out1.protocol_id())
+        .unwrap()
+        .0
+        .clone();
+
+    // Initial: no output capture.
+    assert_eq!(harness.state.outputs[&client_out1].capture_sessions, 0);
+    assert!(
+        !harness
+            .state
+            .format_json_status()
+            .contains("\"capturing\":true")
+    );
+
+    // Output starts being recorded.
+    harness.event(
+        &out1,
+        output::EVT_CAPTURE_SESSIONS_OPCODE,
+        vec![Argument::Uint(2)],
+    );
+    harness.dispatch_events();
+    assert_eq!(harness.state.outputs[&client_out1].capture_sessions, 2);
+
+    let json = harness.state.format_json_status();
+    assert!(json.contains("\"capturing\":true"));
+    assert!(json.contains("\"capture_sessions\":2"));
+    let waybar = harness.state.format_waybar_status();
+    assert!(waybar.contains("recording"));
+}

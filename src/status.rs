@@ -336,6 +336,7 @@ pub fn format_json_status(state: &AppState) -> String {
                 "height": w.effective_height(),
                 "content_width": w.content_width,
                 "content_height": w.content_height,
+                "capture_sessions": w.capture_sessions(),
             })
         })
         .collect();
@@ -360,6 +361,19 @@ pub fn format_json_status(state: &AppState) -> String {
         0
     };
 
+    let output_capture_count = state
+        .outputs
+        .values()
+        .map(|o| o.capture_sessions)
+        .fold(0u32, u32::saturating_add);
+    let window_capture_count = state
+        .windows
+        .iter()
+        .filter(|w| !w.is_closed())
+        .map(|w| w.capture_sessions())
+        .fold(0u32, u32::saturating_add);
+    let total_capture_sessions = output_capture_count.saturating_add(window_capture_count);
+
     let obj = serde_json::json!({
         "focused_tags": state.tag_state.focused,
         "occupied_tags": state.tag_state.occupied,
@@ -378,17 +392,8 @@ pub fn format_json_status(state: &AppState) -> String {
         "pointer": { "x": state.pointer.0, "y": state.pointer.1 },
         "floating_hidden": is_floating_hidden,
         "hidden_floating_count": hidden_floating_count,
-        "capturing": state.outputs.values().any(|o| o.capture_sessions > 0)
-            || state.windows.iter().any(|w| {
-                !w.is_closed() && w.capture_sessions() > 0 && state.is_window_visible(w)
-            }),
-        "capture_sessions": state.outputs.values().map(|o| o.capture_sessions).sum::<u32>()
-            + state
-                .windows
-                .iter()
-                .filter(|w| !w.is_closed() && state.is_window_visible(w))
-                .map(|w| w.capture_sessions())
-                .sum::<u32>(),
+        "capturing": total_capture_sessions > 0,
+        "capture_sessions": total_capture_sessions,
         "scratchpad": {
             "focused": state.tag_state.is_scratchpad_focused(),
             "occupied": state.tag_state.is_scratchpad_occupied(),
@@ -456,8 +461,9 @@ pub fn format_waybar_status(state: &AppState) -> String {
 }
 
 pub fn is_output_capturing(state: &AppState) -> bool {
-    let output_capturing = if let Some(out_id) = state.get_focused_output_id()
-        && let Some(out) = state.outputs.get(&out_id)
+    let focused_out = state.get_focused_output_id();
+    let output_capturing = if let Some(ref out_id) = focused_out
+        && let Some(out) = state.outputs.get(out_id)
     {
         out.capture_sessions > 0
     } else {
@@ -466,11 +472,15 @@ pub fn is_output_capturing(state: &AppState) -> bool {
     if output_capturing {
         return true;
     }
-    // Windows actively shared (e.g. WebRTC) also count as capture sessions.
-    state
-        .windows
-        .iter()
-        .any(|w| !w.is_closed() && w.capture_sessions() > 0 && state.is_window_visible(w))
+    // Windows actively shared (e.g. WebRTC) also count as capture sessions,
+    // even when temporarily on an unfocused tag on this output.
+    state.windows.iter().any(|w| {
+        !w.is_closed()
+            && w.capture_sessions() > 0
+            && (focused_out.is_none()
+                || state.outputs.len() <= 1
+                || w.output() == focused_out.as_ref())
+    })
 }
 
 /// Formats a workspace tag status string directly from boolean flags without serde reflection.
