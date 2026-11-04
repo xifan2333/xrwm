@@ -333,9 +333,9 @@ Prints all active window rules, optionally filtered by action type.
 \f[B]status\f[R] [\f[B]\(enformat\f[R] \f[B]waybar\f[R]] [\f[B]\(entag\f[R] \f[I]1..32|scratchpad|pinned\f[R]] [\f[B]\(enscratchpad\f[R]] [\f[B]\(enpinned\f[R]] [\f[B]\(enwindow\f[R]] [\f[B]\(enstream\f[R]]
 Queries window manager state.
 Without flags, outputs a single JSON object with tags, window list,
-geometry, layout details, capture session counts (\f[CR]capturing\f[R]
-and \f[CR]capture_sessions\f[R]), scratchpad summary, and pinned overlay
-metrics.
+geometry, layout details, session-wide capture session counts
+(\f[CR]capturing\f[R] and \f[CR]capture_sessions\f[R]), scratchpad summary,
+and pinned overlay metrics.
 With \f[B]\(enformat waybar\f[R], outputs formatted JSON for Waybar
 custom modules (adding the \f[CR].recording\f[R] class and
 \f[CR]capturing\f[R] flag when screen capture sessions are active).

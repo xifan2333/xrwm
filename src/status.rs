@@ -184,7 +184,7 @@ pub fn broadcast_status(state: &mut AppState) {
                 let focused_id = state.focused_window_id();
                 let focused_win =
                     focused_id.and_then(|id| state.windows.iter().find(|w| w.id == id));
-                let capture_sessions = output_capture_sessions(state);
+                let capture_sessions = total_capture_sessions(state);
                 let snapshot = SubscriberSnapshot::WaybarLegacy {
                     active_tags: tags_text,
                     focused_title: focused_win.and_then(|w| w.title.clone()),
@@ -366,18 +366,8 @@ pub fn format_json_status(state: &AppState) -> String {
         0
     };
 
-    let output_capture_count = state
-        .outputs
-        .values()
-        .map(|o| o.capture_sessions)
-        .fold(0u32, u32::saturating_add);
-    let window_capture_count = state
-        .windows
-        .iter()
-        .filter(|w| !w.is_closed())
-        .map(|w| w.capture_sessions())
-        .fold(0u32, u32::saturating_add);
-    let total_capture_sessions = output_capture_count.saturating_add(window_capture_count);
+    let total_capture_sessions = total_capture_sessions(state);
+    let capturing = total_capture_sessions > 0;
 
     let obj = serde_json::json!({
         "focused_tags": state.tag_state.focused,
@@ -397,7 +387,7 @@ pub fn format_json_status(state: &AppState) -> String {
         "pointer": { "x": state.pointer.0, "y": state.pointer.1 },
         "floating_hidden": is_floating_hidden,
         "hidden_floating_count": hidden_floating_count,
-        "capturing": total_capture_sessions > 0,
+        "capturing": capturing,
         "capture_sessions": total_capture_sessions,
         "scratchpad": {
             "focused": state.tag_state.is_scratchpad_focused(),
@@ -427,7 +417,7 @@ pub fn format_waybar_status(state: &AppState) -> String {
     let focused_win = focused_id.and_then(|id| state.windows.iter().find(|w| w.id == id));
     let title = focused_win.and_then(|w| w.title.as_deref()).unwrap_or("");
     let is_floating_hidden = state.is_focused_output_floating_hidden();
-    let capture_sessions = output_capture_sessions(state);
+    let capture_sessions = total_capture_sessions(state);
     let capturing = capture_sessions > 0;
 
     let mut classes = vec![if state.layout_config.monocle {
@@ -468,38 +458,28 @@ pub fn format_waybar_status(state: &AppState) -> String {
     serde_json::to_string(&obj).unwrap_or_default()
 }
 
-/// Computes the total number of active screen capture sessions relevant to the focused output
-/// (combining output-level recordings and window-level shares assigned to that output).
-pub fn output_capture_sessions(state: &AppState) -> u32 {
-    let focused_out = state.get_focused_output_id();
-    let output_count = if let Some(ref out_id) = focused_out
-        && let Some(out) = state.outputs.get(out_id)
-    {
-        out.capture_sessions
-    } else {
-        state
-            .outputs
-            .values()
-            .map(|o| o.capture_sessions)
-            .fold(0u32, u32::saturating_add)
-    };
-    let window_count = state
+/// Counts every active screen capture session known to the daemon, regardless of
+/// which output or tag is currently focused: output-level recordings plus
+/// window-level shares of open windows. Waybar and JSON consumers both use this
+/// single source of truth so they can never disagree.
+pub fn total_capture_sessions(state: &AppState) -> u32 {
+    let output_sessions = state
+        .outputs
+        .values()
+        .map(|o| o.capture_sessions)
+        .fold(0u32, u32::saturating_add);
+    let window_sessions = state
         .windows
         .iter()
-        .filter(|w| {
-            !w.is_closed()
-                && (focused_out.is_none()
-                    || state.outputs.len() <= 1
-                    || w.output() == focused_out.as_ref())
-        })
+        .filter(|w| !w.is_closed())
         .map(|w| w.capture_sessions())
         .fold(0u32, u32::saturating_add);
-    output_count.saturating_add(window_count)
+    output_sessions.saturating_add(window_sessions)
 }
 
-/// Returns `true` when the focused output or any window on it has an active capture session.
-pub fn is_output_capturing(state: &AppState) -> bool {
-    output_capture_sessions(state) > 0
+/// Returns `true` when any output or any open window has an active capture session.
+pub fn is_capturing(state: &AppState) -> bool {
+    total_capture_sessions(state) > 0
 }
 
 /// Formats a workspace tag status string directly from boolean flags without serde reflection.

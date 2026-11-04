@@ -3455,9 +3455,19 @@ fn test_window_capture_sessions_event_updates_state_and_status() {
     assert!(waybar.contains("recording"));
     assert!(waybar.contains("\"capturing\":true"));
     assert!(waybar.contains("\"capture_sessions\":1"));
-    let json = harness.state.format_json_status();
-    assert!(json.contains("\"capturing\":true"));
-    assert!(json.contains("\"capture_sessions\":1"));
+    // The focused window entry itself also reports its own capture sessions.
+    let json: serde_json::Value =
+        serde_json::from_str(&harness.state.format_json_status()).unwrap();
+    assert_eq!(json["capturing"], serde_json::json!(true));
+    assert_eq!(json["capture_sessions"], serde_json::json!(1));
+    let window_id = serde_json::json!(harness.window(&window).id);
+    let entry = json["windows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|w| w["id"] == window_id)
+        .expect("window entry present in JSON status");
+    assert_eq!(entry["capture_sessions"], serde_json::json!(1));
 
     // Switching to an unfocused tag (tag 2) while the window on tag 1 is still
     // being shared must keep the recording indicator active.
@@ -3526,6 +3536,65 @@ fn test_output_capture_sessions_event_tracks_per_output_recording() {
     let waybar = harness.state.format_waybar_status();
     assert!(waybar.contains("recording"));
     assert!(waybar.contains("\"capture_sessions\":2"));
+}
+
+#[test]
+fn test_capture_sessions_aggregate_across_outputs_consistently() {
+    let mut harness = Harness::new();
+    let out1 = harness.add_output_with_id();
+    let out2 = harness.add_output_with_id();
+    harness.add_window();
+    harness.manage();
+
+    let client_ids: Vec<_> = harness
+        .state
+        .outputs
+        .keys()
+        .filter(|id| {
+            id.protocol_id() == out1.protocol_id() || id.protocol_id() == out2.protocol_id()
+        })
+        .cloned()
+        .collect();
+    assert_eq!(client_ids.len(), 2);
+
+    // Focus output 1 and record only output 2: capture state is session-wide, so
+    // both Waybar and the full JSON stream must report it.
+    harness.event(
+        &out2,
+        output::EVT_CAPTURE_SESSIONS_OPCODE,
+        vec![Argument::Uint(3)],
+    );
+    harness.dispatch_events();
+
+    let waybar: serde_json::Value =
+        serde_json::from_str(&harness.state.format_waybar_status()).unwrap();
+    let json: serde_json::Value =
+        serde_json::from_str(&harness.state.format_json_status()).unwrap();
+    assert_eq!(waybar["capturing"], serde_json::json!(true));
+    assert_eq!(waybar["capture_sessions"], serde_json::json!(3));
+    assert_eq!(json["capturing"], serde_json::json!(true));
+    assert_eq!(json["capture_sessions"], waybar["capture_sessions"]);
+    assert!(
+        waybar["class"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("recording"))
+    );
+
+    // Stopping the session returns both streams to a non-recording state.
+    harness.event(
+        &out2,
+        output::EVT_CAPTURE_SESSIONS_OPCODE,
+        vec![Argument::Uint(0)],
+    );
+    harness.dispatch_events();
+    let waybar: serde_json::Value =
+        serde_json::from_str(&harness.state.format_waybar_status()).unwrap();
+    let json: serde_json::Value =
+        serde_json::from_str(&harness.state.format_json_status()).unwrap();
+    assert_eq!(waybar["capturing"], serde_json::json!(false));
+    assert_eq!(json["capturing"], serde_json::json!(false));
+    assert_eq!(json["capture_sessions"], serde_json::json!(0));
 }
 
 #[test]

@@ -1351,7 +1351,7 @@ impl AppState {
                 let focused_id = self.focused_window_id();
                 let focused_win =
                     focused_id.and_then(|id| self.windows.iter().find(|w| w.id == id));
-                let capture_sessions = crate::status::output_capture_sessions(self);
+                let capture_sessions = crate::status::total_capture_sessions(self);
                 SubscriberSnapshot::WaybarLegacy {
                     active_tags: tags_text,
                     focused_title: focused_win.and_then(|w| w.title.clone()),
