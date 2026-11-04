@@ -73,6 +73,7 @@ pub enum SubscriberSnapshot {
         active_mode: String,
         monocle: bool,
         floating_hidden: bool,
+        capturing: bool,
     },
     /// Full JSON status snapshot tracking model payload changes.
     FullJson { payload_hash: u64 },
@@ -187,6 +188,7 @@ pub fn broadcast_status(state: &mut AppState) {
                     active_mode: state.active_mode.clone(),
                     monocle: state.layout_config.monocle,
                     floating_hidden: state.is_focused_output_floating_hidden(),
+                    capturing: is_output_capturing(state),
                 };
                 if listener.last_snapshot.as_ref() == Some(&snapshot) {
                     return true;
@@ -376,6 +378,17 @@ pub fn format_json_status(state: &AppState) -> String {
         "pointer": { "x": state.pointer.0, "y": state.pointer.1 },
         "floating_hidden": is_floating_hidden,
         "hidden_floating_count": hidden_floating_count,
+        "capturing": state.outputs.values().any(|o| o.capture_sessions > 0)
+            || state.windows.iter().any(|w| {
+                !w.is_closed() && w.capture_sessions() > 0 && state.is_window_visible(w)
+            }),
+        "capture_sessions": state.outputs.values().map(|o| o.capture_sessions).sum::<u32>()
+            + state
+                .windows
+                .iter()
+                .filter(|w| !w.is_closed() && state.is_window_visible(w))
+                .map(|w| w.capture_sessions())
+                .sum::<u32>(),
         "scratchpad": {
             "focused": state.tag_state.is_scratchpad_focused(),
             "occupied": state.tag_state.is_scratchpad_occupied(),
@@ -403,6 +416,7 @@ pub fn format_waybar_status(state: &AppState) -> String {
     let focused_win = focused_id.and_then(|id| state.windows.iter().find(|w| w.id == id));
     let title = focused_win.and_then(|w| w.title.as_deref()).unwrap_or("");
     let is_floating_hidden = state.is_focused_output_floating_hidden();
+    let capturing = is_output_capturing(state);
 
     let mut classes = vec![if state.layout_config.monocle {
         "monocle"
@@ -411,6 +425,9 @@ pub fn format_waybar_status(state: &AppState) -> String {
     }];
     if is_floating_hidden {
         classes.push("floating-hidden");
+    }
+    if capturing {
+        classes.push("recording");
     }
 
     let tooltip = if is_floating_hidden {
@@ -421,15 +438,39 @@ pub fn format_waybar_status(state: &AppState) -> String {
     } else {
         format!("Mode: [{}], Focused: {}", state.active_mode, title)
     };
+    let tooltip = if capturing {
+        format!("{tooltip} (recording)")
+    } else {
+        tooltip
+    };
 
     let obj = serde_json::json!({
         "text": tags_text,
         "tooltip": tooltip,
         "class": classes,
         "floating_hidden": is_floating_hidden,
+        "capturing": capturing,
     });
 
     serde_json::to_string(&obj).unwrap_or_default()
+}
+
+pub fn is_output_capturing(state: &AppState) -> bool {
+    let output_capturing = if let Some(out_id) = state.get_focused_output_id()
+        && let Some(out) = state.outputs.get(&out_id)
+    {
+        out.capture_sessions > 0
+    } else {
+        state.outputs.values().any(|o| o.capture_sessions > 0)
+    };
+    if output_capturing {
+        return true;
+    }
+    // Windows actively shared (e.g. WebRTC) also count as capture sessions.
+    state
+        .windows
+        .iter()
+        .any(|w| !w.is_closed() && w.capture_sessions() > 0 && state.is_window_visible(w))
 }
 
 /// Formats a workspace tag status string directly from boolean flags without serde reflection.

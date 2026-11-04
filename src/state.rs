@@ -99,6 +99,8 @@ pub struct OutputItem {
     pub previous_focused_tags: TagMask,
     pub monocle: bool,
     pub floating_hidden: bool,
+    /// Active screen capture sessions (River v5) recording/sharing this output.
+    pub capture_sessions: u32,
 }
 
 pub struct AppState {
@@ -1354,6 +1356,7 @@ impl AppState {
                     active_mode: self.active_mode.clone(),
                     monocle: self.layout_config.monocle,
                     floating_hidden: self.is_focused_output_floating_hidden(),
+                    capturing: crate::status::is_output_capturing(self),
                 }
             }
             StatusSubscription::FullJson => {

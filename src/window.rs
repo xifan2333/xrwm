@@ -48,6 +48,8 @@ pub struct WindowItem {
     // None means no proposal has been sent; zero lets the client choose its size.
     pub last_proposed_w: Option<u32>,
     pub last_proposed_h: Option<u32>,
+    /// Active screen capture sessions (River v5) recording/sharing this window.
+    pub capture_sessions: u32,
 }
 
 /// Resolved window rule configuration properties.
@@ -102,6 +104,7 @@ impl WindowItem {
             anim_target_geo: None,
             last_proposed_w: None,
             last_proposed_h: None,
+            capture_sessions: 0,
         }
     }
 
@@ -255,6 +258,16 @@ impl WindowItem {
     #[inline]
     pub fn last_proposed_h(&self) -> Option<u32> {
         self.last_proposed_h
+    }
+
+    #[inline]
+    pub fn capture_sessions(&self) -> u32 {
+        self.capture_sessions
+    }
+
+    /// Sets the number of active screen capture sessions recording/sharing this window.
+    pub fn set_capture_sessions(&mut self, count: u32) {
+        self.capture_sessions = count;
     }
 
     #[inline]
