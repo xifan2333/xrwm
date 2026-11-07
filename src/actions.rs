@@ -5,6 +5,7 @@ use std::time::Duration;
 use crate::ipc::IpcCommand;
 use crate::state::AppState;
 use crate::state::AttachMode;
+use crate::state::WindowLayer;
 use crate::state::WindowRule;
 use crate::state::reap_zombies;
 use crate::state::spawn_init_script;
@@ -56,6 +57,7 @@ impl AppState {
                 seat.set_focused_window(Some(proxy.clone()));
             }
 
+            self.uncollapse_floating_for_window_by_proxy(&proxy);
             self.manage_dirty();
             Ok(format!("window {id} floating={is_floating}"))
         } else {
@@ -93,7 +95,9 @@ impl AppState {
                 return Err("window has no active output".to_string());
             };
 
+            let proxy = w.proxy.clone();
             w.snap(dir, usable);
+            self.uncollapse_floating_for_window_by_proxy(&proxy);
             self.manage_dirty();
             Ok(format!("snapped window {id} {edge_str}"))
         } else {
@@ -150,16 +154,35 @@ impl AppState {
             return Err("no focused output".to_string());
         };
 
+        let active_tags = self.tag_state_for_output(Some(&out_id)).focused;
+
+        let collapsible_mask: TagMask = self
+            .windows
+            .iter()
+            .filter(|w| {
+                !w.closed
+                    && w.layer().policy().collapsible
+                    && (w.output.as_ref() == Some(&out_id) || self.outputs.len() <= 1)
+            })
+            .map(|w| w.tags)
+            .fold(0, |acc, tags| acc | tags);
+
         let is_hidden = if let Some(out) = self.outputs.get_mut(&out_id) {
-            out.floating_hidden = !out.floating_hidden;
-            out.floating_hidden
+            let is_currently_hidden = (out.floating_hidden_tags & active_tags) != 0;
+            if is_currently_hidden {
+                out.floating_hidden_tags &= !active_tags;
+                false
+            } else {
+                out.floating_hidden_tags |= active_tags & collapsible_mask;
+                (out.floating_hidden_tags & active_tags) != 0
+            }
         } else {
             false
         };
 
         if is_hidden {
             // Hiding floating windows:
-            // If the currently focused window on any seat is a floating window on this output,
+            // If the currently focused window on any seat is a collapsible floating window on this output,
             // transfer focus to the first visible tiled window on this output so the user keeps focus.
             let out_tag_state = self.tag_state_for_output(Some(&out_id));
 
@@ -168,39 +191,36 @@ impl AppState {
                 .iter()
                 .find(|w| {
                     !w.closed
-                        && !w.floating
+                        && w.layer() == WindowLayer::Tiled
                         && out_tag_state.is_view_visible(w.tags)
                         && (w.output.as_ref() == Some(&out_id) || self.outputs.len() <= 1)
                 })
                 .map(|w| w.proxy.clone());
 
             for seat in self.seats.values_mut() {
-                let focus_is_floating_on_this_out = seat.focused.as_ref().is_some_and(|f| {
+                let focus_is_collapsible_on_this_out = seat.focused.as_ref().is_some_and(|f| {
                     self.windows.iter().any(|w| {
                         &w.proxy == f
-                            && w.floating
+                            && w.layer().policy().collapsible
                             && (w.output.as_ref() == Some(&out_id) || self.outputs.len() <= 1)
                     })
                 });
 
-                if focus_is_floating_on_this_out {
+                if focus_is_collapsible_on_this_out {
                     seat.set_focused_window(first_tiled.clone());
                 }
             }
         } else {
             // Restoring floating windows:
-            // Transfer focus back to the top visible floating window on this output.
-            let out_tag_state = self.tag_state_for_output(Some(&out_id));
-
+            // Transfer focus back to the top visible workspace floating window on this output.
             let top_floating = self
                 .windows
                 .iter()
                 .rev()
                 .find(|w| {
                     !w.closed
-                        && w.floating
-                        && !w.fullscreen
-                        && out_tag_state.is_view_visible(w.tags)
+                        && self.is_window_visible(w)
+                        && w.layer() == WindowLayer::WorkspaceFloating
                         && (w.output.as_ref() == Some(&out_id) || self.outputs.len() <= 1)
                 })
                 .map(|w| w.proxy.clone());

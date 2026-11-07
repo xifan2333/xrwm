@@ -102,6 +102,24 @@ pub enum BorderRole {
     Unfocused = 3,
 }
 
+/// Mutually exclusive resolution of window visibility against active tags and floating collapse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum WindowVisibility {
+    /// Window is visible on an active uncollapsed tag.
+    Visible,
+    /// Window is hidden because its tags do not intersect with the active tags.
+    HiddenByTags,
+    /// Window is hidden because its active tag(s) are collapsed via `toggle-floating-views`.
+    HiddenByCollapse,
+}
+
+impl WindowVisibility {
+    #[inline]
+    pub fn is_visible(self) -> bool {
+        matches!(self, Self::Visible)
+    }
+}
+
 /// Core managed application window tracking Wayland proxy, layout state, and geometry invariants.
 #[derive(Debug)]
 pub struct WindowItem {

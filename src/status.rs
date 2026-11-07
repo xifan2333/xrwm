@@ -355,11 +355,11 @@ pub fn format_json_status(state: &AppState) -> String {
             .iter()
             .filter(|w| {
                 !w.is_closed()
-                    && w.is_floating()
-                    && !w.is_fullscreen()
                     && (focused_out.is_none()
                         || state.outputs.len() <= 1
                         || w.output() == focused_out.as_ref())
+                    && state.window_visibility(w)
+                        == crate::state::WindowVisibility::HiddenByCollapse
             })
             .count()
     } else {

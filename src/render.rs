@@ -125,9 +125,7 @@ pub fn compute_frame_plan(state: &AppState) -> FramePlan {
             continue;
         };
 
-        let is_output_floating_hidden = state.is_floating_hidden_for_output(w.output());
-
-        if w.is_floating() && !w.is_fullscreen() && is_output_floating_hidden {
+        if state.window_visibility(w) == crate::state::WindowVisibility::HiddenByCollapse {
             window_plans.push(WindowFramePlan {
                 window_id: w.id(),
                 proxy: w.proxy().clone(),

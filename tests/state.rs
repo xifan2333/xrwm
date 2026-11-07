@@ -395,3 +395,12 @@ fn test_border_role_properties() {
     assert_eq!(BorderRole::Focused as usize, 2);
     assert_eq!(BorderRole::Unfocused as usize, 3);
 }
+
+#[test]
+fn test_window_visibility_resolver() {
+    use xrwm::state::WindowVisibility;
+
+    assert!(WindowVisibility::Visible.is_visible());
+    assert!(!WindowVisibility::HiddenByTags.is_visible());
+    assert!(!WindowVisibility::HiddenByCollapse.is_visible());
+}

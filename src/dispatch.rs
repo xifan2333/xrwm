@@ -157,7 +157,7 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                         tag_state: crate::tag::TagState::new(),
                         previous_focused_tags: 1,
                         monocle: false,
-                        floating_hidden: false,
+                        floating_hidden_tags: 0,
                         capture_sessions: 0,
                     },
                 );
@@ -223,6 +223,7 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
                     w.set_app_id(app_id);
                     AppState::apply_rules_to_window(&state.rules, w, usable, &state.outputs);
                 }
+                state.uncollapse_floating_for_window_by_proxy(proxy);
                 state.manage_dirty();
             }
             Event::Title { title } => {
@@ -234,6 +235,7 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
                     w.set_title(title);
                     AppState::apply_rules_to_window(&state.rules, w, usable, &state.outputs);
                 }
+                state.uncollapse_floating_for_window_by_proxy(proxy);
                 state.manage_dirty();
             }
             Event::Parent { parent } => {
@@ -245,6 +247,7 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
                     w.set_has_parent(parent.is_some());
                     AppState::apply_rules_to_window(&state.rules, w, usable, &state.outputs);
                 }
+                state.uncollapse_floating_for_window_by_proxy(proxy);
                 state.manage_dirty();
             }
             Event::Dimensions { width, height } => {
