@@ -211,8 +211,8 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
             Event::CaptureSessions { count } => {
                 if let Some(w) = state.windows.iter_mut().find(|w| &w.proxy == proxy) {
                     w.set_capture_sessions(count);
-                    state.broadcast_status();
                 }
+                state.manage_dirty();
             }
             Event::AppId { app_id } => {
                 let usable = state
@@ -356,8 +356,8 @@ impl Dispatch<RiverOutputV1, ()> for AppState {
             Event::CaptureSessions { count } => {
                 if let Some(out) = state.outputs.get_mut(&proxy.id()) {
                     out.capture_sessions = count;
-                    state.broadcast_status();
                 }
+                state.manage_dirty();
             }
             Event::Removed => {
                 let out_id = proxy.id();

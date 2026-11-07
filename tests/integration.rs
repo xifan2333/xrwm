@@ -3642,6 +3642,7 @@ fn test_capture_sessions_differential_broadcast_streams_to_waybar_and_json_liste
         vec![Argument::Uint(1)],
     );
     harness.dispatch_events();
+    harness.manage();
 
     assert!(wb_reader.read_line(&mut line).unwrap() > 0);
     assert!(line.contains("\"capturing\":true"));

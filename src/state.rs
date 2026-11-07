@@ -1445,12 +1445,29 @@ impl AppState {
                 let focused_win =
                     focused_id.and_then(|id| self.windows.iter().find(|w| w.id == id));
                 let capture_sessions = crate::status::total_capture_sessions(self);
+                let is_floating_hidden = self.is_focused_output_floating_hidden();
+                let hidden_floating_count = if is_floating_hidden {
+                    let focused_out = self.get_focused_output_id();
+                    self.windows
+                        .iter()
+                        .filter(|w| {
+                            !w.is_closed()
+                                && (focused_out.is_none()
+                                    || self.outputs.len() <= 1
+                                    || w.output() == focused_out.as_ref())
+                                && self.window_visibility(w) == WindowVisibility::HiddenByCollapse
+                        })
+                        .count()
+                } else {
+                    0
+                };
                 SubscriberSnapshot::WaybarLegacy {
                     active_tags: tags_text,
                     focused_title: focused_win.and_then(|w| w.title.clone()),
                     active_mode: self.active_mode.clone(),
                     monocle: self.layout_config.monocle,
-                    floating_hidden: self.is_focused_output_floating_hidden(),
+                    floating_hidden: is_floating_hidden,
+                    hidden_floating_count,
                     capturing: capture_sessions > 0,
                     capture_sessions,
                 }
