@@ -24,7 +24,9 @@ use crate::tag::TAG_NONE;
 use crate::tag::TagMask;
 use crate::tag::TagState;
 
-pub use crate::window::{MIN_WINDOW_DIMENSION, WindowItem};
+pub use crate::window::{
+    BorderRole, LAYER_POLICIES, LayerPolicy, MIN_WINDOW_DIMENSION, WindowItem, WindowLayer,
+};
 
 pub use crate::status::{
     StatusListener, StatusSubscription, SubscriberSnapshot, broadcast_status, format_json_status,

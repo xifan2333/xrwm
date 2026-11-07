@@ -12,6 +12,96 @@ use wayland_backend::client::ObjectId;
 
 pub const MIN_WINDOW_DIMENSION: u32 = 100;
 
+/// Mutually exclusive classification of a managed window according to its Z-priority and visual role.
+#[repr(usize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum WindowLayer {
+    /// L1: Normal workspace tiled window participating in master-stack or monocle layout.
+    Tiled = 0,
+    /// L2: Normal workspace floating window, subject to per-tag floating collapse.
+    WorkspaceFloating = 1,
+    /// L3: Scratchpad drawer overlay window (Tag 32, but not TAG_ALL).
+    Scratchpad = 2,
+    /// L4: Pinned global overlay window (`TAG_ALL`, e.g. pip-camera, wayhud).
+    Pinned = 3,
+    /// L5: Fullscreen exclusive window covering the output usable area.
+    Fullscreen = 4,
+}
+
+/// Static behavioral policies associated with each window layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LayerPolicy {
+    /// Whether windows in this layer are arranged by the dynamic tiling engine.
+    pub tiled_layout: bool,
+    /// Whether windows in this layer are collapsible by `toggle-floating-views`.
+    pub collapsible: bool,
+    /// Whether windows in this layer mark non-all workspace tags as occupied.
+    pub occupies_tag: bool,
+    /// Whether windows in this layer render standard server-side decoration (SSD) borders.
+    pub has_border: bool,
+}
+
+/// Static policy table indexed by `WindowLayer as usize`.
+pub const LAYER_POLICIES: [LayerPolicy; 5] = [
+    // Tiled
+    LayerPolicy {
+        tiled_layout: true,
+        collapsible: false,
+        occupies_tag: true,
+        has_border: true,
+    },
+    // WorkspaceFloating
+    LayerPolicy {
+        tiled_layout: false,
+        collapsible: true,
+        occupies_tag: true,
+        has_border: true,
+    },
+    // Scratchpad
+    LayerPolicy {
+        tiled_layout: false,
+        collapsible: false,
+        occupies_tag: true,
+        has_border: true,
+    },
+    // Pinned
+    LayerPolicy {
+        tiled_layout: false,
+        collapsible: false,
+        occupies_tag: false,
+        has_border: true,
+    },
+    // Fullscreen
+    LayerPolicy {
+        tiled_layout: false,
+        collapsible: false,
+        occupies_tag: true,
+        has_border: false,
+    },
+];
+
+impl WindowLayer {
+    /// Returns the static policy configuration for this layer.
+    #[inline]
+    pub const fn policy(self) -> LayerPolicy {
+        LAYER_POLICIES[self as usize]
+    }
+}
+
+/// Visual border role determining the border color and plan for a window.
+#[repr(usize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BorderRole {
+    /// Window does not render borders (fullscreen or CSD).
+    None = 0,
+    /// Window is actively being captured or recorded (urgent border color highlight).
+    Captured = 1,
+    /// Window is focused by a seat.
+    Focused = 2,
+    /// Window is unfocused.
+    Unfocused = 3,
+}
+
 /// Core managed application window tracking Wayland proxy, layout state, and geometry invariants.
 #[derive(Debug)]
 pub struct WindowItem {
@@ -168,6 +258,36 @@ impl WindowItem {
     #[inline]
     pub fn is_fullscreen(&self) -> bool {
         self.fullscreen
+    }
+
+    /// Resolves the current mutually exclusive WindowLayer according to invariants.
+    #[inline]
+    pub fn layer(&self) -> WindowLayer {
+        if self.fullscreen {
+            WindowLayer::Fullscreen
+        } else if self.tags == crate::tag::TAG_ALL {
+            WindowLayer::Pinned
+        } else if (self.tags & crate::tag::TAG_SCRATCHPAD) != 0 {
+            WindowLayer::Scratchpad
+        } else if self.floating {
+            WindowLayer::WorkspaceFloating
+        } else {
+            WindowLayer::Tiled
+        }
+    }
+
+    /// Resolves the border role for this window given its seat focus status.
+    #[inline]
+    pub fn border_role(&self, is_focused: bool) -> BorderRole {
+        if !self.layer().policy().has_border || !self.ssd() {
+            BorderRole::None
+        } else if self.capture_sessions > 0 {
+            BorderRole::Captured
+        } else if is_focused {
+            BorderRole::Focused
+        } else {
+            BorderRole::Unfocused
+        }
     }
 
     #[inline]
