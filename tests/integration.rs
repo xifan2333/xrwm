@@ -3996,3 +3996,44 @@ fn test_format_json_status_outputs_ground_truth() {
     assert_eq!(edp1["capture_sessions"], 0);
     assert_eq!(edp1["monocle"], false);
 }
+
+#[test]
+fn test_title_update_on_floating_window_preserves_collapse() {
+    let mut harness = Harness::new();
+    harness.state.anim.enabled = false;
+    harness.add_output();
+    let _seat = harness.add_seat();
+
+    let win = harness.add_window();
+    if let Some(w) = harness
+        .state
+        .windows
+        .iter_mut()
+        .find(|w| w.proxy.id().protocol_id() == win.protocol_id())
+    {
+        w.toggle_floating(None);
+        w.set_tags(1);
+    }
+    harness.manage();
+
+    // Collapse Tag 1
+    harness
+        .state
+        .execute_action_tokens(&["toggle-floating-views".into()]);
+    harness.manage();
+    assert_eq!(harness.state.floating_hidden_tags_for_output(None) & 1, 1);
+    assert_eq!(
+        harness.state.window_visibility(harness.window(&win)),
+        xrwm::state::WindowVisibility::HiddenByCollapse
+    );
+
+    // Update title while collapsed -> MUST remain collapsed!
+    harness.set_title(&win, "new title");
+    harness.manage();
+
+    assert_eq!(harness.state.floating_hidden_tags_for_output(None) & 1, 1);
+    assert_eq!(
+        harness.state.window_visibility(harness.window(&win)),
+        xrwm::state::WindowVisibility::HiddenByCollapse
+    );
+}

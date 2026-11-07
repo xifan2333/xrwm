@@ -128,12 +128,30 @@ pub fn broadcast_status(state: &mut AppState) {
     let mut cached_tag_msgs: [Option<String>; 32] = Default::default();
     let mut cached_window_msg: Option<String> = None;
     let mut cached_waybar_msg: Option<String> = None;
-    let mut cached_json_msg: Option<String> = None;
+    let mut cached_json_msg: Option<(String, u64)> = None;
     let mut cached_scratchpad_msg: Option<String> = None;
     let mut cached_pinned_msg: Option<String> = None;
 
     listeners.retain_mut(|listener| {
-        let snapshot = state.current_subscriber_snapshot(&listener.subscription);
+        let snapshot = match listener.subscription {
+            StatusSubscription::FullJson => {
+                let (_, hash) = cached_json_msg.get_or_insert_with(|| {
+                    let s = state.format_json_status();
+                    use std::hash::{DefaultHasher, Hash, Hasher};
+                    let mut hasher = DefaultHasher::new();
+                    s.hash(&mut hasher);
+                    let h = hasher.finish();
+                    let mut line = s;
+                    line.push('\n');
+                    (line, h)
+                });
+                SubscriberSnapshot::FullJson {
+                    payload_hash: *hash,
+                }
+            }
+            _ => state.current_subscriber_snapshot(&listener.subscription),
+        };
+
         if listener.last_snapshot.as_ref() == Some(&snapshot) {
             return true;
         }
@@ -168,14 +186,10 @@ pub fn broadcast_status(state: &mut AppState) {
                 });
                 msg.as_bytes()
             }
-            StatusSubscription::FullJson => {
-                let json_str = cached_json_msg.get_or_insert_with(|| {
-                    let mut s = format_json_status(state);
-                    s.push('\n');
-                    s
-                });
-                json_str.as_bytes()
-            }
+            StatusSubscription::FullJson => cached_json_msg
+                .as_ref()
+                .map(|(s, _)| s.as_bytes())
+                .unwrap_or(b""),
             StatusSubscription::Scratchpad => {
                 let msg = cached_scratchpad_msg.get_or_insert_with(|| {
                     let mut s = format_scratchpad_status(state);
