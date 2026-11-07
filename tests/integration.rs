@@ -3635,13 +3635,26 @@ fn test_capture_sessions_differential_broadcast_streams_to_waybar_and_json_liste
     assert!(line.contains("\"capturing\":false"));
     line.clear();
 
-    // Capture session starts -> differential broadcast automatically pushes updates.
+    // Capture session starts -> differential broadcast automatically pushes updates only at manage boundary.
     harness.event(
         &window,
         window::EVT_CAPTURE_SESSIONS_OPCODE,
         vec![Argument::Uint(1)],
     );
     harness.dispatch_events();
+
+    // Invariant: broadcast must NOT happen eagerly inside dispatch_events
+    assert_eq!(
+        wb_reader.read_line(&mut line).unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    assert_eq!(
+        json_reader.read_line(&mut line).unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+
+    // Broadcast happens at manage boundary
+    harness.manage();
 
     assert!(wb_reader.read_line(&mut line).unwrap() > 0);
     assert!(line.contains("\"capturing\":true"));
@@ -3657,4 +3670,370 @@ fn test_capture_sessions_differential_broadcast_streams_to_waybar_and_json_liste
     harness.state.broadcast_status();
     let err = wb_reader.read_line(&mut line).unwrap_err();
     assert_eq!(err.kind(), std::io::ErrorKind::WouldBlock);
+}
+
+#[test]
+fn test_per_tag_floating_collapse_isolation_and_pinned_exemption() {
+    let mut harness = Harness::new();
+    harness.state.anim.enabled = false;
+    harness.add_output();
+    let _seat = harness.add_seat();
+
+    // 1. Tiled window on Tag 1
+    let w_tiled = harness.add_window();
+    // 2. Floating window on Tag 1
+    let w_float_tag1 = harness.add_window();
+    // 3. Floating window on Tag 2
+    let w_float_tag2 = harness.add_window();
+    // 4. Pinned window on TAG_ALL
+    let w_pinned = harness.add_window();
+
+    if let Some(win) = harness
+        .state
+        .windows
+        .iter_mut()
+        .find(|w| w.proxy.id().protocol_id() == w_float_tag1.protocol_id())
+    {
+        win.toggle_floating(None);
+        win.set_tags(1);
+    }
+    if let Some(win) = harness
+        .state
+        .windows
+        .iter_mut()
+        .find(|w| w.proxy.id().protocol_id() == w_float_tag2.protocol_id())
+    {
+        win.toggle_floating(None);
+        win.set_tags(2);
+    }
+    if let Some(win) = harness
+        .state
+        .windows
+        .iter_mut()
+        .find(|w| w.proxy.id().protocol_id() == w_pinned.protocol_id())
+    {
+        win.toggle_floating(None);
+        win.set_tags(xrwm::tag::TAG_ALL);
+    }
+    if let Some(win) = harness
+        .state
+        .windows
+        .iter_mut()
+        .find(|w| w.proxy.id().protocol_id() == w_tiled.protocol_id())
+    {
+        win.set_tags(1);
+    }
+
+    // Start on Tag 1 with float1 focused
+    harness.state.tag_state.focused = 1;
+    let float1_proxy = harness.window(&w_float_tag1).proxy.clone();
+    for seat in harness.state.seats.values_mut() {
+        seat.set_focused_window(Some(float1_proxy.clone()));
+    }
+    harness.manage();
+    harness.render();
+
+    // Verify float1 is focused initially
+    let float1_id = harness.window(&w_float_tag1).id;
+    assert_eq!(harness.state.focused_window_id(), Some(float1_id));
+
+    // On Tag 1: float1, pinned, and tiled are visible; float2 is HiddenByTags
+    assert!(
+        harness
+            .state
+            .is_window_visible(harness.window(&w_float_tag1))
+    );
+    assert!(harness.state.is_window_visible(harness.window(&w_pinned)));
+    assert!(harness.state.is_window_visible(harness.window(&w_tiled)));
+    assert!(
+        !harness
+            .state
+            .is_window_visible(harness.window(&w_float_tag2))
+    );
+
+    // Collapse floating windows on Tag 1
+    harness
+        .state
+        .execute_action_tokens(&["toggle-floating-views".into()]);
+    harness.manage();
+    harness.render();
+
+    // Invariant 1: float1 is HiddenByCollapse
+    assert_eq!(
+        harness
+            .state
+            .window_visibility(harness.window(&w_float_tag1)),
+        xrwm::state::WindowVisibility::HiddenByCollapse
+    );
+    assert!(
+        !harness
+            .state
+            .is_window_visible(harness.window(&w_float_tag1))
+    );
+
+    // Invariant 2: Pinned window (TAG_ALL) is EXEMPT from collapse
+    assert_eq!(
+        harness.state.window_visibility(harness.window(&w_pinned)),
+        xrwm::state::WindowVisibility::Visible
+    );
+    assert!(harness.state.is_window_visible(harness.window(&w_pinned)));
+
+    // Invariant 3: Focus transferred seamlessly to tiled window on Tag 1
+    let tiled_id = harness.window(&w_tiled).id;
+    assert_eq!(harness.state.focused_window_id(), Some(tiled_id));
+
+    // Invariant 4: Switch to Tag 2 -> Tag 2 floating window is VISIBLE and ISOLATED from Tag 1's collapse
+    harness
+        .state
+        .execute_action_tokens(&["set-focused-tags".into(), "2".into()]);
+    harness.manage();
+    harness.render();
+
+    assert_eq!(
+        harness
+            .state
+            .window_visibility(harness.window(&w_float_tag2)),
+        xrwm::state::WindowVisibility::Visible
+    );
+    assert!(
+        harness
+            .state
+            .is_window_visible(harness.window(&w_float_tag2))
+    );
+    assert!(harness.state.is_window_visible(harness.window(&w_pinned)));
+    assert!(
+        !harness
+            .state
+            .is_window_visible(harness.window(&w_float_tag1))
+    );
+
+    // Switch back to Tag 1 -> float1 is still collapsed
+    harness
+        .state
+        .execute_action_tokens(&["set-focused-tags".into(), "1".into()]);
+    harness.manage();
+    harness.render();
+    assert_eq!(
+        harness
+            .state
+            .window_visibility(harness.window(&w_float_tag1)),
+        xrwm::state::WindowVisibility::HiddenByCollapse
+    );
+
+    // Uncollapse Tag 1 -> float1 is restored and re-focused
+    harness
+        .state
+        .execute_action_tokens(&["toggle-floating-views".into()]);
+    harness.manage();
+    harness.render();
+    assert!(
+        harness
+            .state
+            .is_window_visible(harness.window(&w_float_tag1))
+    );
+    let float1_id = harness.window(&w_float_tag1).id;
+    assert_eq!(harness.state.focused_window_id(), Some(float1_id));
+}
+
+#[test]
+fn test_floating_collapse_lifecycle_hygiene_and_auto_uncollapse() {
+    let mut harness = Harness::new();
+    harness.state.anim.enabled = false;
+    harness.add_output();
+    let _seat = harness.add_seat();
+
+    // 1. Empty tag collapse trap test: toggling on an empty tag does not trap subsequent windows
+    harness.state.tag_state.focused = 1;
+    harness.manage();
+    harness
+        .state
+        .execute_action_tokens(&["toggle-floating-views".into()]);
+    harness.manage();
+
+    // Projected collapsible mask for Tag 1 is 0, so floating_hidden_tags remains 0
+    assert_eq!(harness.state.floating_hidden_tags_for_output(None), 0);
+
+    // 2. Open a floating window on Tag 1 -> collapse was not trapped, window is immediately visible
+    let w1 = harness.add_window();
+    if let Some(win) = harness
+        .state
+        .windows
+        .iter_mut()
+        .find(|w| w.proxy.id().protocol_id() == w1.protocol_id())
+    {
+        win.toggle_floating(None);
+        win.set_tags(1);
+    }
+    harness.manage();
+    assert!(harness.state.is_window_visible(harness.window(&w1)));
+
+    // Collapse Tag 1
+    harness
+        .state
+        .execute_action_tokens(&["toggle-floating-views".into()]);
+    harness.manage();
+    assert_eq!(harness.state.floating_hidden_tags_for_output(None) & 1, 1);
+    assert!(!harness.state.is_window_visible(harness.window(&w1)));
+
+    // 3. Auto-clearing on close: close the only floating window on Tag 1
+    if let Some(win) = harness
+        .state
+        .windows
+        .iter_mut()
+        .find(|w| w.proxy.id().protocol_id() == w1.protocol_id())
+    {
+        win.mark_closed();
+    }
+    harness.manage();
+
+    // Invariant: closing the last collapsible floating window auto-clears Tag 1 in floating_hidden_tags
+    assert_eq!(harness.state.floating_hidden_tags_for_output(None) & 1, 0);
+
+    // 4. Auto-uncollapse on new float:
+    // Create a new floating window on Tag 2, collapse Tag 2, then spawn another floating window
+    harness.state.tag_state.focused = 2;
+    let w2 = harness.add_window();
+    if let Some(win) = harness
+        .state
+        .windows
+        .iter_mut()
+        .find(|w| w.proxy.id().protocol_id() == w2.protocol_id())
+    {
+        win.toggle_floating(None);
+        win.set_tags(2);
+    }
+    harness.manage();
+    assert!(harness.state.is_window_visible(harness.window(&w2)));
+
+    // Collapse Tag 2
+    harness
+        .state
+        .execute_action_tokens(&["toggle-floating-views".into()]);
+    harness.manage();
+    assert_eq!(harness.state.floating_hidden_tags_for_output(None) & 2, 2);
+    assert!(!harness.state.is_window_visible(harness.window(&w2)));
+
+    // Create a new tiled window on Tag 2 and toggle it to float
+    let w3 = harness.add_window();
+    let w3_proxy = harness.window(&w3).proxy.clone();
+    if let Some(win) = harness
+        .state
+        .windows
+        .iter_mut()
+        .find(|w| w.proxy.id().protocol_id() == w3.protocol_id())
+    {
+        win.set_tags(2);
+    }
+    harness.manage();
+
+    // Focus w3 and toggle float
+    for seat in harness.state.seats.values_mut() {
+        seat.set_focused_window(Some(w3_proxy.clone()));
+    }
+    harness
+        .state
+        .execute_action_tokens(&["toggle-float".into()]);
+    harness.manage();
+
+    // Invariant: entering WorkspaceFloating clears the tag's collapse bit, restoring both windows!
+    assert_eq!(harness.state.floating_hidden_tags_for_output(None) & 2, 0);
+    assert!(harness.state.is_window_visible(harness.window(&w2)));
+    assert!(harness.state.is_window_visible(harness.window(&w3)));
+}
+
+#[test]
+fn test_format_json_status_outputs_ground_truth() {
+    let mut harness = Harness::new();
+    let out1 = harness.add_output_with_id();
+    let out2 = harness.add_output_with_id();
+    harness.add_window();
+    harness.manage();
+
+    // Set specific capture session count and monocle on out2
+    let client_out2 = harness
+        .state
+        .outputs
+        .keys()
+        .find(|id| id.protocol_id() == out2.protocol_id())
+        .unwrap()
+        .clone();
+    if let Some(out) = harness.state.outputs.get_mut(&client_out2) {
+        out.name = Some("DP-2".into());
+        out.capture_sessions = 5;
+        out.monocle = true;
+    }
+
+    let client_out1 = harness
+        .state
+        .outputs
+        .keys()
+        .find(|id| id.protocol_id() == out1.protocol_id())
+        .unwrap()
+        .clone();
+    if let Some(out) = harness.state.outputs.get_mut(&client_out1) {
+        out.name = Some("eDP-1".into());
+    }
+
+    let json_str = harness.state.format_json_status();
+    let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+
+    let outputs = parsed["outputs"]
+        .as_array()
+        .expect("outputs array must be present");
+    assert_eq!(outputs.len(), 2);
+
+    let dp2 = outputs
+        .iter()
+        .find(|o| o["name"] == "DP-2")
+        .expect("DP-2 output found");
+    assert_eq!(dp2["capture_sessions"], 5);
+    assert_eq!(dp2["monocle"], true);
+
+    let edp1 = outputs
+        .iter()
+        .find(|o| o["name"] == "eDP-1")
+        .expect("eDP-1 output found");
+    assert_eq!(edp1["capture_sessions"], 0);
+    assert_eq!(edp1["monocle"], false);
+}
+
+#[test]
+fn test_title_update_on_floating_window_preserves_collapse() {
+    let mut harness = Harness::new();
+    harness.state.anim.enabled = false;
+    harness.add_output();
+    let _seat = harness.add_seat();
+
+    let win = harness.add_window();
+    if let Some(w) = harness
+        .state
+        .windows
+        .iter_mut()
+        .find(|w| w.proxy.id().protocol_id() == win.protocol_id())
+    {
+        w.toggle_floating(None);
+        w.set_tags(1);
+    }
+    harness.manage();
+
+    // Collapse Tag 1
+    harness
+        .state
+        .execute_action_tokens(&["toggle-floating-views".into()]);
+    harness.manage();
+    assert_eq!(harness.state.floating_hidden_tags_for_output(None) & 1, 1);
+    assert_eq!(
+        harness.state.window_visibility(harness.window(&win)),
+        xrwm::state::WindowVisibility::HiddenByCollapse
+    );
+
+    // Update title while collapsed -> MUST remain collapsed!
+    harness.set_title(&win, "new title");
+    harness.manage();
+
+    assert_eq!(harness.state.floating_hidden_tags_for_output(None) & 1, 1);
+    assert_eq!(
+        harness.state.window_visibility(harness.window(&win)),
+        xrwm::state::WindowVisibility::HiddenByCollapse
+    );
 }

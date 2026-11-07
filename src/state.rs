@@ -24,7 +24,10 @@ use crate::tag::TAG_NONE;
 use crate::tag::TagMask;
 use crate::tag::TagState;
 
-pub use crate::window::{MIN_WINDOW_DIMENSION, WindowItem};
+pub use crate::window::{
+    BorderRole, LAYER_POLICIES, LayerPolicy, MIN_WINDOW_DIMENSION, WindowItem, WindowLayer,
+    WindowVisibility,
+};
 
 pub use crate::status::{
     StatusListener, StatusSubscription, SubscriberSnapshot, broadcast_status, format_json_status,
@@ -98,7 +101,7 @@ pub struct OutputItem {
     pub tag_state: TagState,
     pub previous_focused_tags: TagMask,
     pub monocle: bool,
-    pub floating_hidden: bool,
+    pub floating_hidden_tags: TagMask,
     /// Active screen capture sessions (River v5) recording/sharing this output.
     pub capture_sessions: u32,
 }
@@ -293,6 +296,9 @@ impl AppState {
         let focused_id = self.focused_window_id();
         let target_out = item.output.clone();
         let is_floating = item.floating;
+        let is_workspace_floating = item.layer() == WindowLayer::WorkspaceFloating;
+        let item_tags = item.tags;
+        let item_out = item.output.clone();
 
         let output_indices: Vec<usize> = self
             .windows
@@ -306,28 +312,61 @@ impl AppState {
 
         if output_indices.is_empty() {
             self.windows.push(item);
-            return;
+        } else {
+            let focused_pos = focused_id.and_then(|id| {
+                output_indices
+                    .iter()
+                    .position(|&idx| self.windows[idx].id == id)
+            });
+
+            let local_insert_idx = self
+                .attach_mode
+                .calculate_insert_index(focused_pos, output_indices.len());
+
+            let global_insert_idx = if local_insert_idx < output_indices.len() {
+                output_indices[local_insert_idx]
+            } else if let Some(&last_idx) = output_indices.last() {
+                last_idx + 1
+            } else {
+                self.windows.len()
+            };
+
+            self.windows.insert(global_insert_idx, item);
         }
 
-        let focused_pos = focused_id.and_then(|id| {
-            output_indices
-                .iter()
-                .position(|&idx| self.windows[idx].id == id)
-        });
+        if is_workspace_floating {
+            if let Some(ref out_id) = item_out {
+                if let Some(out) = self.outputs.get_mut(out_id) {
+                    out.floating_hidden_tags &= !item_tags;
+                }
+            } else {
+                for out in self.outputs.values_mut() {
+                    out.floating_hidden_tags &= !item_tags;
+                }
+            }
+        }
+    }
 
-        let local_insert_idx = self
-            .attach_mode
-            .calculate_insert_index(focused_pos, output_indices.len());
-
-        let global_insert_idx = if local_insert_idx < output_indices.len() {
-            output_indices[local_insert_idx]
-        } else if let Some(&last_idx) = output_indices.last() {
-            last_idx + 1
-        } else {
-            self.windows.len()
-        };
-
-        self.windows.insert(global_insert_idx, item);
+    /// Clears floating collapse mask for tags occupied by the window if it is in WorkspaceFloating layer.
+    pub fn uncollapse_floating_for_window_by_proxy(&mut self, proxy: &RiverWindowV1) {
+        let win_info = self
+            .windows
+            .iter()
+            .find(|w| &w.proxy == proxy)
+            .map(|w| (w.layer(), w.tags, w.output.clone()));
+        if let Some((layer, tags, out_id)) = win_info
+            && layer == WindowLayer::WorkspaceFloating
+        {
+            if let Some(ref id) = out_id {
+                if let Some(out) = self.outputs.get_mut(id) {
+                    out.floating_hidden_tags &= !tags;
+                }
+            } else {
+                for out in self.outputs.values_mut() {
+                    out.floating_hidden_tags &= !tags;
+                }
+            }
+        }
     }
 
     /// Translates floating geometry of a window from `src_area` to `dst_area`.
@@ -389,22 +428,30 @@ impl AppState {
         self.tag_state_for_output(focused_id.as_ref())
     }
 
-    /// Determines whether floating windows on the given output are currently collapsed/hidden.
+    /// Resolves the floating hidden tag mask for the given output.
     #[inline]
-    pub fn is_floating_hidden_for_output(&self, output_id: Option<&ObjectId>) -> bool {
+    pub fn floating_hidden_tags_for_output(&self, output_id: Option<&ObjectId>) -> TagMask {
         if self.outputs.len() <= 1 {
             self.outputs
                 .values()
                 .next()
-                .map(|o| o.floating_hidden)
-                .unwrap_or(false)
+                .map(|o| o.floating_hidden_tags)
+                .unwrap_or(0)
         } else {
             output_id
                 .and_then(|id| self.outputs.get(id))
                 .or_else(|| self.outputs.values().next())
-                .map(|o| o.floating_hidden)
-                .unwrap_or(false)
+                .map(|o| o.floating_hidden_tags)
+                .unwrap_or(0)
         }
+    }
+
+    /// Determines whether floating windows on the given output's active tags are currently collapsed/hidden.
+    #[inline]
+    pub fn is_floating_hidden_for_output(&self, output_id: Option<&ObjectId>) -> bool {
+        let hidden_tags = self.floating_hidden_tags_for_output(output_id);
+        let tag_state = self.tag_state_for_output(output_id);
+        (hidden_tags & tag_state.focused) != 0
     }
 
     /// Returns whether floating windows on the currently focused output are collapsed/hidden.
@@ -414,15 +461,64 @@ impl AppState {
         self.is_floating_hidden_for_output(focused_id.as_ref())
     }
 
+    /// Resolves window visibility against output tag state and floating collapse mask.
+    #[inline]
+    pub fn resolve_window_visibility(
+        tag_state: TagState,
+        floating_hidden_tags: TagMask,
+        w: &WindowItem,
+    ) -> WindowVisibility {
+        let active_tags = w.tags() & tag_state.focused;
+        if active_tags == 0 {
+            WindowVisibility::HiddenByTags
+        } else if w.layer().policy().collapsible && (active_tags & !floating_hidden_tags) == 0 {
+            WindowVisibility::HiddenByCollapse
+        } else {
+            WindowVisibility::Visible
+        }
+    }
+
+    /// Resolves the current window visibility using the application state.
+    #[inline]
+    pub fn window_visibility(&self, w: &WindowItem) -> WindowVisibility {
+        let out_id = w.output();
+        let tag_state = self.tag_state_for_output(out_id);
+        let floating_hidden_tags = self.floating_hidden_tags_for_output(out_id);
+        Self::resolve_window_visibility(tag_state, floating_hidden_tags, w)
+    }
+
+    /// Evaluates window visibility using the given outputs map and fallback tag state.
+    #[inline]
+    pub fn window_visibility_with(
+        outputs: &HashMap<ObjectId, OutputItem>,
+        default_tag_state: TagState,
+        w: &WindowItem,
+    ) -> WindowVisibility {
+        let (out_tag_state, floating_hidden_tags) = if outputs.len() <= 1 {
+            (
+                default_tag_state,
+                outputs
+                    .values()
+                    .next()
+                    .map(|o| o.floating_hidden_tags)
+                    .unwrap_or(0),
+            )
+        } else {
+            let o = w.output.as_ref().and_then(|id| outputs.get(id));
+            let floating_out = o.or_else(|| outputs.values().next());
+            (
+                o.map(|o| o.tag_state).unwrap_or(default_tag_state),
+                floating_out.map(|o| o.floating_hidden_tags).unwrap_or(0),
+            )
+        };
+
+        Self::resolve_window_visibility(out_tag_state, floating_hidden_tags, w)
+    }
+
     /// Returns whether the window is visible according to the tag and floating state of its output.
     #[inline]
     pub fn is_window_visible(&self, w: &WindowItem) -> bool {
-        let out_id = w.output();
-        if w.is_floating() && !w.is_fullscreen() && self.is_floating_hidden_for_output(out_id) {
-            return false;
-        }
-        let tag_state = self.tag_state_for_output(out_id);
-        tag_state.is_view_visible(w.tags())
+        self.window_visibility(w).is_visible()
     }
 
     /// Evaluates window visibility using the given outputs map and fallback tag state.
@@ -432,29 +528,7 @@ impl AppState {
         default_tag_state: TagState,
         w: &WindowItem,
     ) -> bool {
-        let (out_tag_state, floating_hidden) = if outputs.len() <= 1 {
-            (
-                default_tag_state,
-                outputs
-                    .values()
-                    .next()
-                    .map(|o| o.floating_hidden)
-                    .unwrap_or(false),
-            )
-        } else {
-            let o = w.output.as_ref().and_then(|id| outputs.get(id));
-            let floating_out = o.or_else(|| outputs.values().next());
-            (
-                o.map(|o| o.tag_state).unwrap_or(default_tag_state),
-                floating_out.map(|o| o.floating_hidden).unwrap_or(false),
-            )
-        };
-
-        if w.floating && !w.fullscreen && floating_hidden {
-            return false;
-        }
-
-        out_tag_state.is_view_visible(w.tags)
+        Self::window_visibility_with(outputs, default_tag_state, w).is_visible()
     }
 
     pub fn offscreen_hiding_position(&self) -> (i32, i32) {
@@ -1121,7 +1195,7 @@ impl AppState {
                         .iter()
                         .find(|other| {
                             !other.closed
-                                && !other.floating
+                                && other.layer().policy().tiled_layout
                                 && other.id != start_win_id
                                 && Self::is_window_visible_with(
                                     &self.outputs,
@@ -1163,6 +1237,23 @@ impl AppState {
             }
         }
 
+        // Project floating_hidden_tags to maintain per-tag collapse invariant
+        let is_single_output = self.outputs.len() <= 1;
+        for (out_id, out) in &mut self.outputs {
+            let collapsible_mask: TagMask = self
+                .windows
+                .iter()
+                .filter(|w| {
+                    !w.closed
+                        && w.layer().policy().collapsible
+                        && (w.output.as_ref() == Some(out_id) || is_single_output)
+                })
+                .map(|w| w.tags)
+                .fold(0, |acc, tags| acc | tags);
+
+            out.floating_hidden_tags &= collapsible_mask;
+        }
+
         // 4. Arrange windows for each output
         if self.outputs.is_empty() {
             self.propose_initial_dimensions();
@@ -1190,8 +1281,7 @@ impl AppState {
                     _ => true,
                 };
                 if matches_output
-                    && !w.floating
-                    && !w.fullscreen
+                    && w.layer().policy().tiled_layout
                     && out_tag_state.is_view_visible(w.tags)
                 {
                     tiled_indices.push(i);
@@ -1220,7 +1310,7 @@ impl AppState {
         for w in self
             .windows
             .iter_mut()
-            .filter(|w| w.floating && !w.fullscreen)
+            .filter(|w| !w.layer().policy().tiled_layout && w.layer() != WindowLayer::Fullscreen)
         {
             let is_visible = Self::is_window_visible_with(&self.outputs, self.tag_state, w);
             if w.arrange_floating(is_visible, is_any_pointer_op) {
@@ -1352,12 +1442,29 @@ impl AppState {
                 let focused_win =
                     focused_id.and_then(|id| self.windows.iter().find(|w| w.id == id));
                 let capture_sessions = crate::status::total_capture_sessions(self);
+                let is_floating_hidden = self.is_focused_output_floating_hidden();
+                let hidden_floating_count = if is_floating_hidden {
+                    let focused_out = self.get_focused_output_id();
+                    self.windows
+                        .iter()
+                        .filter(|w| {
+                            !w.is_closed()
+                                && (focused_out.is_none()
+                                    || self.outputs.len() <= 1
+                                    || w.output() == focused_out.as_ref())
+                                && self.window_visibility(w) == WindowVisibility::HiddenByCollapse
+                        })
+                        .count()
+                } else {
+                    0
+                };
                 SubscriberSnapshot::WaybarLegacy {
                     active_tags: tags_text,
                     focused_title: focused_win.and_then(|w| w.title.clone()),
                     active_mode: self.active_mode.clone(),
                     monocle: self.layout_config.monocle,
-                    floating_hidden: self.is_focused_output_floating_hidden(),
+                    floating_hidden: is_floating_hidden,
+                    hidden_floating_count,
                     capturing: capture_sessions > 0,
                     capture_sessions,
                 }
@@ -1390,14 +1497,31 @@ impl AppState {
                 }
             }
             StatusSubscription::Pinned => {
-                let window_count = self
+                let pinned_windows: Vec<&crate::state::WindowItem> = self
                     .windows
                     .iter()
                     .filter(|w| !w.closed && w.tags == crate::tag::TAG_ALL)
-                    .count();
+                    .collect();
+                let window_count = pinned_windows.len();
+                let active = window_count > 0;
+                let tooltip = if window_count == 0 {
+                    "No pinned windows".to_string()
+                } else {
+                    let titles: Vec<&str> = pinned_windows
+                        .iter()
+                        .map(|w| {
+                            w.app_id
+                                .as_deref()
+                                .or(w.title.as_deref())
+                                .unwrap_or("window")
+                        })
+                        .collect();
+                    format!("Pinned ({window_count}): {}", titles.join(", "))
+                };
                 SubscriberSnapshot::Pinned {
-                    active: window_count > 0,
+                    active,
                     window_count,
+                    tooltip,
                 }
             }
         }

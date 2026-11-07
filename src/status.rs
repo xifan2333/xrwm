@@ -73,6 +73,7 @@ pub enum SubscriberSnapshot {
         active_mode: String,
         monocle: bool,
         floating_hidden: bool,
+        hidden_floating_count: usize,
         capturing: bool,
         capture_sessions: u32,
     },
@@ -85,7 +86,11 @@ pub enum SubscriberSnapshot {
         window_count: usize,
     },
     /// Global pinned overlays status snapshot.
-    Pinned { active: bool, window_count: usize },
+    Pinned {
+        active: bool,
+        window_count: usize,
+        tooltip: String,
+    },
 }
 
 /// Active status event listener tracking subscriber state and last sent snapshot.
@@ -119,10 +124,6 @@ pub fn broadcast_status(state: &mut AppState) {
 
     let mut listeners = std::mem::take(&mut state.status_listeners);
 
-    // Resolve active output masks once for all tag subscribers
-    let focused_tag_state = state.focused_output_tag_state();
-    let (focused_mask, occupied_mask) = (focused_tag_state.focused, focused_tag_state.occupied);
-
     // Lazy buffers for formatted messages (only computed on demand when a listener actually needs to send)
     let mut cached_tag_msgs: [Option<String>; 32] = Default::default();
     let mut cached_window_msg: Option<String> = None;
@@ -132,81 +133,10 @@ pub fn broadcast_status(state: &mut AppState) {
     let mut cached_pinned_msg: Option<String> = None;
 
     listeners.retain_mut(|listener| {
-        let (current_snapshot, msg_to_send) = match listener.subscription {
-            StatusSubscription::Tag(tag) => {
-                let mask = 1u32
-                    .checked_shl((tag.saturating_sub(1)) as u32)
-                    .unwrap_or(0);
-                let is_active = (focused_mask & mask) != 0;
-                let is_occupied = (occupied_mask & mask) != 0;
-                let snapshot = SubscriberSnapshot::Tag {
-                    focused: is_active,
-                    occupied: is_occupied,
-                };
-                if listener.last_snapshot.as_ref() == Some(&snapshot) {
-                    return true;
-                }
-                let idx = (tag.saturating_sub(1) as usize).min(31);
-                let msg = cached_tag_msgs[idx].get_or_insert_with(|| {
-                    let mut s = format_tag_status_from_state(tag, is_active, is_occupied);
-                    s.push('\n');
-                    s
-                });
-                (snapshot, msg.as_bytes())
-            }
-            StatusSubscription::Window => {
-                let focused_id = state.focused_window_id();
-                let focused_win =
-                    focused_id.and_then(|id| state.windows.iter().find(|w| w.id == id));
-                let snapshot = SubscriberSnapshot::Window {
-                    focused_id,
-                    title: focused_win.and_then(|w| w.title.clone()),
-                    app_id: focused_win.and_then(|w| w.app_id.clone()),
-                    floating: focused_win.map(|w| w.floating).unwrap_or(false),
-                };
-                if listener.last_snapshot.as_ref() == Some(&snapshot) {
-                    return true;
-                }
-                let msg = cached_window_msg.get_or_insert_with(|| {
-                    let mut s = format_window_status(state);
-                    s.push('\n');
-                    s
-                });
-                (snapshot, msg.as_bytes())
-            }
-            StatusSubscription::WaybarLegacy => {
-                let active = state.tag_state.focused_tag_indices();
-                let tags_text = active
-                    .iter()
-                    .map(|i| i.to_string())
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                let focused_id = state.focused_window_id();
-                let focused_win =
-                    focused_id.and_then(|id| state.windows.iter().find(|w| w.id == id));
-                let capture_sessions = total_capture_sessions(state);
-                let snapshot = SubscriberSnapshot::WaybarLegacy {
-                    active_tags: tags_text,
-                    focused_title: focused_win.and_then(|w| w.title.clone()),
-                    active_mode: state.active_mode.clone(),
-                    monocle: state.layout_config.monocle,
-                    floating_hidden: state.is_focused_output_floating_hidden(),
-                    capturing: capture_sessions > 0,
-                    capture_sessions,
-                };
-                if listener.last_snapshot.as_ref() == Some(&snapshot) {
-                    return true;
-                }
-                let msg = cached_waybar_msg.get_or_insert_with(|| {
-                    let mut s = format_waybar_status(state);
-                    s.push('\n');
-                    s
-                });
-                (snapshot, msg.as_bytes())
-            }
+        let snapshot = match listener.subscription {
             StatusSubscription::FullJson => {
-                let (json_str, hash) = cached_json_msg.get_or_insert_with(|| {
-                    let s = format_json_status(state);
+                let (_, hash) = cached_json_msg.get_or_insert_with(|| {
+                    let s = state.format_json_status();
                     use std::hash::{DefaultHasher, Hash, Hasher};
                     let mut hasher = DefaultHasher::new();
                     s.hash(&mut hasher);
@@ -215,61 +145,66 @@ pub fn broadcast_status(state: &mut AppState) {
                     line.push('\n');
                     (line, h)
                 });
-                let snapshot = SubscriberSnapshot::FullJson {
+                SubscriberSnapshot::FullJson {
                     payload_hash: *hash,
-                };
-                if listener.last_snapshot.as_ref() == Some(&snapshot) {
-                    return true;
                 }
-                (snapshot, json_str.as_bytes())
             }
-            StatusSubscription::Scratchpad => {
-                let is_focused = state.tag_state.is_scratchpad_focused();
-                let is_occupied = state.tag_state.is_scratchpad_occupied();
-                let window_count = state
-                    .windows
-                    .iter()
-                    .filter(|w| {
-                        !w.closed
-                            && (w.tags & crate::tag::TAG_SCRATCHPAD) != 0
-                            && w.tags != crate::tag::TAG_ALL
-                    })
-                    .count();
-                let snapshot = SubscriberSnapshot::Scratchpad {
-                    focused: is_focused,
-                    occupied: is_occupied,
-                    window_count,
+            _ => state.current_subscriber_snapshot(&listener.subscription),
+        };
+
+        if listener.last_snapshot.as_ref() == Some(&snapshot) {
+            return true;
+        }
+
+        let msg_to_send: &[u8] = match listener.subscription {
+            StatusSubscription::Tag(tag) => {
+                let (is_active, is_occupied) = match snapshot {
+                    SubscriberSnapshot::Tag { focused, occupied } => (focused, occupied),
+                    _ => (false, false),
                 };
-                if listener.last_snapshot.as_ref() == Some(&snapshot) {
-                    return true;
-                }
+                let idx = (tag.saturating_sub(1) as usize).min(31);
+                let msg = cached_tag_msgs[idx].get_or_insert_with(|| {
+                    let mut s = format_tag_status_from_state(tag, is_active, is_occupied);
+                    s.push('\n');
+                    s
+                });
+                msg.as_bytes()
+            }
+            StatusSubscription::Window => {
+                let msg = cached_window_msg.get_or_insert_with(|| {
+                    let mut s = format_window_status(state);
+                    s.push('\n');
+                    s
+                });
+                msg.as_bytes()
+            }
+            StatusSubscription::WaybarLegacy => {
+                let msg = cached_waybar_msg.get_or_insert_with(|| {
+                    let mut s = format_waybar_status(state);
+                    s.push('\n');
+                    s
+                });
+                msg.as_bytes()
+            }
+            StatusSubscription::FullJson => cached_json_msg
+                .as_ref()
+                .map(|(s, _)| s.as_bytes())
+                .unwrap_or(b""),
+            StatusSubscription::Scratchpad => {
                 let msg = cached_scratchpad_msg.get_or_insert_with(|| {
                     let mut s = format_scratchpad_status(state);
                     s.push('\n');
                     s
                 });
-                (snapshot, msg.as_bytes())
+                msg.as_bytes()
             }
             StatusSubscription::Pinned => {
-                let window_count = state
-                    .windows
-                    .iter()
-                    .filter(|w| !w.closed && w.tags == crate::tag::TAG_ALL)
-                    .count();
-                let active = window_count > 0;
-                let snapshot = SubscriberSnapshot::Pinned {
-                    active,
-                    window_count,
-                };
-                if listener.last_snapshot.as_ref() == Some(&snapshot) {
-                    return true;
-                }
                 let msg = cached_pinned_msg.get_or_insert_with(|| {
                     let mut s = format_pinned_status(state);
                     s.push('\n');
                     s
                 });
-                (snapshot, msg.as_bytes())
+                msg.as_bytes()
             }
         };
 
@@ -305,7 +240,7 @@ pub fn broadcast_status(state: &mut AppState) {
         } else {
             if bytes.is_empty() {
                 let _ = listener.stream.flush();
-                listener.last_snapshot = Some(current_snapshot);
+                listener.last_snapshot = Some(snapshot);
             }
             true
         }
@@ -355,11 +290,11 @@ pub fn format_json_status(state: &AppState) -> String {
             .iter()
             .filter(|w| {
                 !w.is_closed()
-                    && w.is_floating()
-                    && !w.is_fullscreen()
                     && (focused_out.is_none()
                         || state.outputs.len() <= 1
                         || w.output() == focused_out.as_ref())
+                    && state.window_visibility(w)
+                        == crate::state::WindowVisibility::HiddenByCollapse
             })
             .count()
     } else {
@@ -368,6 +303,38 @@ pub fn format_json_status(state: &AppState) -> String {
 
     let total_capture_sessions = total_capture_sessions(state);
     let capturing = total_capture_sessions > 0;
+
+    let focused_out_id = state.get_focused_output_id();
+    let mut output_list: Vec<serde_json::Value> = state
+        .outputs
+        .iter()
+        .map(|(id, o)| {
+            let is_focused = focused_out_id.as_ref() == Some(id);
+            serde_json::json!({
+                "name": o.name.clone().unwrap_or_default(),
+                "focused": is_focused,
+                "x": o.x,
+                "y": o.y,
+                "width": o.width,
+                "height": o.height,
+                "usable_area": {
+                    "x": o.usable_area.x,
+                    "y": o.usable_area.y,
+                    "width": o.usable_area.width,
+                    "height": o.usable_area.height,
+                },
+                "focused_tags": o.tag_state.focused,
+                "occupied_tags": o.tag_state.occupied,
+                "active_tag_numbers": o.tag_state.focused_tag_indices(),
+                "occupied_tag_numbers": o.tag_state.occupied_tag_indices(),
+                "monocle": o.monocle,
+                "floating_hidden": (o.floating_hidden_tags & o.tag_state.focused) != 0,
+                "floating_hidden_tags": o.floating_hidden_tags,
+                "capture_sessions": o.capture_sessions,
+            })
+        })
+        .collect();
+    output_list.sort_by_key(|v| v["name"].as_str().unwrap_or("").to_string());
 
     let obj = serde_json::json!({
         "focused_tags": state.tag_state.focused,
@@ -399,6 +366,7 @@ pub fn format_json_status(state: &AppState) -> String {
             "count": state.windows.iter().filter(|w| !w.closed && w.tags == crate::tag::TAG_ALL).count(),
         },
         "windows": window_list,
+        "outputs": output_list,
     });
 
     serde_json::to_string(&obj).unwrap_or_default()
@@ -417,6 +385,23 @@ pub fn format_waybar_status(state: &AppState) -> String {
     let focused_win = focused_id.and_then(|id| state.windows.iter().find(|w| w.id == id));
     let title = focused_win.and_then(|w| w.title.as_deref()).unwrap_or("");
     let is_floating_hidden = state.is_focused_output_floating_hidden();
+    let hidden_floating_count = if is_floating_hidden {
+        let focused_out = state.get_focused_output_id();
+        state
+            .windows
+            .iter()
+            .filter(|w| {
+                !w.is_closed()
+                    && (focused_out.is_none()
+                        || state.outputs.len() <= 1
+                        || w.output() == focused_out.as_ref())
+                    && state.window_visibility(w)
+                        == crate::state::WindowVisibility::HiddenByCollapse
+            })
+            .count()
+    } else {
+        0
+    };
     let capture_sessions = total_capture_sessions(state);
     let capturing = capture_sessions > 0;
 
@@ -451,6 +436,7 @@ pub fn format_waybar_status(state: &AppState) -> String {
         "tooltip": tooltip,
         "class": classes,
         "floating_hidden": is_floating_hidden,
+        "hidden_floating_count": hidden_floating_count,
         "capturing": capturing,
         "capture_sessions": capture_sessions,
     });

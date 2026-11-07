@@ -344,3 +344,63 @@ fn test_differential_broadcasting_scratchpad_and_pinned() {
     let res = reader_sp.get_mut().read(&mut [0u8; 64]);
     assert!(matches!(res, Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock));
 }
+
+#[test]
+fn test_window_layer_policies_and_ordering() {
+    assert!(WindowLayer::Tiled < WindowLayer::WorkspaceFloating);
+    assert!(WindowLayer::WorkspaceFloating < WindowLayer::Scratchpad);
+    assert!(WindowLayer::Scratchpad < WindowLayer::Pinned);
+    assert!(WindowLayer::Pinned < WindowLayer::Fullscreen);
+
+    // Tiled policy
+    let tiled = WindowLayer::Tiled.policy();
+    assert!(tiled.tiled_layout);
+    assert!(!tiled.collapsible);
+    assert!(tiled.occupies_tag);
+    assert!(tiled.has_border);
+
+    // WorkspaceFloating policy
+    let ws_float = WindowLayer::WorkspaceFloating.policy();
+    assert!(!ws_float.tiled_layout);
+    assert!(ws_float.collapsible);
+    assert!(ws_float.occupies_tag);
+    assert!(ws_float.has_border);
+
+    // Scratchpad policy
+    let scratch = WindowLayer::Scratchpad.policy();
+    assert!(!scratch.tiled_layout);
+    assert!(!scratch.collapsible);
+    assert!(scratch.occupies_tag);
+    assert!(scratch.has_border);
+
+    // Pinned (TAG_ALL) policy
+    let pinned = WindowLayer::Pinned.policy();
+    assert!(!pinned.tiled_layout);
+    assert!(!pinned.collapsible);
+    assert!(!pinned.occupies_tag);
+    assert!(pinned.has_border);
+
+    // Fullscreen policy
+    let fs = WindowLayer::Fullscreen.policy();
+    assert!(!fs.tiled_layout);
+    assert!(!fs.collapsible);
+    assert!(fs.occupies_tag);
+    assert!(!fs.has_border);
+}
+
+#[test]
+fn test_border_role_properties() {
+    assert_eq!(BorderRole::None as usize, 0);
+    assert_eq!(BorderRole::Captured as usize, 1);
+    assert_eq!(BorderRole::Focused as usize, 2);
+    assert_eq!(BorderRole::Unfocused as usize, 3);
+}
+
+#[test]
+fn test_window_visibility_resolver() {
+    use xrwm::state::WindowVisibility;
+
+    assert!(WindowVisibility::Visible.is_visible());
+    assert!(!WindowVisibility::HiddenByTags.is_visible());
+    assert!(!WindowVisibility::HiddenByCollapse.is_visible());
+}

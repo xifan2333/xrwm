@@ -9,7 +9,7 @@ use crate::protocol::{
 use crate::seat::{LayerShellFocus, SeatOp};
 use crate::state::AppState;
 use crate::status::hex_to_river_rgba;
-use crate::window::WindowItem;
+use crate::window::{BorderRole, WindowItem, WindowLayer, WindowVisibility};
 
 /// Visual border configuration planned for a window in the current frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,6 +60,15 @@ pub fn compute_frame_plan(state: &AppState) -> FramePlan {
     let border_width = (state.border_width.min(i32::MAX as u32)) as i32;
     let (fr, fg, fb, fa) = hex_to_river_rgba(&state.border_color_focused);
     let (ur, ug, ub, ua) = hex_to_river_rgba(&state.border_color_unfocused);
+    let (er, eg, eb, ea) = hex_to_river_rgba(&state.border_color_urgent);
+
+    let border_palette = [
+        (0u32, 0u32, 0u32, 0u32), // BorderRole::None
+        (er, eg, eb, ea),         // BorderRole::Captured
+        (fr, fg, fb, fa),         // BorderRole::Focused
+        (ur, ug, ub, ua),         // BorderRole::Unfocused
+    ];
+
     let focused_proxy = state.seats.values().find_map(|s| {
         if s.layer_focus == LayerShellFocus::None {
             s.focused.clone()
@@ -82,13 +91,9 @@ pub fn compute_frame_plan(state: &AppState) -> FramePlan {
 
     for w in &state.windows {
         let is_focused = focused_proxy.as_ref() == Some(w.proxy());
-        let (cr, cg, cb, ca) = if is_focused {
-            (fr, fg, fb, fa)
-        } else {
-            (ur, ug, ub, ua)
-        };
+        let role = w.border_role(is_focused);
 
-        let border = if w.is_fullscreen() || !w.ssd() {
+        let border = if role == BorderRole::None {
             BorderPlan {
                 edges: Edges::empty(),
                 width: 0,
@@ -98,7 +103,7 @@ pub fn compute_frame_plan(state: &AppState) -> FramePlan {
             BorderPlan {
                 edges: Edges::all(),
                 width: border_width,
-                color: (cr, cg, cb, ca),
+                color: border_palette[role as usize],
             }
         };
 
@@ -125,9 +130,7 @@ pub fn compute_frame_plan(state: &AppState) -> FramePlan {
             continue;
         };
 
-        let is_output_floating_hidden = state.is_floating_hidden_for_output(w.output());
-
-        if w.is_floating() && !w.is_fullscreen() && is_output_floating_hidden {
+        if state.window_visibility(w) == WindowVisibility::HiddenByCollapse {
             window_plans.push(WindowFramePlan {
                 window_id: w.id(),
                 proxy: w.proxy().clone(),
@@ -155,7 +158,13 @@ pub fn compute_frame_plan(state: &AppState) -> FramePlan {
 
         let out_tag_state = state.tag_state_for_output(w.output());
         let is_in_current = out_tag_state.is_view_visible(w.tags());
-        let is_in_old = is_tag_animating && (w.tags() & state.tag_anim_old_mask) != 0;
+        let floating_hidden_tags = state.floating_hidden_tags_for_output(w.output());
+        let was_collapsed_in_old = w.layer().policy().collapsible && {
+            let old_active = w.tags() & state.tag_anim_old_mask;
+            old_active != 0 && (old_active & !floating_hidden_tags) == 0
+        };
+        let is_in_old =
+            is_tag_animating && (w.tags() & state.tag_anim_old_mask) != 0 && !was_collapsed_in_old;
 
         if is_in_current || is_in_old {
             let is_interactive = active_move_proxy.as_ref() == Some(w.proxy());
@@ -285,58 +294,37 @@ pub fn compute_frame_plan(state: &AppState) -> FramePlan {
         }
     }
 
-    // Enforce strict layered Z-ordering (matching river-classic where .float > .layout):
-    //
-    // Layer 1 (Bottom): Tiled windows.
-    //   Place unfocused tiled windows first, then focused tiled window (if focused is tiled).
+    // Enforce strict layered Z-ordering across the 5 WindowLayers:
+    // Tiled -> WorkspaceFloating -> Scratchpad -> Pinned -> Fullscreen.
+    // Within each layer, unfocused windows are placed first, followed by the focused window in that layer (if any).
+    let layers = [
+        WindowLayer::Tiled,
+        WindowLayer::WorkspaceFloating,
+        WindowLayer::Scratchpad,
+        WindowLayer::Pinned,
+        WindowLayer::Fullscreen,
+    ];
+
     let mut z_order_nodes = Vec::with_capacity(state.windows.len());
 
-    for w in state
-        .windows
-        .iter()
-        .filter(|w| !w.is_floating() && state.is_window_visible(w))
-    {
-        if focused_proxy.as_ref() != Some(w.proxy()) {
-            z_order_nodes.push(w.node().clone());
-        }
-    }
-    if let Some(ref focused) = focused_proxy
-        && let Some(win) = state
+    for &layer in &layers {
+        for w in state
             .windows
             .iter()
-            .find(|w| w.proxy() == focused && !w.is_floating() && state.is_window_visible(w))
-    {
-        z_order_nodes.push(win.node().clone());
-    }
-
-    // Layer 2 (Top): Floating windows.
-    //   Place unfocused floating windows first, then focused floating window (if focused is floating).
-    //   Floating windows are GUARANTEED to ALWAYS remain above all tiled windows!
-    for w in state
-        .windows
-        .iter()
-        .filter(|w| w.is_floating() && state.is_window_visible(w))
-    {
-        if focused_proxy.as_ref() != Some(w.proxy()) {
-            z_order_nodes.push(w.node().clone());
+            .filter(|w| w.layer() == layer && state.is_window_visible(w))
+        {
+            if focused_proxy.as_ref() != Some(w.proxy()) {
+                z_order_nodes.push(w.node().clone());
+            }
         }
-    }
-    if let Some(ref focused) = focused_proxy
-        && let Some(win) = state
-            .windows
-            .iter()
-            .find(|w| w.proxy() == focused && w.is_floating() && state.is_window_visible(w))
-    {
-        z_order_nodes.push(win.node().clone());
-    }
-
-    // Layer 3 (Absolute Top): Fullscreen windows
-    for w in state
-        .windows
-        .iter()
-        .filter(|w| w.is_fullscreen() && state.is_window_visible(w))
-    {
-        z_order_nodes.push(w.node().clone());
+        if let Some(ref focused) = focused_proxy
+            && let Some(win) = state
+                .windows
+                .iter()
+                .find(|w| w.proxy() == focused && w.layer() == layer && state.is_window_visible(w))
+        {
+            z_order_nodes.push(win.node().clone());
+        }
     }
 
     FramePlan {

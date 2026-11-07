@@ -58,13 +58,25 @@ _Avoid_: Draw frame, buffer geometry
 
 ## Tag & Workspace Dispatching
 
+**Window Layer**:
+The mutually exclusive Z-ordered classification of a window (`Tiled`, `WorkspaceFloating`, `Scratchpad`, `Pinned`, `Fullscreen`) mapped to a static `LayerPolicy` table governing tiling participation, collapse eligibility, tag occupancy, and SSD border rendering.
+_Avoid_: Ad-hoc float/pin boolean checks, layer flags
+
+**Window Visibility**:
+The three-state resolution (`Visible`, `HiddenByTags`, `HiddenByCollapse`) computed by the single visibility dispatcher for a window against its output's focused tags and per-tag floating collapse mask.
+_Avoid_: Scattered visibility checks
+
+**Border Role**:
+The visual border classification (`None`, `Captured`, `Focused`, `Unfocused`) indexing a frame palette table where active capture sessions (`Captured`) take highest priority using `border-color-urgent`.
+_Avoid_: Inline border color conditionals
+
 **Tag Dispatcher**:
 The centralized resolution authority on the application state that determines active workspace tag states and window visibility across physical outputs and headless fallbacks.
 _Avoid_: Tag manager, workspace router
 
 **Floating Collapse**:
-The per-output visibility state toggled via `toggle-floating-views` that collapses unconstrained windows offscreen while preserving geometry and moving focus to a visible tiled window.
-_Avoid_: Minimize all, float hide
+The per-output, per-tag visibility mask (`floating_hidden_tags`) toggled via `toggle-floating-views` that collapses `WorkspaceFloating` windows offscreen on the active tag(s) while preserving geometry, exempting `Pinned` (`TAG_ALL`) and `Scratchpad` overlays, and transferring focus to a visible tiled window.
+_Avoid_: Minimize all, float hide, output-wide float collapse
 
 ## Capture & Privacy
 
