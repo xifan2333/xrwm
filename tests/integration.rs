@@ -3635,13 +3635,25 @@ fn test_capture_sessions_differential_broadcast_streams_to_waybar_and_json_liste
     assert!(line.contains("\"capturing\":false"));
     line.clear();
 
-    // Capture session starts -> differential broadcast automatically pushes updates.
+    // Capture session starts -> differential broadcast automatically pushes updates only at manage boundary.
     harness.event(
         &window,
         window::EVT_CAPTURE_SESSIONS_OPCODE,
         vec![Argument::Uint(1)],
     );
     harness.dispatch_events();
+
+    // Invariant: broadcast must NOT happen eagerly inside dispatch_events
+    assert_eq!(
+        wb_reader.read_line(&mut line).unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    assert_eq!(
+        json_reader.read_line(&mut line).unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+
+    // Broadcast happens at manage boundary
     harness.manage();
 
     assert!(wb_reader.read_line(&mut line).unwrap() > 0);

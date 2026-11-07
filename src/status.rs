@@ -86,7 +86,11 @@ pub enum SubscriberSnapshot {
         window_count: usize,
     },
     /// Global pinned overlays status snapshot.
-    Pinned { active: bool, window_count: usize },
+    Pinned {
+        active: bool,
+        window_count: usize,
+        tooltip: String,
+    },
 }
 
 /// Active status event listener tracking subscriber state and last sent snapshot.

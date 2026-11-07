@@ -113,12 +113,19 @@ impl AppState {
         };
 
         if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
+            let prev_layer = w.layer();
             let is_fs = w.toggle_fullscreen();
+            let proxy = w.proxy.clone();
             tracing::debug!(
                 window_id = id,
                 fullscreen = is_fs,
                 "Toggled window fullscreen"
             );
+            if prev_layer != WindowLayer::WorkspaceFloating
+                && w.layer() == WindowLayer::WorkspaceFloating
+            {
+                self.uncollapse_floating_for_window_by_proxy(&proxy);
+            }
             self.manage_dirty();
             Ok(format!("window {id} fullscreen={is_fs}"))
         } else {
@@ -647,7 +654,14 @@ impl AppState {
         };
 
         if let Some(w) = self.windows.iter_mut().find(|w| w.id == id) {
+            let prev_layer = w.layer();
             w.set_tags(mask);
+            let proxy = w.proxy.clone();
+            if prev_layer != WindowLayer::WorkspaceFloating
+                && w.layer() == WindowLayer::WorkspaceFloating
+            {
+                self.uncollapse_floating_for_window_by_proxy(&proxy);
+            }
             self.sync_occupied_tags();
             self.reconcile_focus();
             self.manage_dirty();
@@ -669,7 +683,14 @@ impl AppState {
             if new_tags == TAG_NONE {
                 return Err("cannot clear all tags on window".to_string());
             }
+            let prev_layer = w.layer();
             w.set_tags(new_tags);
+            let proxy = w.proxy.clone();
+            if prev_layer != WindowLayer::WorkspaceFloating
+                && w.layer() == WindowLayer::WorkspaceFloating
+            {
+                self.uncollapse_floating_for_window_by_proxy(&proxy);
+            }
             self.sync_occupied_tags();
             self.reconcile_focus();
             self.manage_dirty();

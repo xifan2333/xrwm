@@ -183,7 +183,7 @@ Can be absolute (e.g. `0.65`) or relative (e.g. `+0.05`, `-0.05`). Defaults to `
 : Sets the border color of unfocused windows.
 
 **border-color-urgent** _color_
-: Sets the border color reserved for windows demanding attention or actively being captured. When a window has active screen capture sessions (`w.capture_sessions > 0`), its SSD border is rendered in this color with top priority to provide visual privacy awareness. Defaults to `#e06c75`.
+: Sets the border color reserved for windows demanding attention or actively being captured. When a window has active screen capture sessions (`w.capture_sessions > 0`), its SSD border is rendered in this color with top priority to provide visual privacy awareness. Defaults to `#f7768e`.
 
 **set-cursor-warp** **disabled**|**on-output-change**|**on-focus-change**
 : Configures cursor warp policy:

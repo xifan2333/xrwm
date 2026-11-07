@@ -296,6 +296,9 @@ impl AppState {
         let focused_id = self.focused_window_id();
         let target_out = item.output.clone();
         let is_floating = item.floating;
+        let is_workspace_floating = item.layer() == WindowLayer::WorkspaceFloating;
+        let item_tags = item.tags;
+        let item_out = item.output.clone();
 
         let output_indices: Vec<usize> = self
             .windows
@@ -309,32 +312,27 @@ impl AppState {
 
         if output_indices.is_empty() {
             self.windows.push(item);
-            return;
-        }
-
-        let focused_pos = focused_id.and_then(|id| {
-            output_indices
-                .iter()
-                .position(|&idx| self.windows[idx].id == id)
-        });
-
-        let local_insert_idx = self
-            .attach_mode
-            .calculate_insert_index(focused_pos, output_indices.len());
-
-        let is_workspace_floating = item.layer() == WindowLayer::WorkspaceFloating;
-        let item_tags = item.tags;
-        let item_out = item.output.clone();
-
-        let global_insert_idx = if local_insert_idx < output_indices.len() {
-            output_indices[local_insert_idx]
-        } else if let Some(&last_idx) = output_indices.last() {
-            last_idx + 1
         } else {
-            self.windows.len()
-        };
+            let focused_pos = focused_id.and_then(|id| {
+                output_indices
+                    .iter()
+                    .position(|&idx| self.windows[idx].id == id)
+            });
 
-        self.windows.insert(global_insert_idx, item);
+            let local_insert_idx = self
+                .attach_mode
+                .calculate_insert_index(focused_pos, output_indices.len());
+
+            let global_insert_idx = if local_insert_idx < output_indices.len() {
+                output_indices[local_insert_idx]
+            } else if let Some(&last_idx) = output_indices.last() {
+                last_idx + 1
+            } else {
+                self.windows.len()
+            };
+
+            self.windows.insert(global_insert_idx, item);
+        }
 
         if is_workspace_floating {
             if let Some(ref out_id) = item_out {
@@ -1197,7 +1195,7 @@ impl AppState {
                         .iter()
                         .find(|other| {
                             !other.closed
-                                && !other.floating
+                                && other.layer().policy().tiled_layout
                                 && other.id != start_win_id
                                 && Self::is_window_visible_with(
                                     &self.outputs,
@@ -1283,8 +1281,7 @@ impl AppState {
                     _ => true,
                 };
                 if matches_output
-                    && !w.floating
-                    && !w.fullscreen
+                    && w.layer().policy().tiled_layout
                     && out_tag_state.is_view_visible(w.tags)
                 {
                     tiled_indices.push(i);
@@ -1313,7 +1310,7 @@ impl AppState {
         for w in self
             .windows
             .iter_mut()
-            .filter(|w| w.floating && !w.fullscreen)
+            .filter(|w| !w.layer().policy().tiled_layout && w.layer() != WindowLayer::Fullscreen)
         {
             let is_visible = Self::is_window_visible_with(&self.outputs, self.tag_state, w);
             if w.arrange_floating(is_visible, is_any_pointer_op) {
@@ -1500,14 +1497,31 @@ impl AppState {
                 }
             }
             StatusSubscription::Pinned => {
-                let window_count = self
+                let pinned_windows: Vec<&crate::state::WindowItem> = self
                     .windows
                     .iter()
                     .filter(|w| !w.closed && w.tags == crate::tag::TAG_ALL)
-                    .count();
+                    .collect();
+                let window_count = pinned_windows.len();
+                let active = window_count > 0;
+                let tooltip = if window_count == 0 {
+                    "No pinned windows".to_string()
+                } else {
+                    let titles: Vec<&str> = pinned_windows
+                        .iter()
+                        .map(|w| {
+                            w.app_id
+                                .as_deref()
+                                .or(w.title.as_deref())
+                                .unwrap_or("window")
+                        })
+                        .collect();
+                    format!("Pinned ({window_count}): {}", titles.join(", "))
+                };
                 SubscriberSnapshot::Pinned {
-                    active: window_count > 0,
+                    active,
                     window_count,
+                    tooltip,
                 }
             }
         }

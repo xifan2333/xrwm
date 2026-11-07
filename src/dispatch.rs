@@ -219,11 +219,19 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
                     .get_focused_output_id()
                     .and_then(|id| state.outputs.get(&id))
                     .map(|o| o.usable_area);
-                if let Some(w) = state.windows.iter_mut().find(|w| &w.proxy == proxy) {
-                    w.set_app_id(app_id);
-                    AppState::apply_rules_to_window(&state.rules, w, usable, &state.outputs);
+                let entered_ws_floating =
+                    if let Some(w) = state.windows.iter_mut().find(|w| &w.proxy == proxy) {
+                        let prev_layer = w.layer();
+                        w.set_app_id(app_id);
+                        AppState::apply_rules_to_window(&state.rules, w, usable, &state.outputs);
+                        prev_layer != crate::window::WindowLayer::WorkspaceFloating
+                            && w.layer() == crate::window::WindowLayer::WorkspaceFloating
+                    } else {
+                        false
+                    };
+                if entered_ws_floating {
+                    state.uncollapse_floating_for_window_by_proxy(proxy);
                 }
-                state.uncollapse_floating_for_window_by_proxy(proxy);
                 state.manage_dirty();
             }
             Event::Title { title } => {
@@ -231,11 +239,19 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
                     .get_focused_output_id()
                     .and_then(|id| state.outputs.get(&id))
                     .map(|o| o.usable_area);
-                if let Some(w) = state.windows.iter_mut().find(|w| &w.proxy == proxy) {
-                    w.set_title(title);
-                    AppState::apply_rules_to_window(&state.rules, w, usable, &state.outputs);
+                let entered_ws_floating =
+                    if let Some(w) = state.windows.iter_mut().find(|w| &w.proxy == proxy) {
+                        let prev_layer = w.layer();
+                        w.set_title(title);
+                        AppState::apply_rules_to_window(&state.rules, w, usable, &state.outputs);
+                        prev_layer != crate::window::WindowLayer::WorkspaceFloating
+                            && w.layer() == crate::window::WindowLayer::WorkspaceFloating
+                    } else {
+                        false
+                    };
+                if entered_ws_floating {
+                    state.uncollapse_floating_for_window_by_proxy(proxy);
                 }
-                state.uncollapse_floating_for_window_by_proxy(proxy);
                 state.manage_dirty();
             }
             Event::Parent { parent } => {
@@ -243,11 +259,19 @@ impl Dispatch<RiverWindowV1, ()> for AppState {
                     .get_focused_output_id()
                     .and_then(|id| state.outputs.get(&id))
                     .map(|o| o.usable_area);
-                if let Some(w) = state.windows.iter_mut().find(|w| &w.proxy == proxy) {
-                    w.set_has_parent(parent.is_some());
-                    AppState::apply_rules_to_window(&state.rules, w, usable, &state.outputs);
+                let entered_ws_floating =
+                    if let Some(w) = state.windows.iter_mut().find(|w| &w.proxy == proxy) {
+                        let prev_layer = w.layer();
+                        w.set_has_parent(parent.is_some());
+                        AppState::apply_rules_to_window(&state.rules, w, usable, &state.outputs);
+                        prev_layer != crate::window::WindowLayer::WorkspaceFloating
+                            && w.layer() == crate::window::WindowLayer::WorkspaceFloating
+                    } else {
+                        false
+                    };
+                if entered_ws_floating {
+                    state.uncollapse_floating_for_window_by_proxy(proxy);
                 }
-                state.uncollapse_floating_for_window_by_proxy(proxy);
                 state.manage_dirty();
             }
             Event::Dimensions { width, height } => {

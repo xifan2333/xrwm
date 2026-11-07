@@ -335,6 +335,22 @@ fn test_render_plan_captured_window_urgent_border() {
         plan1.border.color,
         (247 * 16843009, 118 * 16843009, 142 * 16843009, u32::MAX)
     );
+
+    // Now focus w1 on the seat: BorderRole::Captured MUST still take priority over BorderRole::Focused!
+    let seat = harness.state.seats.values_mut().next().unwrap();
+    seat.set_focused_window(Some(harness.state.windows[0].proxy.clone()));
+    harness.manage();
+
+    let plan_focused = compute_frame_plan(&harness.state);
+    let plan1_focused = plan_focused
+        .window_plans
+        .iter()
+        .find(|p| p.proxy.id().protocol_id() == w1.protocol_id())
+        .unwrap();
+    assert_eq!(
+        plan1_focused.border.color,
+        (247 * 16843009, 118 * 16843009, 142 * 16843009, u32::MAX)
+    );
 }
 
 #[test]
@@ -347,6 +363,7 @@ fn test_render_plan_five_layer_z_ordering() {
     let w_float = harness.add_window();
     let w_scratch = harness.add_window();
     let w_pinned = harness.add_window();
+    let w_fullscreen = harness.add_window();
 
     if let Some(win) = harness
         .state
@@ -377,12 +394,22 @@ fn test_render_plan_five_layer_z_ordering() {
         win.set_tags(xrwm::tag::TAG_ALL);
     }
 
+    if let Some(win) = harness
+        .state
+        .windows
+        .iter_mut()
+        .find(|w| w.proxy().id().protocol_id() == w_fullscreen.protocol_id())
+    {
+        win.toggle_fullscreen();
+        win.set_tags(1);
+    }
+
     // Tag 1 is active; also focus Scratchpad tag so scratchpad window is visible
     harness.state.tag_state.focused = 1 | xrwm::tag::TAG_SCRATCHPAD;
     harness.manage();
 
     let plan = compute_frame_plan(&harness.state);
-    assert_eq!(plan.z_order_nodes.len(), 4);
+    assert_eq!(plan.z_order_nodes.len(), 5);
 
     let id_tiled = harness
         .state
@@ -416,10 +443,63 @@ fn test_render_plan_five_layer_z_ordering() {
         .unwrap()
         .node()
         .id();
+    let id_fullscreen = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy().id().protocol_id() == w_fullscreen.protocol_id())
+        .unwrap()
+        .node()
+        .id();
 
-    // Hierarchy: Tiled < WorkspaceFloating < Scratchpad < Pinned
+    // Hierarchy: Tiled < WorkspaceFloating < Scratchpad < Pinned < Fullscreen
     assert_eq!(plan.z_order_nodes[0].id(), id_tiled);
     assert_eq!(plan.z_order_nodes[1].id(), id_float);
     assert_eq!(plan.z_order_nodes[2].id(), id_scratch);
     assert_eq!(plan.z_order_nodes[3].id(), id_pinned);
+    assert_eq!(plan.z_order_nodes[4].id(), id_fullscreen);
+}
+
+#[test]
+fn test_window_visibility_resolver_multi_tag() {
+    let mut harness = TestHarness::new();
+    harness.add_output();
+    let w = harness.add_window();
+
+    if let Some(win) = harness
+        .state
+        .windows
+        .iter_mut()
+        .find(|win| win.proxy().id().protocol_id() == w.protocol_id())
+    {
+        win.toggle_floating(None);
+        win.set_tags(1 | 2);
+    }
+
+    let tag_state = xrwm::tag::TagState {
+        focused: 1 | 2,
+        occupied: 1 | 2,
+        urgent: 0,
+    };
+
+    let win_item = harness.state.windows.first().unwrap();
+
+    // When Tag 1 is collapsed, but Tag 2 is uncollapsed:
+    // Window is visible on Tag 2, so visibility MUST be Visible!
+    let vis = AppState::resolve_window_visibility(tag_state, 1, win_item);
+    assert_eq!(vis, xrwm::state::WindowVisibility::Visible);
+
+    // When both Tag 1 and Tag 2 are collapsed:
+    // Window is collapsed on all active tags, so visibility MUST be HiddenByCollapse!
+    let vis_both = AppState::resolve_window_visibility(tag_state, 1 | 2, win_item);
+    assert_eq!(vis_both, xrwm::state::WindowVisibility::HiddenByCollapse);
+
+    // When active tags do not intersect window tags:
+    let tag_state_inactive = xrwm::tag::TagState {
+        focused: 4,
+        occupied: 4,
+        urgent: 0,
+    };
+    let vis_inactive = AppState::resolve_window_visibility(tag_state_inactive, 0, win_item);
+    assert_eq!(vis_inactive, xrwm::state::WindowVisibility::HiddenByTags);
 }

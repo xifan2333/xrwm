@@ -158,7 +158,13 @@ pub fn compute_frame_plan(state: &AppState) -> FramePlan {
 
         let out_tag_state = state.tag_state_for_output(w.output());
         let is_in_current = out_tag_state.is_view_visible(w.tags());
-        let is_in_old = is_tag_animating && (w.tags() & state.tag_anim_old_mask) != 0;
+        let floating_hidden_tags = state.floating_hidden_tags_for_output(w.output());
+        let was_collapsed_in_old = w.layer().policy().collapsible && {
+            let old_active = w.tags() & state.tag_anim_old_mask;
+            old_active != 0 && (old_active & !floating_hidden_tags) == 0
+        };
+        let is_in_old =
+            is_tag_animating && (w.tags() & state.tag_anim_old_mask) != 0 && !was_collapsed_in_old;
 
         if is_in_current || is_in_old {
             let is_interactive = active_move_proxy.as_ref() == Some(w.proxy());
