@@ -303,3 +303,123 @@ fn test_render_plan_z_ordering_hierarchy() {
     assert_eq!(plan.z_order_nodes[0].id(), node_tiled);
     assert_eq!(plan.z_order_nodes[1].id(), node_float);
 }
+
+#[test]
+fn test_render_plan_captured_window_urgent_border() {
+    let mut harness = TestHarness::new();
+    harness.add_output();
+    let _seat = harness.add_seat();
+    let w1 = harness.add_window();
+    let _w2 = harness.add_window();
+
+    // Mark w1 as actively captured (e.g. river screen recording)
+    if let Some(win) = harness
+        .state
+        .windows
+        .iter_mut()
+        .find(|w| w.proxy().id().protocol_id() == w1.protocol_id())
+    {
+        win.set_capture_sessions(1);
+    }
+    harness.manage();
+
+    let plan = compute_frame_plan(&harness.state);
+    let plan1 = plan
+        .window_plans
+        .iter()
+        .find(|p| p.proxy.id().protocol_id() == w1.protocol_id())
+        .unwrap();
+
+    // w1 has BorderRole::Captured, which takes top priority with border_color_urgent (#f7768e)
+    assert_eq!(
+        plan1.border.color,
+        (247 * 16843009, 118 * 16843009, 142 * 16843009, u32::MAX)
+    );
+}
+
+#[test]
+fn test_render_plan_five_layer_z_ordering() {
+    let mut harness = TestHarness::new();
+    harness.add_output();
+    let _seat = harness.add_seat();
+
+    let w_tiled = harness.add_window();
+    let w_float = harness.add_window();
+    let w_scratch = harness.add_window();
+    let w_pinned = harness.add_window();
+
+    if let Some(win) = harness
+        .state
+        .windows
+        .iter_mut()
+        .find(|w| w.proxy().id().protocol_id() == w_float.protocol_id())
+    {
+        win.toggle_floating(None);
+    }
+
+    if let Some(win) = harness
+        .state
+        .windows
+        .iter_mut()
+        .find(|w| w.proxy().id().protocol_id() == w_scratch.protocol_id())
+    {
+        win.toggle_floating(None);
+        win.set_tags(xrwm::tag::TAG_SCRATCHPAD);
+    }
+
+    if let Some(win) = harness
+        .state
+        .windows
+        .iter_mut()
+        .find(|w| w.proxy().id().protocol_id() == w_pinned.protocol_id())
+    {
+        win.toggle_floating(None);
+        win.set_tags(xrwm::tag::TAG_ALL);
+    }
+
+    // Tag 1 is active; also focus Scratchpad tag so scratchpad window is visible
+    harness.state.tag_state.focused = 1 | xrwm::tag::TAG_SCRATCHPAD;
+    harness.manage();
+
+    let plan = compute_frame_plan(&harness.state);
+    assert_eq!(plan.z_order_nodes.len(), 4);
+
+    let id_tiled = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy().id().protocol_id() == w_tiled.protocol_id())
+        .unwrap()
+        .node()
+        .id();
+    let id_float = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy().id().protocol_id() == w_float.protocol_id())
+        .unwrap()
+        .node()
+        .id();
+    let id_scratch = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy().id().protocol_id() == w_scratch.protocol_id())
+        .unwrap()
+        .node()
+        .id();
+    let id_pinned = harness
+        .state
+        .windows
+        .iter()
+        .find(|w| w.proxy().id().protocol_id() == w_pinned.protocol_id())
+        .unwrap()
+        .node()
+        .id();
+
+    // Hierarchy: Tiled < WorkspaceFloating < Scratchpad < Pinned
+    assert_eq!(plan.z_order_nodes[0].id(), id_tiled);
+    assert_eq!(plan.z_order_nodes[1].id(), id_float);
+    assert_eq!(plan.z_order_nodes[2].id(), id_scratch);
+    assert_eq!(plan.z_order_nodes[3].id(), id_pinned);
+}
