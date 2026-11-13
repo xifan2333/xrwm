@@ -11,12 +11,9 @@ use crate::animation::AnimationController;
 use crate::binds::{ActiveKeyBinding, PendingKeyBinding};
 use crate::layout::{Layout, LayoutConfig, MasterStackLayout, Rect};
 use crate::protocol::{
-    river_layer_shell_output_v1::RiverLayerShellOutputV1,
-    river_layer_shell_v1::RiverLayerShellV1,
-    river_output_v1::RiverOutputV1,
-    river_window_manager_v1::RiverWindowManagerV1,
-    river_window_v1::{Edges, RiverWindowV1},
-    river_xkb_bindings_v1::RiverXkbBindingsV1,
+    river_layer_shell_output_v1::RiverLayerShellOutputV1, river_layer_shell_v1::RiverLayerShellV1,
+    river_output_v1::RiverOutputV1, river_window_manager_v1::RiverWindowManagerV1,
+    river_window_v1::RiverWindowV1, river_xkb_bindings_v1::RiverXkbBindingsV1,
     wp_cursor_shape_manager_v1::WpCursorShapeManagerV1,
 };
 use crate::seat::{LayerShellFocus, PointerAction, SeatItem, SeatOp};
@@ -895,27 +892,11 @@ impl AppState {
             if let (Some((win_id, floating, x, y)), Some(seat)) =
                 (win_info, self.seats.get_mut(&id))
             {
-                if let Some(ref dev) = seat.cursor_shape_device {
-                    dev.set_shape(
-                        0,
-                        crate::protocol::wp_cursor_shape_device_v1::Shape::Grabbing,
-                    );
-                }
-                seat.proxy.op_start_pointer();
                 if floating {
-                    seat.op = SeatOp::Move {
-                        proxy: win_proxy.clone(),
-                        start_x: x,
-                        start_y: y,
-                    };
+                    seat.start_floating_move(win_proxy, x, y);
                 } else {
-                    seat.op = SeatOp::TiledMove {
-                        proxy: win_proxy.clone(),
-                        start_win_id: win_id,
-                    };
+                    seat.start_tiled_move(win_proxy, win_id);
                 }
-                seat.op_dx = 0;
-                seat.op_dy = 0;
             }
         }
 
@@ -924,54 +905,14 @@ impl AppState {
                 (
                     w.id,
                     w.floating,
-                    w.x,
-                    w.y,
-                    w.effective_width(),
-                    w.effective_height(),
+                    Rect::new(w.x, w.y, w.effective_width(), w.effective_height()),
                 )
             });
-            if let (Some((win_id, floating, x, y, w, h)), Some(seat)) =
+            if let (Some((win_id, floating, rect)), Some(seat)) =
                 (win_info, self.seats.get_mut(&id))
             {
-                seat.proxy.op_start_pointer();
                 if floating {
-                    let cx = x + w as i32 / 2;
-                    let cy = y + h as i32 / 2;
-                    let mut edges = Edges::empty();
-                    if self.pointer.0 < cx {
-                        edges |= Edges::Left;
-                    } else {
-                        edges |= Edges::Right;
-                    }
-                    if self.pointer.1 < cy {
-                        edges |= Edges::Top;
-                    } else {
-                        edges |= Edges::Bottom;
-                    }
-
-                    // Standard L-shaped corner cursor: Top-Left (NwResize), Top-Right (NeResize), Bottom-Left (SwResize), Bottom-Right (SeResize)
-                    let shape = if edges.contains(Edges::Top) && edges.contains(Edges::Left) {
-                        crate::protocol::wp_cursor_shape_device_v1::Shape::NwResize
-                    } else if edges.contains(Edges::Top) && edges.contains(Edges::Right) {
-                        crate::protocol::wp_cursor_shape_device_v1::Shape::NeResize
-                    } else if edges.contains(Edges::Bottom) && edges.contains(Edges::Left) {
-                        crate::protocol::wp_cursor_shape_device_v1::Shape::SwResize
-                    } else {
-                        crate::protocol::wp_cursor_shape_device_v1::Shape::SeResize
-                    };
-                    if let Some(ref dev) = seat.cursor_shape_device {
-                        dev.set_shape(0, shape);
-                    }
-
-                    win_proxy.inform_resize_start();
-                    seat.op = SeatOp::Resize {
-                        proxy: win_proxy.clone(),
-                        start_x: x,
-                        start_y: y,
-                        start_width: w,
-                        start_height: h,
-                        edges,
-                    };
+                    seat.start_floating_resize(win_proxy, rect, self.pointer);
                 } else {
                     let tag_state = self.tag_state;
                     let win_output = self
@@ -998,45 +939,18 @@ impl AppState {
                         .map(|idx| idx >= main_count)
                         .unwrap_or(false);
                     let stack_count = tiled_wins.len().saturating_sub(main_count);
-
-                    if is_stack && stack_count >= 2 {
-                        let shape = match self.layout_config.main_location {
-                            crate::layout::MainLocation::Left
-                            | crate::layout::MainLocation::Right => {
-                                crate::protocol::wp_cursor_shape_device_v1::Shape::NsResize
-                            }
-                            crate::layout::MainLocation::Top
-                            | crate::layout::MainLocation::Bottom => {
-                                crate::protocol::wp_cursor_shape_device_v1::Shape::EwResize
-                            }
-                        };
-                        if let Some(ref dev) = seat.cursor_shape_device {
-                            dev.set_shape(0, shape);
-                        }
-                        seat.op = SeatOp::TiledStackResize {
-                            start_ratio: self.layout_config.stack_split_ratio,
-                        };
+                    let is_stack_split = is_stack && stack_count >= 2;
+                    let start_ratio = if is_stack_split {
+                        self.layout_config.stack_split_ratio
                     } else {
-                        let shape = match self.layout_config.main_location {
-                            crate::layout::MainLocation::Left
-                            | crate::layout::MainLocation::Right => {
-                                crate::protocol::wp_cursor_shape_device_v1::Shape::EwResize
-                            }
-                            crate::layout::MainLocation::Top
-                            | crate::layout::MainLocation::Bottom => {
-                                crate::protocol::wp_cursor_shape_device_v1::Shape::NsResize
-                            }
-                        };
-                        if let Some(ref dev) = seat.cursor_shape_device {
-                            dev.set_shape(0, shape);
-                        }
-                        seat.op = SeatOp::TiledResize {
-                            start_ratio: self.layout_config.split_ratio,
-                        };
-                    }
+                        self.layout_config.split_ratio
+                    };
+                    seat.start_tiled_resize(
+                        self.layout_config.main_location,
+                        is_stack_split,
+                        start_ratio,
+                    );
                 }
-                seat.op_dx = 0;
-                seat.op_dy = 0;
             }
         }
 
@@ -1048,192 +962,20 @@ impl AppState {
 
         // 3. Interactive pointer operations (Move / Resize / Tiled updates) & Focus synchronization
         for seat in self.seats.values_mut() {
-            if seat.layer_focus == LayerShellFocus::None {
-                if let Some(target) = &seat.focused {
-                    let target_id = target.id();
-                    if seat.last_focused_window.as_ref() != Some(&target_id) {
-                        seat.proxy.focus_window(target);
-                        seat.last_focused_window = Some(target_id);
-                    }
-                } else if seat.last_focused_window.is_some() {
-                    seat.proxy.clear_focus();
-                    seat.last_focused_window = None;
-                }
-            } else {
-                seat.last_focused_window = None;
-            }
-            match &seat.op {
-                SeatOp::Move {
-                    proxy,
-                    start_x,
-                    start_y,
-                } => {
-                    if let Some(w) = self.windows.iter_mut().find(|w| &w.proxy == proxy) {
-                        w.set_position(start_x + seat.op_dx, start_y + seat.op_dy);
-                    }
-                }
-                SeatOp::Resize {
-                    proxy,
-                    start_x,
-                    start_y,
-                    start_width,
-                    start_height,
-                    edges,
-                } => {
-                    if let Some(w) = self.windows.iter_mut().find(|w| &w.proxy == proxy) {
-                        let mut new_w = *start_width as i32;
-                        let mut new_h = *start_height as i32;
-                        let mut new_x = *start_x;
-                        let mut new_y = *start_y;
-
-                        if edges.contains(Edges::Right) {
-                            new_w =
-                                (*start_width as i32 + seat.op_dx).max(MIN_WINDOW_DIMENSION as i32);
-                        } else if edges.contains(Edges::Left) {
-                            new_w =
-                                (*start_width as i32 - seat.op_dx).max(MIN_WINDOW_DIMENSION as i32);
-                            new_x = *start_x + (*start_width as i32 - new_w);
-                        }
-
-                        if edges.contains(Edges::Bottom) {
-                            new_h = (*start_height as i32 + seat.op_dy)
-                                .max(MIN_WINDOW_DIMENSION as i32);
-                        } else if edges.contains(Edges::Top) {
-                            new_h = (*start_height as i32 - seat.op_dy)
-                                .max(MIN_WINDOW_DIMENSION as i32);
-                            new_y = *start_y + (*start_height as i32 - new_h);
-                        }
-
-                        w.update_floating_geometry(Rect::new(
-                            new_x,
-                            new_y,
-                            new_w as u32,
-                            new_h as u32,
-                        ));
-                    }
-                }
-                SeatOp::TiledResize { start_ratio } => {
-                    let Some(focused_out_area) = focused_out_area else {
-                        continue;
-                    };
-                    let usable_w = focused_out_area.width as f32;
-                    let usable_h = focused_out_area.height as f32;
-                    match self.layout_config.main_location {
-                        crate::layout::MainLocation::Left => {
-                            let delta_ratio = (seat.op_dx as f32) / usable_w.max(1.0);
-                            self.layout_config.split_ratio =
-                                (*start_ratio + delta_ratio).clamp(0.1, 0.9);
-                        }
-                        crate::layout::MainLocation::Right => {
-                            let delta_ratio = -(seat.op_dx as f32) / usable_w.max(1.0);
-                            self.layout_config.split_ratio =
-                                (*start_ratio + delta_ratio).clamp(0.1, 0.9);
-                        }
-                        crate::layout::MainLocation::Top => {
-                            let delta_ratio = (seat.op_dy as f32) / usable_h.max(1.0);
-                            self.layout_config.split_ratio =
-                                (*start_ratio + delta_ratio).clamp(0.1, 0.9);
-                        }
-                        crate::layout::MainLocation::Bottom => {
-                            let delta_ratio = -(seat.op_dy as f32) / usable_h.max(1.0);
-                            self.layout_config.split_ratio =
-                                (*start_ratio + delta_ratio).clamp(0.1, 0.9);
-                        }
-                    }
-                }
-                SeatOp::TiledStackResize { start_ratio } => {
-                    let Some(focused_out_area) = focused_out_area else {
-                        continue;
-                    };
-                    let usable_w = focused_out_area.width as f32;
-                    let usable_h = focused_out_area.height as f32;
-                    match self.layout_config.main_location {
-                        crate::layout::MainLocation::Left | crate::layout::MainLocation::Right => {
-                            let delta_ratio = (seat.op_dy as f32) / usable_h.max(1.0);
-                            self.layout_config.stack_split_ratio =
-                                (*start_ratio + delta_ratio).clamp(0.1, 0.9);
-                        }
-                        crate::layout::MainLocation::Top | crate::layout::MainLocation::Bottom => {
-                            let delta_ratio = (seat.op_dx as f32) / usable_w.max(1.0);
-                            self.layout_config.stack_split_ratio =
-                                (*start_ratio + delta_ratio).clamp(0.1, 0.9);
-                        }
-                    }
-                }
-                SeatOp::TiledMove { .. } => {}
-                SeatOp::None => {}
-            }
+            seat.sync_focus();
+            seat.apply_motion(&mut self.windows, &mut self.layout_config, focused_out_area);
         }
 
         // 3b. End any released pointer operations in this manage sequence
         let mut op_was_released = false;
+        let outputs = &self.outputs;
+        let tag_state = self.tag_state;
+        let pointer = self.pointer;
         for seat in self.seats.values_mut() {
-            if seat.op_release {
+            if seat.commit_release(&mut self.windows, pointer, |w| {
+                Self::is_window_visible_with(outputs, tag_state, w)
+            }) {
                 op_was_released = true;
-                if let SeatOp::Resize { proxy, .. } = &seat.op {
-                    proxy.inform_resize_end();
-                }
-                seat.proxy.op_end();
-
-                let target_proxy = match &seat.op {
-                    SeatOp::Move { proxy, .. } | SeatOp::Resize { proxy, .. } => {
-                        Some(proxy.clone())
-                    }
-                    _ => None,
-                };
-                if let Some(target) = target_proxy
-                    && let Some(w) = self.windows.iter_mut().find(|w| w.proxy == target)
-                {
-                    w.finish_interaction();
-                }
-
-                if let SeatOp::TiledMove { start_win_id, .. } = seat.op {
-                    let px = self.pointer.0;
-                    let py = self.pointer.1;
-                    let dropped_on = self
-                        .windows
-                        .iter()
-                        .find(|other| {
-                            !other.closed
-                                && other.layer().policy().tiled_layout
-                                && other.id != start_win_id
-                                && Self::is_window_visible_with(
-                                    &self.outputs,
-                                    self.tag_state,
-                                    other,
-                                )
-                                && px >= other.x
-                                && px <= (other.x + other.effective_width() as i32)
-                                && py >= other.y
-                                && py <= (other.y + other.effective_height() as i32)
-                        })
-                        .map(|w| w.id);
-
-                    if let Some(target_id) = dropped_on {
-                        let i1 = self.windows.iter().position(|w| w.id == start_win_id);
-                        let i2 = self.windows.iter().position(|w| w.id == target_id);
-                        if let (Some(idx1), Some(idx2)) = (i1, i2) {
-                            self.windows.swap(idx1, idx2);
-                            tracing::debug!(
-                                source_window_id = start_win_id,
-                                target_window_id = target_id,
-                                "Swapped tiled windows on pointer drop"
-                            );
-                        }
-                    }
-                }
-
-                if let Some(ref dev) = seat.cursor_shape_device {
-                    dev.set_shape(
-                        0,
-                        crate::protocol::wp_cursor_shape_device_v1::Shape::Default,
-                    );
-                }
-
-                seat.op = SeatOp::None;
-                seat.op_release = false;
-                seat.op_dx = 0;
-                seat.op_dy = 0;
             }
         }
 

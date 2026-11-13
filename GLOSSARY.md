@@ -48,6 +48,10 @@ _Avoid_: Proposal throttle, dimension lock
 
 ## Rendering & Frame Lifecycle
 
+**Arrange Plan**:
+A pure, side-effect-free description of target window geometries, monocle overrides, and floating visibility masks computed during the `ManageStart` compositor tick before application.
+_Avoid_: Layout state, arrange cache, move commands
+
 **Frame Plan**:
 A pure, side-effect-free description of all window transformations, clipping rectangles, borders, and Z-orders to be applied during a compositor render sequence.
 _Avoid_: Render state, draw command list, display list
@@ -83,3 +87,17 @@ _Avoid_: Minimize all, float hide, output-wide float collapse
 **Capture Session**:
 A compositor-reported session in which a window or output is being recorded or shared (e.g. OBS, screen recorders, WebRTC), provided via the River v5 `capture_sessions` event.
 _Avoid_: Recording count, share session
+
+## State Machine & Architecture
+
+**Domain Model**:
+The pure, in-memory single-source-of-truth (SSOT) state machine managing window hierarchy, workspaces, seats, and modal modes without external Wayland protocol handle dependencies or I/O.
+_Avoid_: AppState monolith, backend state, WM context
+
+**Compositor Adapter**:
+The protocol driver translating Wayland compositor events into typed domain events and executing domain effect intents against Wayland proxies.
+_Avoid_: Wayland manager, event pump, driver wrapper
+
+**Seat Gesture Machine**:
+The mutually exclusive state machine (`Idle`, `Hovering`, `FloatingMove`, `FloatingResize`, `TiledResize`, `TiledStackResize`, `TiledDragSwap`) tracking interactive pointer operations and cursor shapes on a seat.
+_Avoid_: Ad-hoc seat ops, pointer drag flags
