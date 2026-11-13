@@ -5,6 +5,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 
 use xrwm::ipc::*;
+use xrwm::render::Rgba;
 use xrwm::rule::{RuleAction, RuleActionKind};
 
 #[test]
@@ -679,7 +680,17 @@ fn test_ipc_server_guard_does_not_unlink_replaced_socket() {
 fn test_parse_cli_args_border_color_validation() {
     assert!(parse_cli_args(&["border-color-focused".into(), "你好".into()]).is_err());
     assert!(parse_cli_args(&["border-color-focused".into(), "#123".into()]).is_err());
-    assert!(parse_cli_args(&["border-color-focused".into(), "#61afef".into()]).is_ok());
+    assert!(parse_cli_args(&["border-color-focused".into()]).is_err());
+
+    // Valid colors are decoded into validated channel values at the seam.
+    assert_eq!(
+        parse_cli_args(&["border-color-focused".into(), "#61afef".into()]).unwrap(),
+        IpcCommand::BorderColorFocused(Rgba::from_rgb8(0x61, 0xaf, 0xef))
+    );
+    assert_eq!(
+        parse_cli_args(&["border-color-urgent".into(), "0xf7768e".into()]).unwrap(),
+        IpcCommand::BorderColorUrgent(Rgba::from_rgb8(0xf7, 0x76, 0x8e))
+    );
 }
 
 #[test]

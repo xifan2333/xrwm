@@ -27,7 +27,6 @@ pub use crate::window::{
     WindowVisibility,
 };
 
-pub use crate::render::{hex_to_river_rgba, parse_hex_color};
 pub use crate::status::{
     StatusBroadcaster, StatusListener, StatusSubscription, SubscriberSnapshot, broadcast_status,
     format_json_status, format_pinned_status, format_scratchpad_status, format_tag_status,

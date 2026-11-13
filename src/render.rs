@@ -134,18 +134,6 @@ impl fmt::Display for Rgba {
     }
 }
 
-/// Parses a 6- or 8-digit hexadecimal color string into River RGBA format.
-pub fn parse_hex_color(hex_str: &str) -> Result<(u32, u32, u32, u32), String> {
-    Rgba::parse(hex_str).map(Rgba::channels)
-}
-
-/// Converts a hex color string to River RGBA channels, defaulting to opaque white on error.
-pub fn hex_to_river_rgba(hex_str: &str) -> (u32, u32, u32, u32) {
-    Rgba::parse(hex_str)
-        .map(Rgba::channels)
-        .unwrap_or(Rgba::from_rgb8(255, 255, 255).channels())
-}
-
 /// Visual border configuration planned for a window in the current frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BorderPlan {

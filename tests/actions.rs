@@ -427,28 +427,41 @@ fn test_pick_adjacent_output() {
 }
 
 #[test]
-fn test_border_color_ipc_rejection_and_retention() {
+fn test_border_color_ipc_applies_typed_value_to_every_role() {
     let mut state = AppState::new();
-    let original_focused = state.border_color_focused;
 
-    // Non-ASCII input rejected
-    let res = state.handle_ipc_command(&IpcCommand::BorderColorFocused("你好".into()));
-    assert!(res.is_err());
-    assert_eq!(state.border_color_focused, original_focused);
+    // Colors cross the seam as validated values, so the handler is a pure assignment
+    // and every role keeps the exact channel scaling `Rgba::parse` produced.
+    state
+        .handle_ipc_command(&IpcCommand::BorderColorFocused(
+            Rgba::parse("#112233").unwrap(),
+        ))
+        .unwrap();
+    state
+        .handle_ipc_command(&IpcCommand::BorderColorUnfocused(
+            Rgba::parse("0x445566").unwrap(),
+        ))
+        .unwrap();
+    state
+        .handle_ipc_command(&IpcCommand::BorderColorUrgent(
+            Rgba::parse("#778899").unwrap(),
+        ))
+        .unwrap();
 
-    // Invalid hex rejected
-    let res2 = state.handle_ipc_command(&IpcCommand::BorderColorFocused("xyz123".into()));
-    assert!(res2.is_err());
-    assert_eq!(state.border_color_focused, original_focused);
-
-    // Valid hex accepted
-    let res3 = state.handle_ipc_command(&IpcCommand::BorderColorFocused("#112233".into()));
-    assert!(res3.is_ok());
     assert_eq!(
         state.border_color_focused,
         Rgba::from_rgb8(0x11, 0x22, 0x33)
     );
+    assert_eq!(
+        state.border_color_unfocused,
+        Rgba::from_rgb8(0x44, 0x55, 0x66)
+    );
+    assert_eq!(state.border_color_urgent, Rgba::from_rgb8(0x77, 0x88, 0x99));
+
+    // The canonical rendering round-trips back to the user's spelling.
     assert_eq!(state.border_color_focused.to_string(), "#112233");
+    assert_eq!(state.border_color_unfocused.to_string(), "#445566");
+    assert_eq!(state.border_color_urgent.to_string(), "#778899");
 }
 
 #[test]

@@ -1023,29 +1023,20 @@ impl AppState {
                 self.manage_dirty();
                 Ok(format!("border width set to {w}px"))
             }
-            IpcCommand::BorderColorFocused(c) => {
-                self.border_color_focused = crate::render::Rgba::parse(c)?;
+            IpcCommand::BorderColorFocused(color) => {
+                self.border_color_focused = *color;
                 self.manage_dirty();
-                Ok(format!(
-                    "focused border color set to {}",
-                    self.border_color_focused
-                ))
+                Ok(format!("focused border color set to {color}"))
             }
-            IpcCommand::BorderColorUnfocused(c) => {
-                self.border_color_unfocused = crate::render::Rgba::parse(c)?;
+            IpcCommand::BorderColorUnfocused(color) => {
+                self.border_color_unfocused = *color;
                 self.manage_dirty();
-                Ok(format!(
-                    "unfocused border color set to {}",
-                    self.border_color_unfocused
-                ))
+                Ok(format!("unfocused border color set to {color}"))
             }
-            IpcCommand::BorderColorUrgent(c) => {
-                self.border_color_urgent = crate::render::Rgba::parse(c)?;
+            IpcCommand::BorderColorUrgent(color) => {
+                self.border_color_urgent = *color;
                 self.manage_dirty();
-                Ok(format!(
-                    "urgent border color set to {}",
-                    self.border_color_urgent
-                ))
+                Ok(format!("urgent border color set to {color}"))
             }
             IpcCommand::MainRatio(r) => self.set_main_ratio_arg(r),
             IpcCommand::StackRatio(r) => self.set_stack_ratio_arg(r),

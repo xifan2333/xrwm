@@ -1,6 +1,5 @@
 //! Window manager status serialization, formatting, and IPC broadcasting.
 
-pub use crate::render::{hex_to_river_rgba, parse_hex_color};
 use crate::state::AppState;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -16,7 +16,7 @@ use xrwm::protocol::{
     river_output_v1 as output, river_seat_v1 as seat, river_window_manager_v1 as wm,
     river_window_v1 as window,
 };
-use xrwm::render::{Rgba, compute_frame_plan, hex_to_river_rgba, parse_hex_color};
+use xrwm::render::{Rgba, compute_frame_plan};
 use xrwm::state::AppState;
 
 #[derive(Default)]
@@ -581,16 +581,4 @@ fn test_rgba_transparent_and_serde() {
     let json = serde_json::to_string(&Rgba::from_rgb8(1, 2, 3)).unwrap();
     let decoded: Rgba = serde_json::from_str(&json).unwrap();
     assert_eq!(decoded, Rgba::from_rgb8(1, 2, 3));
-}
-
-#[test]
-fn test_legacy_hex_helpers_match_typed_color() {
-    assert_eq!(
-        parse_hex_color("#61afef").unwrap(),
-        Rgba::parse("#61afef").unwrap().channels()
-    );
-    assert_eq!(
-        hex_to_river_rgba("nonsense"),
-        Rgba::from_rgb8(255, 255, 255).channels()
-    );
 }

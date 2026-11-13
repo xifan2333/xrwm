@@ -111,3 +111,7 @@ _Avoid_: Wayland manager, event pump, driver wrapper
 **Seat Gesture Machine**:
 The mutually exclusive state machine (`Idle`, `Hovering`, `FloatingMove`, `FloatingResize`, `TiledResize`, `TiledStackResize`, `TiledDragSwap`) tracking interactive pointer operations and cursor shapes on a seat.
 _Avoid_: Ad-hoc seat ops, pointer drag flags
+
+**Border Color**:
+A validated `Rgba` value (premultiplied River channel form) decoded once at the IPC seam from `#RRGGBB`/`#RRGGBBAA` text, stored in the domain model as a `Copy` value, and consumed by the frame plan without any per-frame parsing.
+_Avoid_: Color string, hex text in state, runtime color parsing

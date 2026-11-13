@@ -81,54 +81,6 @@ fn test_broadcast_status_drops_broken_pipe_subscriber() {
 }
 
 #[test]
-fn test_parse_hex_color_valid() {
-    assert!(parse_hex_color("#61afef").is_ok());
-    assert!(parse_hex_color("0x61afef").is_ok());
-    assert!(parse_hex_color("61afef").is_ok());
-    assert!(parse_hex_color("#61afef80").is_ok());
-    assert!(parse_hex_color("0x61afef80").is_ok());
-    assert!(parse_hex_color("61afef80").is_ok());
-
-    let (r, g, b, a) = parse_hex_color("#ffffff").unwrap();
-    assert_eq!(r, u32::MAX);
-    assert_eq!(g, u32::MAX);
-    assert_eq!(b, u32::MAX);
-    assert_eq!(a, u32::MAX);
-
-    // 8-digit hex with premultiplied alpha
-    let (r, g, b, a) = parse_hex_color("#ff000080").unwrap();
-    assert_eq!(a, 0x80 * (u32::MAX / 255));
-    let expected_r = ((u32::MAX as u64 * a as u64) / u32::MAX as u64) as u32;
-    assert_eq!(r, expected_r);
-    assert_eq!(g, 0);
-    assert_eq!(b, 0);
-}
-
-#[test]
-fn test_parse_hex_color_invalid() {
-    // Non-ASCII string (would panic with naive slicing)
-    assert!(parse_hex_color("你好").is_err());
-    assert_eq!(
-        hex_to_river_rgba("你好"),
-        (u32::MAX, u32::MAX, u32::MAX, u32::MAX)
-    );
-
-    // Invalid hex characters
-    assert!(parse_hex_color("#12345z").is_err());
-    assert!(parse_hex_color("0xhello!").is_err());
-
-    // Too short
-    assert!(parse_hex_color("").is_err());
-    assert!(parse_hex_color("#123").is_err());
-    assert!(parse_hex_color("0x").is_err());
-    assert!(parse_hex_color("#12345").is_err());
-
-    // Too long
-    assert!(parse_hex_color("#1234567").is_err());
-    assert!(parse_hex_color("#123456789").is_err());
-}
-
-#[test]
 #[allow(clippy::zombie_processes)]
 fn test_spawn_init_script_at_supports_spaces_and_special_characters() {
     let _guard = PROCESS_TEST_MUTEX.lock().unwrap();
