@@ -555,6 +555,12 @@ fn parse_rule_args(args: &[String], is_add: bool) -> Result<ParsedRuleArgs, Stri
     })
 }
 
+/// Decodes the color argument shared by every `border-color-*` command.
+fn parse_border_color(args: &[String]) -> Result<crate::render::Rgba, String> {
+    let raw = args.get(1).ok_or("Missing color value")?;
+    crate::render::Rgba::parse(raw)
+}
+
 pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
     if args.is_empty() {
         return Err("No arguments provided".to_string());
@@ -753,22 +759,16 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
             Ok(IpcCommand::BorderWidth(width))
         }
         "border-color-focused" => {
-            let color = args.get(1).ok_or("Missing color value")?;
-            Ok(IpcCommand::BorderColorFocused(crate::render::Rgba::parse(
-                color,
-            )?))
+            let color = parse_border_color(args)?;
+            Ok(IpcCommand::BorderColorFocused(color))
         }
         "border-color-unfocused" => {
-            let color = args.get(1).ok_or("Missing color value")?;
-            Ok(IpcCommand::BorderColorUnfocused(
-                crate::render::Rgba::parse(color)?,
-            ))
+            let color = parse_border_color(args)?;
+            Ok(IpcCommand::BorderColorUnfocused(color))
         }
         "border-color-urgent" => {
-            let color = args.get(1).ok_or("Missing color value")?;
-            Ok(IpcCommand::BorderColorUrgent(crate::render::Rgba::parse(
-                color,
-            )?))
+            let color = parse_border_color(args)?;
+            Ok(IpcCommand::BorderColorUrgent(color))
         }
         "declare-mode" => {
             let mode = args.get(1).ok_or("Missing mode name")?.clone();
