@@ -122,6 +122,66 @@ pub enum SeatOp {
     },
 }
 
+/// Mutually exclusive state machine tracking interactive pointer operations and cursor shapes on a seat.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum SeatGestureState {
+    /// No interactive pointer operation in progress.
+    #[default]
+    Idle,
+    /// Interactive floating window drag-move operation.
+    FloatingMove {
+        proxy: RiverWindowV1,
+        start_x: i32,
+        start_y: i32,
+        dx: i32,
+        dy: i32,
+    },
+    /// Interactive floating window corner/edge resize operation.
+    FloatingResize {
+        proxy: RiverWindowV1,
+        start_x: i32,
+        start_y: i32,
+        start_width: u32,
+        start_height: u32,
+        edges: Edges,
+        dx: i32,
+        dy: i32,
+    },
+    /// Interactive tiled master split ratio resizing.
+    TiledResize { start_ratio: f32, dx: i32 },
+    /// Interactive tiled secondary stack split ratio resizing.
+    TiledStackResize { start_ratio: f32, dy: i32 },
+    /// Interactive tiled window drag-swap operation.
+    TiledDragSwap {
+        proxy: RiverWindowV1,
+        start_win_id: u32,
+    },
+}
+
+impl SeatGestureState {
+    /// Returns true if no interactive gesture is active.
+    #[inline]
+    pub fn is_idle(&self) -> bool {
+        matches!(self, Self::Idle)
+    }
+
+    /// Returns true if an interactive gesture is actively in progress.
+    #[inline]
+    pub fn is_active(&self) -> bool {
+        !self.is_idle()
+    }
+
+    /// Returns the active window proxy being manipulated, if any.
+    pub fn target_proxy(&self) -> Option<&RiverWindowV1> {
+        match self {
+            Self::FloatingMove { proxy, .. }
+            | Self::FloatingResize { proxy, .. }
+            | Self::TiledDragSwap { proxy, .. } => Some(proxy),
+            Self::Idle | Self::TiledResize { .. } | Self::TiledStackResize { .. } => None,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct SeatItem {
     pub proxy: RiverSeatV1,
