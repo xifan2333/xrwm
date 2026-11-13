@@ -183,12 +183,12 @@ fn test_rule_action_kind_resolves_synonyms() {
 }
 
 #[test]
-fn test_window_rule_projects_and_clears_typed_actions() {
+fn test_window_rule_projects_typed_actions() {
     let action = RuleAction::Dimensions {
         width: 800,
         height: 600,
     };
-    let mut rule = WindowRule::new(Some("imv".into()), None, &action);
+    let rule = WindowRule::new(Some("imv".into()), None, &action);
 
     assert_eq!(rule.app_id.as_deref(), Some("imv"));
     assert_eq!(rule.dimensions, Some((800, 600)));
@@ -197,11 +197,6 @@ fn test_window_rule_projects_and_clears_typed_actions() {
     // The selector reports exactly which properties are configured.
     assert!(RuleActionKind::Dimensions.is_set_for(&rule));
     assert!(!RuleActionKind::Float.is_set_for(&rule));
-
-    // Clearing reports whether anything changed.
-    assert!(rule.clear(RuleActionKind::Dimensions));
-    assert!(!rule.clear(RuleActionKind::Dimensions));
-    assert!(rule.actions().is_empty());
 }
 
 #[test]

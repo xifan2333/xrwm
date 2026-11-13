@@ -302,19 +302,6 @@ impl WindowRule {
         }
     }
 
-    /// Clears the property targeted by `kind`, reporting whether it was set.
-    pub fn clear(&mut self, kind: RuleActionKind) -> bool {
-        match kind {
-            RuleActionKind::Float => self.float.take().is_some(),
-            RuleActionKind::Ssd => self.ssd.take().is_some(),
-            RuleActionKind::Tags => self.tags.take().is_some(),
-            RuleActionKind::Dimensions => self.dimensions.take().is_some(),
-            RuleActionKind::Position => self.position.take().is_some(),
-            RuleActionKind::Fullscreen => self.fullscreen.take().is_some(),
-            RuleActionKind::Output => self.output.take().is_some(),
-        }
-    }
-
     /// Projects the configured properties back into the action vocabulary,
     /// in the canonical reporting order used by `list-rules`.
     pub fn actions(&self) -> Vec<RuleAction> {
