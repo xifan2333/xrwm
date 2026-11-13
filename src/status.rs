@@ -1,48 +1,7 @@
 //! Window manager status serialization, formatting, and IPC broadcasting.
 
+pub use crate::render::{hex_to_river_rgba, parse_hex_color};
 use crate::state::AppState;
-
-pub fn parse_hex_color(hex_str: &str) -> Result<(u32, u32, u32, u32), String> {
-    let h = hex_str
-        .trim_start_matches("0x")
-        .trim_start_matches('#')
-        .trim();
-
-    if !h.is_ascii() || !h.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(format!(
-            "Color '{hex_str}' contains non-hexadecimal characters"
-        ));
-    }
-
-    match h.len() {
-        6 => {
-            let r =
-                u32::from_str_radix(&h[0..2], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
-            let g =
-                u32::from_str_radix(&h[2..4], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
-            let b =
-                u32::from_str_radix(&h[4..6], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
-            let a = u32::MAX;
-            Ok((r, g, b, a))
-        }
-        8 => {
-            let r =
-                u32::from_str_radix(&h[0..2], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
-            let g =
-                u32::from_str_radix(&h[2..4], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
-            let b =
-                u32::from_str_radix(&h[4..6], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
-            let a =
-                u32::from_str_radix(&h[6..8], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
-            let premultiply = |channel: u32| ((channel as u64 * a as u64) / u32::MAX as u64) as u32;
-            Ok((premultiply(r), premultiply(g), premultiply(b), a))
-        }
-        _ => Err(format!(
-            "Color '{hex_str}' has invalid length (expected 6 or 8 hex digits, got {})",
-            h.len()
-        )),
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StatusSubscription {
@@ -112,141 +71,203 @@ impl StatusListener {
     }
 }
 
-pub fn hex_to_river_rgba(hex_str: &str) -> (u32, u32, u32, u32) {
-    parse_hex_color(hex_str).unwrap_or((u32::MAX, u32::MAX, u32::MAX, u32::MAX))
+/// Deep module managing status subscribers, non-blocking I/O, broken-pipe pruning,
+/// and differential snapshot deduplication.
+#[derive(Debug, Default)]
+pub struct StatusBroadcaster {
+    listeners: Vec<StatusListener>,
+}
+
+impl StatusBroadcaster {
+    /// Creates an empty status broadcaster.
+    pub fn new() -> Self {
+        Self {
+            listeners: Vec::new(),
+        }
+    }
+
+    /// Number of active status subscribers.
+    pub fn len(&self) -> usize {
+        self.listeners.len()
+    }
+
+    /// Whether there are no active status subscribers.
+    pub fn is_empty(&self) -> bool {
+        self.listeners.is_empty()
+    }
+
+    /// Appends an existing status listener.
+    pub fn add_listener(&mut self, listener: StatusListener) {
+        self.listeners.push(listener);
+    }
+
+    /// Subscribes a UnixStream to status updates.
+    pub fn subscribe(
+        &mut self,
+        stream: std::os::unix::net::UnixStream,
+        subscription: StatusSubscription,
+    ) {
+        self.listeners
+            .push(StatusListener::new(stream, subscription));
+    }
+
+    /// Registers a newly connected subscriber with an initial snapshot baseline.
+    pub fn register(
+        &mut self,
+        stream: std::os::unix::net::UnixStream,
+        subscription: StatusSubscription,
+        initial_snapshot: Option<SubscriberSnapshot>,
+    ) {
+        let mut listener = StatusListener::new(stream, subscription);
+        listener.last_snapshot = initial_snapshot;
+        self.listeners.push(listener);
+    }
+
+    /// Active status listeners slice.
+    pub fn listeners(&self) -> &[StatusListener] {
+        &self.listeners
+    }
+
+    /// Mutable active status listeners.
+    pub fn listeners_mut(&mut self) -> &mut Vec<StatusListener> {
+        &mut self.listeners
+    }
+
+    /// Broadcasts differential status updates to all active IPC status listeners.
+    pub fn broadcast(&mut self, state: &AppState) {
+        if self.listeners.is_empty() {
+            return;
+        }
+
+        // Lazy buffers for formatted messages (only computed on demand when a listener actually needs to send)
+        let mut cached_tag_msgs: [Option<String>; 32] = Default::default();
+        let mut cached_window_msg: Option<String> = None;
+        let mut cached_waybar_msg: Option<String> = None;
+        let mut cached_json_msg: Option<(String, u64)> = None;
+        let mut cached_scratchpad_msg: Option<String> = None;
+        let mut cached_pinned_msg: Option<String> = None;
+
+        self.listeners.retain_mut(|listener| {
+            let snapshot = match listener.subscription {
+                StatusSubscription::FullJson => {
+                    let (_, hash) = cached_json_msg.get_or_insert_with(|| {
+                        let s = state.format_json_status();
+                        use std::hash::{DefaultHasher, Hash, Hasher};
+                        let mut hasher = DefaultHasher::new();
+                        s.hash(&mut hasher);
+                        let h = hasher.finish();
+                        let mut line = s;
+                        line.push('\n');
+                        (line, h)
+                    });
+                    SubscriberSnapshot::FullJson {
+                        payload_hash: *hash,
+                    }
+                }
+                _ => state.current_subscriber_snapshot(&listener.subscription),
+            };
+
+            if listener.last_snapshot.as_ref() == Some(&snapshot) {
+                return true;
+            }
+
+            let msg_to_send: &[u8] = match listener.subscription {
+                StatusSubscription::Tag(tag) => {
+                    let (is_active, is_occupied) = match snapshot {
+                        SubscriberSnapshot::Tag { focused, occupied } => (focused, occupied),
+                        _ => (false, false),
+                    };
+                    let idx = (tag.saturating_sub(1) as usize).min(31);
+                    let msg = cached_tag_msgs[idx].get_or_insert_with(|| {
+                        let mut s = format_tag_status_from_state(tag, is_active, is_occupied);
+                        s.push('\n');
+                        s
+                    });
+                    msg.as_bytes()
+                }
+                StatusSubscription::Window => {
+                    let msg = cached_window_msg.get_or_insert_with(|| {
+                        let mut s = format_window_status(state);
+                        s.push('\n');
+                        s
+                    });
+                    msg.as_bytes()
+                }
+                StatusSubscription::WaybarLegacy => {
+                    let msg = cached_waybar_msg.get_or_insert_with(|| {
+                        let mut s = format_waybar_status(state);
+                        s.push('\n');
+                        s
+                    });
+                    msg.as_bytes()
+                }
+                StatusSubscription::FullJson => cached_json_msg
+                    .as_ref()
+                    .map(|(s, _)| s.as_bytes())
+                    .unwrap_or(b""),
+                StatusSubscription::Scratchpad => {
+                    let msg = cached_scratchpad_msg.get_or_insert_with(|| {
+                        let mut s = format_scratchpad_status(state);
+                        s.push('\n');
+                        s
+                    });
+                    msg.as_bytes()
+                }
+                StatusSubscription::Pinned => {
+                    let msg = cached_pinned_msg.get_or_insert_with(|| {
+                        let mut s = format_pinned_status(state);
+                        s.push('\n');
+                        s
+                    });
+                    msg.as_bytes()
+                }
+            };
+
+            let _ = listener.stream.set_nonblocking(true);
+            let mut bytes = msg_to_send;
+            let mut fatal_err = false;
+
+            use std::io::Write;
+            while !bytes.is_empty() {
+                match listener.stream.write(bytes) {
+                    Ok(0) => {
+                        fatal_err = true;
+                        break;
+                    }
+                    Ok(n) => {
+                        bytes = &bytes[n..];
+                    }
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        // Buffer temporarily full: preserve connection, retry next broadcast
+                        break;
+                    }
+                    Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(e) => {
+                        tracing::debug!(error = %e, "Status subscriber disconnected");
+                        fatal_err = true;
+                        break;
+                    }
+                }
+            }
+
+            if fatal_err {
+                false
+            } else {
+                if bytes.is_empty() {
+                    let _ = listener.stream.flush();
+                    listener.last_snapshot = Some(snapshot);
+                }
+                true
+            }
+        });
+    }
 }
 
 /// Broadcasts differential status updates to all active IPC status listeners.
 pub fn broadcast_status(state: &mut AppState) {
-    if state.status_listeners.is_empty() {
-        return;
-    }
-
-    let mut listeners = std::mem::take(&mut state.status_listeners);
-
-    // Lazy buffers for formatted messages (only computed on demand when a listener actually needs to send)
-    let mut cached_tag_msgs: [Option<String>; 32] = Default::default();
-    let mut cached_window_msg: Option<String> = None;
-    let mut cached_waybar_msg: Option<String> = None;
-    let mut cached_json_msg: Option<(String, u64)> = None;
-    let mut cached_scratchpad_msg: Option<String> = None;
-    let mut cached_pinned_msg: Option<String> = None;
-
-    listeners.retain_mut(|listener| {
-        let snapshot = match listener.subscription {
-            StatusSubscription::FullJson => {
-                let (_, hash) = cached_json_msg.get_or_insert_with(|| {
-                    let s = state.format_json_status();
-                    use std::hash::{DefaultHasher, Hash, Hasher};
-                    let mut hasher = DefaultHasher::new();
-                    s.hash(&mut hasher);
-                    let h = hasher.finish();
-                    let mut line = s;
-                    line.push('\n');
-                    (line, h)
-                });
-                SubscriberSnapshot::FullJson {
-                    payload_hash: *hash,
-                }
-            }
-            _ => state.current_subscriber_snapshot(&listener.subscription),
-        };
-
-        if listener.last_snapshot.as_ref() == Some(&snapshot) {
-            return true;
-        }
-
-        let msg_to_send: &[u8] = match listener.subscription {
-            StatusSubscription::Tag(tag) => {
-                let (is_active, is_occupied) = match snapshot {
-                    SubscriberSnapshot::Tag { focused, occupied } => (focused, occupied),
-                    _ => (false, false),
-                };
-                let idx = (tag.saturating_sub(1) as usize).min(31);
-                let msg = cached_tag_msgs[idx].get_or_insert_with(|| {
-                    let mut s = format_tag_status_from_state(tag, is_active, is_occupied);
-                    s.push('\n');
-                    s
-                });
-                msg.as_bytes()
-            }
-            StatusSubscription::Window => {
-                let msg = cached_window_msg.get_or_insert_with(|| {
-                    let mut s = format_window_status(state);
-                    s.push('\n');
-                    s
-                });
-                msg.as_bytes()
-            }
-            StatusSubscription::WaybarLegacy => {
-                let msg = cached_waybar_msg.get_or_insert_with(|| {
-                    let mut s = format_waybar_status(state);
-                    s.push('\n');
-                    s
-                });
-                msg.as_bytes()
-            }
-            StatusSubscription::FullJson => cached_json_msg
-                .as_ref()
-                .map(|(s, _)| s.as_bytes())
-                .unwrap_or(b""),
-            StatusSubscription::Scratchpad => {
-                let msg = cached_scratchpad_msg.get_or_insert_with(|| {
-                    let mut s = format_scratchpad_status(state);
-                    s.push('\n');
-                    s
-                });
-                msg.as_bytes()
-            }
-            StatusSubscription::Pinned => {
-                let msg = cached_pinned_msg.get_or_insert_with(|| {
-                    let mut s = format_pinned_status(state);
-                    s.push('\n');
-                    s
-                });
-                msg.as_bytes()
-            }
-        };
-
-        let _ = listener.stream.set_nonblocking(true);
-        let mut bytes = msg_to_send;
-        let mut fatal_err = false;
-
-        use std::io::Write;
-        while !bytes.is_empty() {
-            match listener.stream.write(bytes) {
-                Ok(0) => {
-                    fatal_err = true;
-                    break;
-                }
-                Ok(n) => {
-                    bytes = &bytes[n..];
-                }
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    // Buffer temporarily full: preserve connection, retry next broadcast
-                    break;
-                }
-                Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(e) => {
-                    tracing::debug!(error = %e, "Status subscriber disconnected");
-                    fatal_err = true;
-                    break;
-                }
-            }
-        }
-
-        if fatal_err {
-            false
-        } else {
-            if bytes.is_empty() {
-                let _ = listener.stream.flush();
-                listener.last_snapshot = Some(snapshot);
-            }
-            true
-        }
-    });
-
-    state.status_listeners = listeners;
+    let mut broadcaster = std::mem::take(&mut state.broadcaster);
+    broadcaster.broadcast(state);
+    state.broadcaster = broadcaster;
 }
 
 /// Serializes the full window manager state into a single-line JSON string.

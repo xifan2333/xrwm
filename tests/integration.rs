@@ -3616,11 +3616,11 @@ fn test_capture_sessions_differential_broadcast_streams_to_waybar_and_json_liste
     json_client.set_nonblocking(true).unwrap();
     let mut json_reader = BufReader::new(json_client);
 
-    harness.state.status_listeners.push(StatusListener::new(
+    harness.state.broadcaster.add_listener(StatusListener::new(
         wb_server,
         StatusSubscription::WaybarLegacy,
     ));
-    harness.state.status_listeners.push(StatusListener::new(
+    harness.state.broadcaster.add_listener(StatusListener::new(
         json_server,
         StatusSubscription::FullJson,
     ));

@@ -8,8 +8,55 @@ use crate::protocol::{
 };
 use crate::seat::{LayerShellFocus, SeatOp};
 use crate::state::AppState;
-use crate::status::hex_to_river_rgba;
 use crate::window::{BorderRole, WindowItem, WindowLayer, WindowVisibility};
+
+/// Parses a 6- or 8-digit hexadecimal color string into River RGBA format.
+pub fn parse_hex_color(hex_str: &str) -> Result<(u32, u32, u32, u32), String> {
+    let h = hex_str
+        .trim_start_matches("0x")
+        .trim_start_matches('#')
+        .trim();
+
+    if !h.is_ascii() || !h.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(format!(
+            "Color '{hex_str}' contains non-hexadecimal characters"
+        ));
+    }
+
+    match h.len() {
+        6 => {
+            let r =
+                u32::from_str_radix(&h[0..2], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
+            let g =
+                u32::from_str_radix(&h[2..4], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
+            let b =
+                u32::from_str_radix(&h[4..6], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
+            let a = u32::MAX;
+            Ok((r, g, b, a))
+        }
+        8 => {
+            let r =
+                u32::from_str_radix(&h[0..2], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
+            let g =
+                u32::from_str_radix(&h[2..4], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
+            let b =
+                u32::from_str_radix(&h[4..6], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
+            let a =
+                u32::from_str_radix(&h[6..8], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
+            let premultiply = |channel: u32| ((channel as u64 * a as u64) / u32::MAX as u64) as u32;
+            Ok((premultiply(r), premultiply(g), premultiply(b), a))
+        }
+        _ => Err(format!(
+            "Color '{hex_str}' has invalid length (expected 6 or 8 hex digits, got {})",
+            h.len()
+        )),
+    }
+}
+
+/// Converts a hex color string to River RGBA channels, defaulting to opaque white on error.
+pub fn hex_to_river_rgba(hex_str: &str) -> (u32, u32, u32, u32) {
+    parse_hex_color(hex_str).unwrap_or((u32::MAX, u32::MAX, u32::MAX, u32::MAX))
+}
 
 /// Visual border configuration planned for a window in the current frame.
 #[derive(Debug, Clone, PartialEq, Eq)]

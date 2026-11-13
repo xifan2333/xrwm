@@ -108,7 +108,7 @@ pub fn parse_keysym(key_name: &str) -> Option<u32> {
 
 /// A pending keybinding requested via IPC, queued to be registered
 /// during the next manage sequence.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingKeyBinding {
     pub mode: String,
     pub modifiers: Modifiers,
@@ -142,7 +142,7 @@ pub fn parse_button(s: &str) -> Option<u32> {
 }
 
 /// A pending pointer binding requested via IPC, queued to be registered with seats.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingPointerBinding {
     pub mode: String,
     pub modifiers: Modifiers,

@@ -26,10 +26,11 @@ pub use crate::window::{
     WindowVisibility,
 };
 
+pub use crate::render::{hex_to_river_rgba, parse_hex_color};
 pub use crate::status::{
-    StatusListener, StatusSubscription, SubscriberSnapshot, broadcast_status, format_json_status,
-    format_pinned_status, format_scratchpad_status, format_tag_status, format_waybar_status,
-    format_window_status, hex_to_river_rgba, parse_hex_color,
+    StatusBroadcaster, StatusListener, StatusSubscription, SubscriberSnapshot, broadcast_status,
+    format_json_status, format_pinned_status, format_scratchpad_status, format_tag_status,
+    format_waybar_status, format_window_status,
 };
 
 pub use crate::rule::{WindowRule, apply_rules_to_window, glob_match};
@@ -137,7 +138,8 @@ pub struct AppState {
     pub anim: AnimationController,
     pub tag_slide_dir: Option<crate::animation::SlideDirection>,
     pub tag_anim_old_mask: TagMask,
-    pub status_listeners: Vec<StatusListener>,
+    pub broadcaster: StatusBroadcaster,
+    pub adapter: crate::adapter::CompositorAdapter,
     pub should_exit: bool,
 }
 
@@ -181,7 +183,8 @@ impl AppState {
             anim: AnimationController::default(),
             tag_slide_dir: None,
             tag_anim_old_mask: TAG_NONE,
-            status_listeners: Vec::new(),
+            broadcaster: StatusBroadcaster::new(),
+            adapter: crate::adapter::CompositorAdapter::new(),
             should_exit: false,
         }
     }
@@ -256,6 +259,7 @@ impl AppState {
 
     /// Attaches a new window according to the current `attach_mode`.
     pub fn attach_window(&mut self, item: WindowItem) {
+        self.adapter.register_window(item.id, item.proxy.clone());
         let focused_id = self.focused_window_id();
         let target_out = item.output.clone();
         let is_floating = item.floating;
@@ -669,6 +673,9 @@ impl AppState {
                 {
                     seat.hovered = None;
                 }
+            }
+            for w in self.windows.iter().filter(|w| w.closed) {
+                self.adapter.remove_window(w.id);
             }
             for c in &closed {
                 c.destroy();

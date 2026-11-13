@@ -1,9 +1,11 @@
 //! xrwm - River 0.4+ dynamic tiling Wayland window manager library core.
 
 pub mod actions;
+pub mod adapter;
 pub mod animation;
 pub mod binds;
 pub mod dispatch;
+pub mod domain;
 pub mod ipc;
 pub mod layout;
 pub mod logging;
@@ -18,8 +20,10 @@ pub mod tag;
 pub mod window;
 
 pub use actions::*;
+pub use adapter::*;
 pub use animation::*;
 pub use binds::*;
+pub use domain::*;
 pub use ipc::*;
 pub use layout::*;
 pub use logging::*;

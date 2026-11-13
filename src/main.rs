@@ -260,9 +260,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .min(ipc_deadline);
                         if ipc::write_ipc_response(&mut stream, &msg, write_deadline).is_ok() {
                             let initial_snapshot = state.current_subscriber_snapshot(&sub);
-                            let mut listener = xrwm::status::StatusListener::new(stream, sub);
-                            listener.last_snapshot = Some(initial_snapshot);
-                            state.status_listeners.push(listener);
+                            state
+                                .broadcaster
+                                .register(stream, sub, Some(initial_snapshot));
                         }
                     } else {
                         let response = match state.handle_ipc_command(&cmd) {
