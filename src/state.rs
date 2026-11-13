@@ -9,7 +9,7 @@ use wayland_client::{Proxy, QueueHandle};
 
 use crate::animation::AnimationController;
 use crate::binds::{ActiveKeyBinding, PendingKeyBinding};
-use crate::layout::{Layout, LayoutConfig, MasterStackLayout, Rect};
+use crate::layout::{LayoutConfig, Rect};
 use crate::protocol::{
     river_layer_shell_output_v1::RiverLayerShellOutputV1, river_layer_shell_v1::RiverLayerShellV1,
     river_output_v1::RiverOutputV1, river_window_manager_v1::RiverWindowManagerV1,
@@ -979,23 +979,6 @@ impl AppState {
             }
         }
 
-        // Project floating_hidden_tags to maintain per-tag collapse invariant
-        let is_single_output = self.outputs.len() <= 1;
-        for (out_id, out) in &mut self.outputs {
-            let collapsible_mask: TagMask = self
-                .windows
-                .iter()
-                .filter(|w| {
-                    !w.closed
-                        && w.layer().policy().collapsible
-                        && (w.output.as_ref() == Some(out_id) || is_single_output)
-                })
-                .map(|w| w.tags)
-                .fold(0, |acc, tags| acc | tags);
-
-            out.floating_hidden_tags &= collapsible_mask;
-        }
-
         // 4. Arrange windows for each output
         if self.outputs.is_empty() {
             self.propose_initial_dimensions();
@@ -1005,99 +988,8 @@ impl AppState {
             return;
         }
 
-        let layout_engine = MasterStackLayout;
-        let mut any_geo_changed = false;
-
-        let active_outputs: Vec<(ObjectId, Rect)> = self
-            .outputs
-            .iter()
-            .map(|(id, o)| (id.clone(), o.usable_area))
-            .collect();
-
-        for (out_id, usable_area) in active_outputs {
-            let out_tag_state = self.tag_state_for_output(Some(&out_id));
-            let mut tiled_indices: Vec<usize> = Vec::new();
-            for (i, w) in self.windows.iter().enumerate() {
-                let matches_output = match (&w.output, out_id.is_null()) {
-                    (Some(wo), false) => wo == &out_id,
-                    _ => true,
-                };
-                if matches_output
-                    && w.layer().policy().tiled_layout
-                    && out_tag_state.is_view_visible(w.tags)
-                {
-                    tiled_indices.push(i);
-                }
-            }
-
-            let mut out_layout_config = self.layout_config.clone();
-            if let Some(out) = self.outputs.get(&out_id) {
-                out_layout_config.monocle = out.monocle;
-            }
-
-            let rects = layout_engine.arrange(usable_area, tiled_indices.len(), &out_layout_config);
-
-            for (slot, &idx) in tiled_indices.iter().enumerate() {
-                if let Some(rect) = rects.get(slot)
-                    && self.windows[idx].arrange_tiled(*rect)
-                {
-                    any_geo_changed = true;
-                }
-            }
-        }
-
-        let is_any_pointer_op = self.seats.values().any(|s| !matches!(&s.op, SeatOp::None));
-
-        // Floating windows
-        for w in self
-            .windows
-            .iter_mut()
-            .filter(|w| !w.layer().policy().tiled_layout && w.layer() != WindowLayer::Fullscreen)
-        {
-            let is_visible = Self::is_window_visible_with(&self.outputs, self.tag_state, w);
-            if w.arrange_floating(is_visible, is_any_pointer_op) {
-                any_geo_changed = true;
-            }
-        }
-
-        // Apply decoration requests (SSD / CSD)
-        for w in &mut self.windows {
-            w.apply_ssd();
-        }
-
-        // Mark all windows as initially managed
-        for w in &mut self.windows {
-            w.mark_initial_managed();
-        }
-
-        // Trigger animation if geometries changed
-        if !is_any_pointer_op && any_geo_changed && self.anim.enabled {
-            self.anim.start();
-        }
-        if self.anim.is_animating() || op_was_released {
-            self.manage_dirty();
-        }
-        if !self.anim.is_animating() {
-            if self.anim.start_time.is_some() {
-                self.anim.stop();
-            }
-            if self.tag_slide_dir.is_some() {
-                self.tag_slide_dir = None;
-                self.tag_anim_old_mask = TAG_NONE;
-            }
-            if !self.anim.enabled {
-                for w in self.windows.iter_mut().filter(|w| !w.closed) {
-                    w.sync_visual_to_target();
-                }
-            }
-        }
-
-        // Apply any pending pointer warps during the manage sequence
-        for seat in self.seats.values_mut() {
-            if let Some((wx, wy)) = seat.pending_warp.take() {
-                seat.proxy.pointer_warp(wx, wy);
-            }
-        }
+        let plan = crate::layout::compute_arrange_plan(self);
+        crate::layout::execute_arrange_plan(self, &plan, op_was_released);
 
         self.propose_initial_dimensions();
         self.sync_occupied_tags();
