@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
 use xrwm::layout::*;
+use xrwm::state::AppState;
 
 #[test]
 fn test_empty_layout() {
@@ -302,4 +303,12 @@ fn test_arrange_plan_invariants() {
     );
     assert!(!plan.window_plans[0].is_floating);
     assert!(plan.window_plans[0].is_visible);
+}
+
+#[test]
+fn test_compute_arrange_plan_empty_state() {
+    let state = AppState::new();
+    let plan = compute_arrange_plan(&state);
+    assert!(plan.is_empty());
+    assert!(!plan.is_any_pointer_op);
 }
