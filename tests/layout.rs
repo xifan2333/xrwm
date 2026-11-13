@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
 use xrwm::layout::*;
+use xrwm::state::AppState;
 
 #[test]
 fn test_empty_layout() {
@@ -273,4 +274,41 @@ fn test_right_and_bottom_no_stack_column_no_overflow() {
         assert_eq!(r.y, 10);
         assert_eq!(r.height, 980);
     }
+}
+
+#[test]
+fn test_arrange_plan_invariants() {
+    let default_plan = ArrangePlan::default();
+    assert!(default_plan.is_empty());
+    assert!(!default_plan.is_any_pointer_op);
+    assert!(default_plan.window_plans.is_empty());
+    assert!(default_plan.output_floating_hidden_tags.is_empty());
+
+    let plan = ArrangePlan {
+        output_floating_hidden_tags: Vec::new(),
+        window_plans: vec![WindowArrangePlan {
+            window_id: 42,
+            target_rect: Some(Rect::new(10, 10, 800, 600)),
+            is_floating: false,
+            is_visible: true,
+        }],
+        is_any_pointer_op: false,
+    };
+    assert!(!plan.is_empty());
+    assert_eq!(plan.window_plans.len(), 1);
+    assert_eq!(plan.window_plans[0].window_id, 42);
+    assert_eq!(
+        plan.window_plans[0].target_rect,
+        Some(Rect::new(10, 10, 800, 600))
+    );
+    assert!(!plan.window_plans[0].is_floating);
+    assert!(plan.window_plans[0].is_visible);
+}
+
+#[test]
+fn test_compute_arrange_plan_empty_state() {
+    let state = AppState::new();
+    let plan = compute_arrange_plan(&state);
+    assert!(plan.is_empty());
+    assert!(!plan.is_any_pointer_op);
 }

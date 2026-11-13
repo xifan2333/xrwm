@@ -1,5 +1,11 @@
 //! Dynamic tiling layout engine for xrwm (rivertile master-stack style).
 
+use wayland_backend::client::ObjectId;
+
+use crate::state::AppState;
+use crate::tag::TagMask;
+use crate::window::WindowLayer;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct Rect {
     pub x: i32,
@@ -259,4 +265,204 @@ impl Layout for MasterStackLayout {
 
         rects
     }
+}
+
+/// Target geometry and visibility plan calculated for a single managed window.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WindowArrangePlan {
+    pub window_id: u32,
+    /// Target geometry calculated for this window (tiled target or floating resting box).
+    pub target_rect: Option<Rect>,
+    /// Whether this window is arranged as a floating window.
+    pub is_floating: bool,
+    /// Whether the window is visible on the current active tags / floating collapse state.
+    pub is_visible: bool,
+}
+
+/// Comprehensive window arrangement plan computed for a display frame manage tick.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ArrangePlan {
+    /// Collapsible tag masks projected per output (output ObjectId -> updated floating_hidden_tags).
+    pub output_floating_hidden_tags: Vec<(ObjectId, TagMask)>,
+    /// Calculated target arrangements for individual windows.
+    pub window_plans: Vec<WindowArrangePlan>,
+    /// Whether any pointer gesture (move, resize, drag-swap) is actively held.
+    pub is_any_pointer_op: bool,
+}
+
+impl ArrangePlan {
+    /// Returns true if no windows or outputs require arrangement.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.window_plans.is_empty() && self.output_floating_hidden_tags.is_empty()
+    }
+}
+
+/// Computes a pure, side-effect-free window arrangement plan for the current application state.
+pub fn compute_arrange_plan(state: &AppState) -> ArrangePlan {
+    if state.outputs.is_empty() {
+        return ArrangePlan::default();
+    }
+
+    // 1. Project floating_hidden_tags to maintain per-tag collapse invariant
+    let is_single_output = state.outputs.len() <= 1;
+    let mut output_floating_hidden_tags = Vec::with_capacity(state.outputs.len());
+    for (out_id, out) in &state.outputs {
+        let collapsible_mask: TagMask = state
+            .windows
+            .iter()
+            .filter(|w| {
+                !w.closed
+                    && w.layer().policy().collapsible
+                    && (w.output.as_ref() == Some(out_id) || is_single_output)
+            })
+            .map(|w| w.tags)
+            .fold(0, |acc, tags| acc | tags);
+
+        output_floating_hidden_tags
+            .push((out_id.clone(), out.floating_hidden_tags & collapsible_mask));
+    }
+
+    let layout_engine = MasterStackLayout;
+    let mut window_plans = Vec::with_capacity(state.windows.len());
+
+    let active_outputs: Vec<(ObjectId, Rect)> = state
+        .outputs
+        .iter()
+        .map(|(id, o)| (id.clone(), o.usable_area))
+        .collect();
+
+    // 2. Compute tiled layout for each active output
+    for (out_id, usable_area) in active_outputs {
+        let out_tag_state = state.tag_state_for_output(Some(&out_id));
+        let mut tiled_indices: Vec<usize> = Vec::new();
+        for (i, w) in state.windows.iter().enumerate() {
+            let matches_output = match (&w.output, out_id.is_null()) {
+                (Some(wo), false) => wo == &out_id,
+                _ => true,
+            };
+            if matches_output
+                && w.layer().policy().tiled_layout
+                && out_tag_state.is_view_visible(w.tags)
+            {
+                tiled_indices.push(i);
+            }
+        }
+
+        let mut out_layout_config = state.layout_config.clone();
+        if let Some(out) = state.outputs.get(&out_id) {
+            out_layout_config.monocle = out.monocle;
+        }
+
+        let rects = layout_engine.arrange(usable_area, tiled_indices.len(), &out_layout_config);
+
+        for (slot, &idx) in tiled_indices.iter().enumerate() {
+            if let Some(&rect) = rects.get(slot) {
+                window_plans.push(WindowArrangePlan {
+                    window_id: state.windows[idx].id(),
+                    target_rect: Some(rect),
+                    is_floating: false,
+                    is_visible: true,
+                });
+            }
+        }
+    }
+
+    let is_any_pointer_op = state
+        .seats
+        .values()
+        .any(|s| !matches!(&s.op, crate::seat::SeatOp::None));
+
+    // 3. Compute floating window visibility and placement plans
+    for w in state
+        .windows
+        .iter()
+        .filter(|w| !w.layer().policy().tiled_layout && w.layer() != WindowLayer::Fullscreen)
+    {
+        let is_visible = state.is_window_visible(w);
+        window_plans.push(WindowArrangePlan {
+            window_id: w.id(),
+            target_rect: None,
+            is_floating: true,
+            is_visible,
+        });
+    }
+
+    ArrangePlan {
+        output_floating_hidden_tags,
+        window_plans,
+        is_any_pointer_op,
+    }
+}
+
+/// Executes the computed arrange plan against application state and animations.
+pub fn execute_arrange_plan(
+    state: &mut AppState,
+    plan: &ArrangePlan,
+    op_was_released: bool,
+) -> bool {
+    // 1. Apply projected floating collapse masks per output
+    for (out_id, mask) in &plan.output_floating_hidden_tags {
+        if let Some(out) = state.outputs.get_mut(out_id) {
+            out.floating_hidden_tags = *mask;
+        }
+    }
+
+    let mut any_geo_changed = false;
+
+    // 2. Apply tiled and floating window target geometries
+    for win_plan in &plan.window_plans {
+        if let Some(w) = state
+            .windows
+            .iter_mut()
+            .find(|w| w.id() == win_plan.window_id)
+        {
+            if win_plan.is_floating {
+                if w.arrange_floating(win_plan.is_visible, plan.is_any_pointer_op) {
+                    any_geo_changed = true;
+                }
+            } else if let Some(rect) = win_plan.target_rect
+                && w.arrange_tiled(rect)
+            {
+                any_geo_changed = true;
+            }
+        }
+    }
+
+    // 3. Apply decoration requests (SSD / CSD) and mark initial managed
+    for w in &mut state.windows {
+        w.apply_ssd();
+        w.mark_initial_managed();
+    }
+
+    // 4. Trigger animation lifecycle if geometries changed
+    if !plan.is_any_pointer_op && any_geo_changed && state.anim.enabled {
+        state.anim.start();
+    }
+    if state.anim.is_animating() || op_was_released {
+        state.manage_dirty();
+    }
+    if !state.anim.is_animating() {
+        if state.anim.start_time.is_some() {
+            state.anim.stop();
+        }
+        if state.tag_slide_dir.is_some() {
+            state.tag_slide_dir = None;
+            state.tag_anim_old_mask = crate::tag::TAG_NONE;
+        }
+        if !state.anim.enabled {
+            for w in state.windows.iter_mut().filter(|w| !w.closed) {
+                w.sync_visual_to_target();
+            }
+        }
+    }
+
+    // 5. Apply any pending pointer warps during manage sequence
+    for seat in state.seats.values_mut() {
+        if let Some((wx, wy)) = seat.pending_warp.take() {
+            seat.proxy.pointer_warp(wx, wy);
+        }
+    }
+
+    any_geo_changed
 }
