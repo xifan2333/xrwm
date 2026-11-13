@@ -1,5 +1,7 @@
 //! Frame rendering plan computation and Wayland River protocol execution adapter.
 
+use std::fmt;
+
 use crate::animation::{calculate_clip_box, interpolate_rect};
 use crate::layout::Rect;
 use crate::protocol::{
@@ -10,52 +12,138 @@ use crate::seat::{LayerShellFocus, SeatOp};
 use crate::state::AppState;
 use crate::window::{BorderRole, WindowItem, WindowLayer, WindowVisibility};
 
+/// Factor converting an 8-bit channel value into River's 32-bit channel range.
+const CHANNEL_SCALE: u32 = u32::MAX / 255;
+
+/// A validated border color in River's premultiplied 32-bit channel form.
+///
+/// A color is decoded exactly once, at the IPC parsing seam, and is then carried
+/// as this `Copy` value through the domain state machine and the frame plan. Raw
+/// color text therefore never survives past the seam, and no render tick has to
+/// parse anything.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
+pub struct Rgba {
+    pub r: u32,
+    pub g: u32,
+    pub b: u32,
+    pub a: u32,
+}
+
+/// Scales one 8-bit channel by `alpha` (already in River's 32-bit range).
+const fn premultiply(channel: u8, alpha: u32) -> u32 {
+    ((channel as u32 * CHANNEL_SCALE) as u64 * alpha as u64 / u32::MAX as u64) as u32
+}
+
+impl Rgba {
+    /// Transparent black, the absence of a color.
+    pub const TRANSPARENT: Self = Self {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 0,
+    };
+
+    /// Builds a fully opaque color from 8-bit RGB components.
+    pub const fn from_rgb8(r: u8, g: u8, b: u8) -> Self {
+        Self {
+            r: r as u32 * CHANNEL_SCALE,
+            g: g as u32 * CHANNEL_SCALE,
+            b: b as u32 * CHANNEL_SCALE,
+            a: u32::MAX,
+        }
+    }
+
+    /// Builds a premultiplied color from 8-bit RGBA components.
+    pub const fn from_rgba8(r: u8, g: u8, b: u8, a: u8) -> Self {
+        let alpha = a as u32 * CHANNEL_SCALE;
+        Self {
+            r: premultiply(r, alpha),
+            g: premultiply(g, alpha),
+            b: premultiply(b, alpha),
+            a: alpha,
+        }
+    }
+
+    /// Decodes a 6- or 8-digit hexadecimal color string.
+    ///
+    /// Accepts an optional `0x` or `#` prefix; 8-digit input is alpha-premultiplied
+    /// the way River expects border colors to be.
+    pub fn parse(hex_str: &str) -> Result<Self, String> {
+        let h = hex_str
+            .trim_start_matches("0x")
+            .trim_start_matches('#')
+            .trim();
+
+        if !h.is_ascii() || !h.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(format!(
+                "Color '{hex_str}' contains non-hexadecimal characters"
+            ));
+        }
+
+        let byte = |range: std::ops::Range<usize>| -> Result<u8, String> {
+            u8::from_str_radix(&h[range], 16).map_err(|e| e.to_string())
+        };
+
+        match h.len() {
+            6 => Ok(Self::from_rgb8(byte(0..2)?, byte(2..4)?, byte(4..6)?)),
+            8 => Ok(Self::from_rgba8(
+                byte(0..2)?,
+                byte(2..4)?,
+                byte(4..6)?,
+                byte(6..8)?,
+            )),
+            _ => Err(format!(
+                "Color '{hex_str}' has invalid length (expected 6 or 8 hex digits, got {})",
+                h.len()
+            )),
+        }
+    }
+
+    /// The channels expected by the River border color request.
+    pub const fn channels(self) -> (u32, u32, u32, u32) {
+        (self.r, self.g, self.b, self.a)
+    }
+}
+
+impl fmt::Display for Rgba {
+    /// Renders `#rrggbb` (or `#rrggbbaa` when translucent), undoing the
+    /// premultiplication applied by [`Rgba::parse`].
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Recovers an 8-bit component from its premultiplied representation.
+        let byte = |channel: u32, alpha: u32| -> u8 {
+            if alpha == 0 {
+                return 0;
+            }
+            let restored =
+                (channel as u64 * u32::MAX as u64) / (alpha as u64 * CHANNEL_SCALE as u64);
+            restored.min(255) as u8
+        };
+
+        let (r, g, b) = (
+            byte(self.r, self.a),
+            byte(self.g, self.a),
+            byte(self.b, self.a),
+        );
+        if self.a == u32::MAX {
+            write!(f, "#{r:02x}{g:02x}{b:02x}")
+        } else {
+            write!(f, "#{r:02x}{g:02x}{b:02x}{:02x}", byte(self.a, u32::MAX))
+        }
+    }
+}
+
 /// Parses a 6- or 8-digit hexadecimal color string into River RGBA format.
 pub fn parse_hex_color(hex_str: &str) -> Result<(u32, u32, u32, u32), String> {
-    let h = hex_str
-        .trim_start_matches("0x")
-        .trim_start_matches('#')
-        .trim();
-
-    if !h.is_ascii() || !h.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(format!(
-            "Color '{hex_str}' contains non-hexadecimal characters"
-        ));
-    }
-
-    match h.len() {
-        6 => {
-            let r =
-                u32::from_str_radix(&h[0..2], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
-            let g =
-                u32::from_str_radix(&h[2..4], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
-            let b =
-                u32::from_str_radix(&h[4..6], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
-            let a = u32::MAX;
-            Ok((r, g, b, a))
-        }
-        8 => {
-            let r =
-                u32::from_str_radix(&h[0..2], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
-            let g =
-                u32::from_str_radix(&h[2..4], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
-            let b =
-                u32::from_str_radix(&h[4..6], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
-            let a =
-                u32::from_str_radix(&h[6..8], 16).map_err(|e| e.to_string())? * (u32::MAX / 255);
-            let premultiply = |channel: u32| ((channel as u64 * a as u64) / u32::MAX as u64) as u32;
-            Ok((premultiply(r), premultiply(g), premultiply(b), a))
-        }
-        _ => Err(format!(
-            "Color '{hex_str}' has invalid length (expected 6 or 8 hex digits, got {})",
-            h.len()
-        )),
-    }
+    Rgba::parse(hex_str).map(Rgba::channels)
 }
 
 /// Converts a hex color string to River RGBA channels, defaulting to opaque white on error.
 pub fn hex_to_river_rgba(hex_str: &str) -> (u32, u32, u32, u32) {
-    parse_hex_color(hex_str).unwrap_or((u32::MAX, u32::MAX, u32::MAX, u32::MAX))
+    Rgba::parse(hex_str)
+        .map(Rgba::channels)
+        .unwrap_or(Rgba::from_rgb8(255, 255, 255).channels())
 }
 
 /// Visual border configuration planned for a window in the current frame.
