@@ -1,5 +1,9 @@
 //! Dynamic tiling layout engine for xrwm (rivertile master-stack style).
 
+use wayland_backend::client::ObjectId;
+
+use crate::tag::TagMask;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct Rect {
     pub x: i32,
@@ -258,5 +262,36 @@ impl Layout for MasterStackLayout {
         }
 
         rects
+    }
+}
+
+/// Target geometry and visibility plan calculated for a single managed window.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WindowArrangePlan {
+    pub window_id: u32,
+    /// Target geometry calculated for this window (tiled target or floating resting box).
+    pub target_rect: Option<Rect>,
+    /// Whether this window is arranged as a floating window.
+    pub is_floating: bool,
+    /// Whether the window is visible on the current active tags / floating collapse state.
+    pub is_visible: bool,
+}
+
+/// Comprehensive window arrangement plan computed for a display frame manage tick.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ArrangePlan {
+    /// Collapsible tag masks projected per output (output ObjectId -> updated floating_hidden_tags).
+    pub output_floating_hidden_tags: Vec<(ObjectId, TagMask)>,
+    /// Calculated target arrangements for individual windows.
+    pub window_plans: Vec<WindowArrangePlan>,
+    /// Whether any pointer gesture (move, resize, drag-swap) is actively held.
+    pub is_any_pointer_op: bool,
+}
+
+impl ArrangePlan {
+    /// Returns true if no windows or outputs require arrangement.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.window_plans.is_empty() && self.output_floating_hidden_tags.is_empty()
     }
 }
