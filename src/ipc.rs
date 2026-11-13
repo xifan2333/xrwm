@@ -90,15 +90,15 @@ pub enum IpcCommand {
     RuleAdd {
         app_id: Option<String>,
         title: Option<String>,
-        action: Vec<String>,
+        action: crate::rule::RuleAction,
     },
     RuleDel {
         app_id: Option<String>,
         title: Option<String>,
-        action: Vec<String>,
+        action: crate::rule::RuleActionKind,
     },
     ListRules {
-        action: Option<String>,
+        action: Option<crate::rule::RuleActionKind>,
     },
     Status {
         #[serde(default)]
@@ -497,6 +497,8 @@ struct ParsedRuleArgs {
     action: Vec<String>,
 }
 
+/// Splits `rule-add`/`rule-del` arguments into match criteria and the raw action
+/// tokens; interpreting those tokens is [`crate::rule::RuleAction`]'s job.
 fn parse_rule_args(args: &[String], is_add: bool) -> Result<ParsedRuleArgs, String> {
     let cmd_name = if is_add { "rule-add" } else { "rule-del" };
     let mut app_id = None;
@@ -893,19 +895,32 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
             Ok(IpcCommand::RuleAdd {
                 app_id: parsed.app_id,
                 title: parsed.title,
-                action: parsed.action,
+                action: crate::rule::RuleAction::parse(&parsed.action)?,
             })
         }
         "rule-del" => {
             let parsed = parse_rule_args(args, false)?;
+            let mut action_tokens = parsed.action.into_iter();
+            let head = action_tokens
+                .next()
+                .ok_or_else(|| "Rule action cannot be empty".to_string())?;
+            let action = crate::rule::RuleActionKind::parse(&head)?;
+            if let Some(extra) = action_tokens.next() {
+                return Err(format!(
+                    "Unexpected argument {extra:?} for rule-del, expected a single action"
+                ));
+            }
             Ok(IpcCommand::RuleDel {
                 app_id: parsed.app_id,
                 title: parsed.title,
-                action: parsed.action,
+                action,
             })
         }
         "list-rules" => {
-            let action = args.get(1).cloned();
+            let action = match args.get(1) {
+                Some(raw) => Some(crate::rule::RuleActionKind::parse(raw)?),
+                None => None,
+            };
             Ok(IpcCommand::ListRules { action })
         }
         "status" => {

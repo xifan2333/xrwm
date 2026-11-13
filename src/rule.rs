@@ -1,11 +1,12 @@
-//! Window matching rules and pattern matching engine.
+//! Window matching rules, rule-action vocabulary, and pattern matching engine.
 
 use std::collections::HashMap;
+use std::fmt;
 use wayland_backend::client::ObjectId;
 
 use crate::layout::Rect;
 use crate::state::{OutputItem, WindowItem};
-use crate::tag::TagMask;
+use crate::tag::{TAG_NONE, TagMask};
 
 #[derive(Debug, Clone)]
 pub struct WindowRule {
@@ -18,6 +19,314 @@ pub struct WindowRule {
     pub position: Option<(i32, i32)>,
     pub fullscreen: Option<bool>,
     pub output: Option<String>,
+}
+
+/// The closed vocabulary of window-rule actions.
+///
+/// A rule action is decoded exactly once, at the IPC parsing seam, and is then
+/// carried as this typed value all the way to the rule store. Illegal tokens or
+/// argument shapes can therefore never reach a state mutation.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "action", content = "value", rename_all = "kebab-case")]
+pub enum RuleAction {
+    /// Force floating (`true`) or tiled (`false`) placement.
+    Float(bool),
+    /// Force server-side (`true`) or client-side (`false`) decorations.
+    Ssd(bool),
+    /// Initial tag bitmask; must contain at least one tag.
+    Tags(TagMask),
+    /// Initial floating window dimensions.
+    Dimensions { width: u32, height: u32 },
+    /// Initial floating window position.
+    Position { x: i32, y: i32 },
+    /// Force fullscreen (`true`) or explicitly not (`false`) on mapping.
+    Fullscreen(bool),
+    /// Target output selector (name, protocol id, or 1-based index).
+    Output(String),
+}
+
+/// The selector half of the rule-action vocabulary: which [`WindowRule`] property
+/// an action targets. `rule-del` and `list-rules` only ever need this projection,
+/// never the payload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuleActionKind {
+    Float,
+    Ssd,
+    Tags,
+    Dimensions,
+    Position,
+    Fullscreen,
+    Output,
+}
+
+/// Every accepted flag token, mapped to the property it targets and its payload.
+/// This table is the single source of truth for the CLI flag vocabulary.
+const FLAG_TOKENS: &[(&str, RuleActionKind, bool)] = &[
+    ("float", RuleActionKind::Float, true),
+    ("no-float", RuleActionKind::Float, false),
+    ("ssd", RuleActionKind::Ssd, true),
+    ("csd", RuleActionKind::Ssd, false),
+    ("no-ssd", RuleActionKind::Ssd, false),
+    ("no-border", RuleActionKind::Ssd, false),
+    ("fullscreen", RuleActionKind::Fullscreen, true),
+    ("no-fullscreen", RuleActionKind::Fullscreen, false),
+];
+
+/// Every accepted token that takes positional arguments, mapped to its property.
+const VALUE_TOKENS: &[(&str, RuleActionKind)] = &[
+    ("tags", RuleActionKind::Tags),
+    ("dimensions", RuleActionKind::Dimensions),
+    ("position", RuleActionKind::Position),
+    ("output", RuleActionKind::Output),
+];
+
+/// Builds the flag variant for a targeted property.
+///
+/// Flag tables can only reference the three boolean properties, so the remaining
+/// kinds are rejected instead of being silently coerced.
+fn flag_action(kind: RuleActionKind, value: bool) -> Option<RuleAction> {
+    match kind {
+        RuleActionKind::Float => Some(RuleAction::Float(value)),
+        RuleActionKind::Ssd => Some(RuleAction::Ssd(value)),
+        RuleActionKind::Fullscreen => Some(RuleAction::Fullscreen(value)),
+        RuleActionKind::Tags
+        | RuleActionKind::Dimensions
+        | RuleActionKind::Position
+        | RuleActionKind::Output => None,
+    }
+}
+
+impl RuleActionKind {
+    /// Resolves a CLI token (including its synonyms) to the property it targets.
+    pub fn parse(token: &str) -> Result<Self, String> {
+        let token = token.trim().to_ascii_lowercase();
+        if let Some(&(_, kind, _)) = FLAG_TOKENS.iter().find(|(name, ..)| *name == token) {
+            return Ok(kind);
+        }
+        if let Some(&(_, kind)) = VALUE_TOKENS.iter().find(|(name, _)| *name == token) {
+            return Ok(kind);
+        }
+        Err(format!("Unknown rule action: {token}"))
+    }
+
+    /// The canonical CLI token rendering this property.
+    pub const fn keyword(self) -> &'static str {
+        match self {
+            RuleActionKind::Float => "float",
+            RuleActionKind::Ssd => "ssd",
+            RuleActionKind::Tags => "tags",
+            RuleActionKind::Dimensions => "dimensions",
+            RuleActionKind::Position => "position",
+            RuleActionKind::Fullscreen => "fullscreen",
+            RuleActionKind::Output => "output",
+        }
+    }
+
+    /// Whether the given rule currently configures this property.
+    pub const fn is_set_for(self, rule: &WindowRule) -> bool {
+        match self {
+            RuleActionKind::Float => rule.float.is_some(),
+            RuleActionKind::Ssd => rule.ssd.is_some(),
+            RuleActionKind::Tags => rule.tags.is_some(),
+            RuleActionKind::Dimensions => rule.dimensions.is_some(),
+            RuleActionKind::Position => rule.position.is_some(),
+            RuleActionKind::Fullscreen => rule.fullscreen.is_some(),
+            RuleActionKind::Output => rule.output.is_some(),
+        }
+    }
+}
+
+impl RuleAction {
+    /// Decodes CLI tokens into a validated rule action.
+    ///
+    /// This is the only place rule-action syntax is understood: arity, numeric
+    /// parsing, and domain invariants (non-empty tag mask, in-range dimensions)
+    /// are all enforced here, before any state mutation.
+    pub fn parse(tokens: &[String]) -> Result<Self, String> {
+        let (head, args) = tokens
+            .split_first()
+            .ok_or_else(|| "Rule action cannot be empty".to_string())?;
+        let token = head.trim().to_ascii_lowercase();
+
+        if let Some(&(_, kind, value)) = FLAG_TOKENS.iter().find(|(name, ..)| *name == token) {
+            expect_arity(&token, args, 0)?;
+            return flag_action(kind, value).ok_or_else(|| format!("Unknown rule action: {token}"));
+        }
+
+        if let Some(&(_, kind)) = VALUE_TOKENS.iter().find(|(name, _)| *name == token) {
+            return Self::parse_value(kind, &token, args);
+        }
+
+        Err(format!("Unknown rule action: {token}"))
+    }
+
+    fn parse_value(kind: RuleActionKind, token: &str, args: &[String]) -> Result<Self, String> {
+        match kind {
+            RuleActionKind::Tags => {
+                expect_arity(token, args, 1)?;
+                let action = RuleAction::Tags(parse_tag_mask(&args[0])?);
+                action.validate()?;
+                Ok(action)
+            }
+            RuleActionKind::Dimensions => {
+                expect_arity(token, args, 2)?;
+                let width = args[0].parse::<u32>().map_err(|_| "Invalid width")?;
+                let height = args[1].parse::<u32>().map_err(|_| "Invalid height")?;
+                let action = RuleAction::Dimensions { width, height };
+                action.validate()?;
+                Ok(action)
+            }
+            RuleActionKind::Position => {
+                expect_arity(token, args, 2)?;
+                let x = args[0].parse::<i32>().map_err(|_| "Invalid x coordinate")?;
+                let y = args[1].parse::<i32>().map_err(|_| "Invalid y coordinate")?;
+                Ok(RuleAction::Position { x, y })
+            }
+            RuleActionKind::Output => {
+                expect_arity(token, args, 1)?;
+                Ok(RuleAction::Output(args[0].clone()))
+            }
+            // Value tokens never carry flag kinds; keep the match total without panicking.
+            RuleActionKind::Float | RuleActionKind::Ssd | RuleActionKind::Fullscreen => {
+                Err(format!("Missing value for rule action: {token}"))
+            }
+        }
+    }
+
+    /// The property this action targets.
+    pub const fn kind(&self) -> RuleActionKind {
+        match self {
+            RuleAction::Float(_) => RuleActionKind::Float,
+            RuleAction::Ssd(_) => RuleActionKind::Ssd,
+            RuleAction::Tags(_) => RuleActionKind::Tags,
+            RuleAction::Dimensions { .. } => RuleActionKind::Dimensions,
+            RuleAction::Position { .. } => RuleActionKind::Position,
+            RuleAction::Fullscreen(_) => RuleActionKind::Fullscreen,
+            RuleAction::Output(_) => RuleActionKind::Output,
+        }
+    }
+
+    /// Enforces the domain invariants that a raw payload cannot express.
+    ///
+    /// Used by [`RuleAction::parse`] and by the IPC handler, so a command that
+    /// arrives over the socket without passing through the CLI parser is still
+    /// rejected before it mutates state.
+    pub fn validate(&self) -> Result<(), String> {
+        match self {
+            RuleAction::Tags(TAG_NONE) => {
+                Err("a window rule must specify at least one tag".to_string())
+            }
+            RuleAction::Dimensions { width, height }
+                if *width > i32::MAX as u32 || *height > i32::MAX as u32 =>
+            {
+                Err("window dimensions exceed maximum allowed value".to_string())
+            }
+            _ => Ok(()),
+        }
+    }
+}
+
+fn expect_arity(token: &str, args: &[String], expected: usize) -> Result<(), String> {
+    if args.len() == expected {
+        return Ok(());
+    }
+    Err(match token {
+        "tags" => "Usage: rule-add ... tags <mask>".to_string(),
+        "dimensions" => "Usage: rule-add ... dimensions <width> <height>".to_string(),
+        "position" => "Usage: rule-add ... position <x> <y>".to_string(),
+        "output" => "Usage: rule-add ... output <name|id>".to_string(),
+        other => format!("Unexpected arguments for rule action: {other}"),
+    })
+}
+
+/// Parses a tag bitmask given either in decimal or as a `0x`-prefixed hex literal.
+fn parse_tag_mask(raw: &str) -> Result<TagMask, String> {
+    let raw = raw.trim();
+    let parsed = match raw.strip_prefix("0x").or_else(|| raw.strip_prefix("0X")) {
+        Some(hex) => u32::from_str_radix(hex, 16),
+        None => raw.parse::<u32>(),
+    };
+    parsed.map_err(|_| "Invalid tag mask".to_string())
+}
+
+impl fmt::Display for RuleAction {
+    /// Renders the canonical CLI form, so `list-rules` remains a faithful
+    /// round-trip of what `rule-add` accepted.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RuleAction::Float(true) => f.write_str("float"),
+            RuleAction::Float(false) => f.write_str("no-float"),
+            RuleAction::Ssd(true) => f.write_str("ssd"),
+            RuleAction::Ssd(false) => f.write_str("csd"),
+            RuleAction::Tags(mask) => write!(f, "tags {mask}"),
+            RuleAction::Dimensions { width, height } => write!(f, "dimensions {width} {height}"),
+            RuleAction::Position { x, y } => write!(f, "position {x} {y}"),
+            RuleAction::Fullscreen(true) => f.write_str("fullscreen"),
+            RuleAction::Fullscreen(false) => f.write_str("no-fullscreen"),
+            RuleAction::Output(name) => write!(f, "output {name}"),
+        }
+    }
+}
+
+impl WindowRule {
+    /// Creates a rule that configures exactly one property.
+    pub fn new(app_id: Option<String>, title: Option<String>, action: &RuleAction) -> Self {
+        let mut rule = Self {
+            app_id,
+            title,
+            float: None,
+            ssd: None,
+            tags: None,
+            dimensions: None,
+            position: None,
+            fullscreen: None,
+            output: None,
+        };
+        rule.set(action);
+        rule
+    }
+
+    /// Applies a typed action to this rule.
+    pub fn set(&mut self, action: &RuleAction) {
+        match action {
+            RuleAction::Float(value) => self.float = Some(*value),
+            RuleAction::Ssd(value) => self.ssd = Some(*value),
+            RuleAction::Tags(mask) => self.tags = Some(*mask),
+            RuleAction::Dimensions { width, height } => self.dimensions = Some((*width, *height)),
+            RuleAction::Position { x, y } => self.position = Some((*x, *y)),
+            RuleAction::Fullscreen(value) => self.fullscreen = Some(*value),
+            RuleAction::Output(name) => self.output = Some(name.clone()),
+        }
+    }
+
+    /// Projects the configured properties back into the action vocabulary,
+    /// in the canonical reporting order used by `list-rules`.
+    pub fn actions(&self) -> Vec<RuleAction> {
+        let mut actions = Vec::new();
+        if let Some(float) = self.float {
+            actions.push(RuleAction::Float(float));
+        }
+        if let Some(ssd) = self.ssd {
+            actions.push(RuleAction::Ssd(ssd));
+        }
+        if let Some(tags) = self.tags {
+            actions.push(RuleAction::Tags(tags));
+        }
+        if let Some((width, height)) = self.dimensions {
+            actions.push(RuleAction::Dimensions { width, height });
+        }
+        if let Some((x, y)) = self.position {
+            actions.push(RuleAction::Position { x, y });
+        }
+        if self.fullscreen == Some(true) {
+            actions.push(RuleAction::Fullscreen(true));
+        }
+        if let Some(output) = &self.output {
+            actions.push(RuleAction::Output(output.clone()));
+        }
+        actions
+    }
 }
 
 /// Performs wildcard matching where `*` matches zero or more characters at any position,

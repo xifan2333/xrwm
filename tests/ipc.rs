@@ -5,6 +5,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 
 use xrwm::ipc::*;
+use xrwm::rule::{RuleAction, RuleActionKind};
 
 #[test]
 fn test_parse_cli_args() {
@@ -39,7 +40,7 @@ fn test_parse_cli_args() {
         IpcCommand::RuleAdd {
             app_id: Some("mpv".into()),
             title: None,
-            action: vec!["float".into()],
+            action: RuleAction::Float(true),
         }
     );
 
@@ -56,7 +57,10 @@ fn test_parse_cli_args() {
         IpcCommand::RuleAdd {
             app_id: Some("mpv".into()),
             title: None,
-            action: vec!["dimensions".into(), "960".into(), "540".into()],
+            action: RuleAction::Dimensions {
+                width: 960,
+                height: 540
+            },
         }
     );
 
@@ -71,7 +75,7 @@ fn test_parse_cli_args() {
         IpcCommand::RuleDel {
             app_id: Some("mpv".into()),
             title: None,
-            action: vec!["float".into()],
+            action: RuleActionKind::Float,
         }
     );
 
@@ -82,7 +86,7 @@ fn test_parse_cli_args() {
     assert_eq!(
         parse_cli_args(&["list-rules".into(), "float".into()]).unwrap(),
         IpcCommand::ListRules {
-            action: Some("float".into())
+            action: Some(RuleActionKind::Float)
         }
     );
 
@@ -896,7 +900,7 @@ fn test_parse_cli_args_rule_missing_selector_value() {
         IpcCommand::RuleAdd {
             app_id: Some("firefox".into()),
             title: Some("Picture-in-Picture".into()),
-            action: vec!["float".into()],
+            action: RuleAction::Float(true),
         }
     );
 }
@@ -913,4 +917,110 @@ fn test_parse_cli_args_spawn_and_monocle() {
         parse_cli_args(&["toggle-monocle".into()]).unwrap(),
         IpcCommand::ToggleMonocle
     );
+}
+
+#[test]
+fn test_parse_cli_args_rule_action_validation_happens_at_the_seam() {
+    let cases: &[(&[&str], &str)] = &[
+        (
+            &["rule-add", "toggle-float"],
+            "Unknown rule action: toggle-float",
+        ),
+        (&["rule-add", "tags", "0"], "at least one tag"),
+        (&["rule-add", "tags"], "Usage: rule-add ... tags <mask>"),
+        (
+            &["rule-add", "dimensions", "960"],
+            "Usage: rule-add ... dimensions <width> <height>",
+        ),
+        (
+            &["rule-add", "dimensions", "4294967295", "600"],
+            "window dimensions exceed maximum allowed value",
+        ),
+        (
+            &["rule-add", "position", "10", "20", "30"],
+            "Usage: rule-add ... position <x> <y>",
+        ),
+        (
+            &["rule-add", "output"],
+            "Usage: rule-add ... output <name|id>",
+        ),
+        (
+            &["rule-add", "float", "extra"],
+            "Unexpected arguments for rule action: float",
+        ),
+    ];
+
+    for (raw, expected) in cases {
+        let args: Vec<String> = raw.iter().map(|s| (*s).to_string()).collect();
+        let err = parse_cli_args(&args).unwrap_err();
+        assert!(
+            err.contains(expected),
+            "{raw:?} produced {err:?}, expected it to contain {expected:?}"
+        );
+    }
+}
+
+#[test]
+fn test_parse_cli_args_rule_actions_decode_to_typed_values() {
+    let decode = |raw: &[&str]| {
+        let args: Vec<String> = raw.iter().map(|s| (*s).to_string()).collect();
+        parse_cli_args(&args).unwrap()
+    };
+
+    assert_eq!(
+        decode(&["rule-add", "no-border"]),
+        IpcCommand::RuleAdd {
+            app_id: None,
+            title: None,
+            action: RuleAction::Ssd(false),
+        }
+    );
+    assert_eq!(
+        decode(&["rule-add", "output", "HDMI-A-1"]),
+        IpcCommand::RuleAdd {
+            app_id: None,
+            title: None,
+            action: RuleAction::Output("HDMI-A-1".into()),
+        }
+    );
+
+    // `rule-del` only carries the property selector, never the payload.
+    assert_eq!(
+        decode(&["rule-del", "-app-id", "mpv", "no-float"]),
+        IpcCommand::RuleDel {
+            app_id: Some("mpv".into()),
+            title: None,
+            action: RuleActionKind::Float,
+        }
+    );
+
+    // `list-rules` filters by the same vocabulary, accepting its synonyms.
+    assert_eq!(
+        decode(&["list-rules", "csd"]),
+        IpcCommand::ListRules {
+            action: Some(RuleActionKind::Ssd),
+        }
+    );
+}
+
+#[test]
+fn test_parse_cli_args_rule_del_rejects_trailing_arguments() {
+    let err = parse_cli_args(&[
+        "rule-del".into(),
+        "-app-id".into(),
+        "mpv".into(),
+        "tags".into(),
+        "2".into(),
+    ])
+    .unwrap_err();
+    assert!(
+        err.contains("Unexpected argument"),
+        "trailing rule-del arguments must be rejected, got {err:?}"
+    );
+
+    let err_unknown = parse_cli_args(&["rule-del".into(), "bogus-action".into()]).unwrap_err();
+    assert_eq!(err_unknown, "Unknown rule action: bogus-action");
+
+    let err_filter = parse_cli_args(&["list-rules".into(), "bogus-action".into()]).unwrap_err();
+    assert_eq!(err_filter, "Unknown rule action: bogus-action");
 }
