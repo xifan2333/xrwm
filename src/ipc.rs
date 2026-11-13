@@ -41,9 +41,9 @@ pub enum IpcCommand {
     ViewPadding(u32),
     OuterPadding(u32),
     BorderWidth(u32),
-    BorderColorFocused(String),
-    BorderColorUnfocused(String),
-    BorderColorUrgent(String),
+    BorderColorFocused(crate::render::Rgba),
+    BorderColorUnfocused(crate::render::Rgba),
+    BorderColorUrgent(crate::render::Rgba),
     MainRatio(String),
     StackRatio(String),
     MainCount(String),
@@ -555,6 +555,12 @@ fn parse_rule_args(args: &[String], is_add: bool) -> Result<ParsedRuleArgs, Stri
     })
 }
 
+/// Decodes the color argument shared by every `border-color-*` command.
+fn parse_border_color(args: &[String]) -> Result<crate::render::Rgba, String> {
+    let raw = args.get(1).ok_or("Missing color value")?;
+    crate::render::Rgba::parse(raw)
+}
+
 pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
     if args.is_empty() {
         return Err("No arguments provided".to_string());
@@ -753,18 +759,15 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
             Ok(IpcCommand::BorderWidth(width))
         }
         "border-color-focused" => {
-            let color = args.get(1).ok_or("Missing color value")?.clone();
-            crate::state::parse_hex_color(&color)?;
+            let color = parse_border_color(args)?;
             Ok(IpcCommand::BorderColorFocused(color))
         }
         "border-color-unfocused" => {
-            let color = args.get(1).ok_or("Missing color value")?.clone();
-            crate::state::parse_hex_color(&color)?;
+            let color = parse_border_color(args)?;
             Ok(IpcCommand::BorderColorUnfocused(color))
         }
         "border-color-urgent" => {
-            let color = args.get(1).ok_or("Missing color value")?.clone();
-            crate::state::parse_hex_color(&color)?;
+            let color = parse_border_color(args)?;
             Ok(IpcCommand::BorderColorUrgent(color))
         }
         "declare-mode" => {

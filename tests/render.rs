@@ -16,7 +16,7 @@ use xrwm::protocol::{
     river_output_v1 as output, river_seat_v1 as seat, river_window_manager_v1 as wm,
     river_window_v1 as window,
 };
-use xrwm::render::compute_frame_plan;
+use xrwm::render::{Rgba, compute_frame_plan};
 use xrwm::state::AppState;
 
 #[derive(Default)]
@@ -502,4 +502,114 @@ fn test_window_visibility_resolver_multi_tag() {
     };
     let vis_inactive = AppState::resolve_window_visibility(tag_state_inactive, 0, win_item);
     assert_eq!(vis_inactive, xrwm::state::WindowVisibility::HiddenByTags);
+}
+
+#[test]
+fn test_rgba_parse_scales_channels_into_river_range() {
+    let opaque = Rgba::parse("#61afef").unwrap();
+    assert_eq!(
+        opaque.channels(),
+        (
+            0x61 * (u32::MAX / 255),
+            0xaf * (u32::MAX / 255),
+            0xef * (u32::MAX / 255),
+            u32::MAX,
+        )
+    );
+    assert_eq!(opaque, Rgba::from_rgb8(0x61, 0xaf, 0xef));
+
+    // 8-digit input is alpha-premultiplied, matching River's border color format.
+    let translucent = Rgba::parse("#ff000080").unwrap();
+    assert_eq!(translucent.a, 0x80 * (u32::MAX / 255));
+    assert_eq!(translucent.g, 0);
+    assert_eq!(translucent.b, 0);
+    // A fully saturated channel is premultiplied down to exactly the alpha value.
+    assert_eq!(translucent.r, translucent.a);
+
+    // Prefixes are optional, and surrounding whitespace is tolerated.
+    for spelling in ["0x61afef", "61afef", "  61afef  "] {
+        assert_eq!(Rgba::parse(spelling).unwrap(), opaque, "{spelling:?}");
+    }
+}
+
+#[test]
+fn test_rgba_parse_rejects_malformed_colors() {
+    for bad in [
+        "你好",
+        "#12345z",
+        "0xhello!",
+        "",
+        "#123",
+        "0x",
+        "#12345",
+        "#1234567",
+        "#123456789",
+    ] {
+        assert!(Rgba::parse(bad).is_err(), "{bad:?} must be rejected");
+    }
+
+    assert!(Rgba::parse("你好").unwrap_err().contains("non-hexadecimal"));
+    assert!(Rgba::parse("#123").unwrap_err().contains("invalid length"));
+}
+
+#[test]
+fn test_rgba_display_round_trips_through_parse() {
+    let opaque = Rgba::parse("#7aa2f7").unwrap();
+    assert_eq!(opaque.to_string(), "#7aa2f7");
+    assert_eq!(Rgba::parse(&opaque.to_string()).unwrap(), opaque);
+
+    // Opaque byte channels survive the 32-bit scaling exactly.
+    for byte in [0x00u8, 0x01, 0x7f, 0x80, 0xfe, 0xff] {
+        let color = Rgba::from_rgb8(byte, byte, byte);
+        assert_eq!(
+            Rgba::parse(&color.to_string()).unwrap(),
+            color,
+            "byte {byte:#04x} did not round-trip"
+        );
+    }
+
+    // Translucent input is rendered with an explicit alpha channel.
+    let translucent = Rgba::parse("#ffffff80").unwrap();
+    assert_eq!(translucent.to_string(), "#ffffff80");
+}
+
+#[test]
+fn test_rgba_transparent_and_serde() {
+    assert_eq!(Rgba::TRANSPARENT.channels(), (0, 0, 0, 0));
+    assert_eq!(Rgba::default(), Rgba::TRANSPARENT);
+
+    let json = serde_json::to_string(&Rgba::from_rgb8(1, 2, 3)).unwrap();
+    let decoded: Rgba = serde_json::from_str(&json).unwrap();
+    assert_eq!(decoded, Rgba::from_rgb8(1, 2, 3));
+}
+
+#[test]
+fn test_rgba_display_round_trips_translucent_colors() {
+    // Non-saturated translucent channels are quantized during premultiplication, so
+    // the rendered bytes must round to nearest rather than truncate.
+    for spelling in ["#01000080", "#7f7f7f40", "#123456a0", "#ffffff01"] {
+        let color = Rgba::parse(spelling).unwrap();
+        assert_eq!(color.to_string(), spelling, "{spelling} did not round-trip");
+    }
+}
+
+#[test]
+fn test_rgba_rejects_non_premultiplied_channels_on_deserialize() {
+    // A hand-written IPC payload cannot bypass the premultiplied-color invariant.
+    let err = serde_json::from_str::<Rgba>(r#"{"r":4294967295,"g":0,"b":0,"a":0}"#).unwrap_err();
+    assert!(
+        err.to_string().contains("must not exceed alpha"),
+        "unexpected error: {err}"
+    );
+
+    // `IpcCommand` shares the same validation, since socket JSON deserializes into it.
+    let invalid = r#"{"type":"BorderColorFocused","payload":{"r":4294967295,"g":0,"b":0,"a":0}}"#;
+    assert!(serde_json::from_str::<xrwm::ipc::IpcCommand>(invalid).is_err());
+
+    let valid = r#"{"type":"BorderColorFocused","payload":{"r":16843009,"g":16843009,"b":16843009,"a":4294967295}}"#;
+    let cmd: xrwm::ipc::IpcCommand = serde_json::from_str(valid).unwrap();
+    assert_eq!(
+        cmd,
+        xrwm::ipc::IpcCommand::BorderColorFocused(Rgba::from_rgb8(1, 1, 1))
+    );
 }

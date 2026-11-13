@@ -1023,23 +1023,20 @@ impl AppState {
                 self.manage_dirty();
                 Ok(format!("border width set to {w}px"))
             }
-            IpcCommand::BorderColorFocused(c) => {
-                crate::state::parse_hex_color(c)?;
-                self.border_color_focused = c.clone();
+            IpcCommand::BorderColorFocused(color) => {
+                self.border_color_focused = *color;
                 self.manage_dirty();
-                Ok(format!("focused border color set to {c}"))
+                Ok(format!("focused border color set to {color}"))
             }
-            IpcCommand::BorderColorUnfocused(c) => {
-                crate::state::parse_hex_color(c)?;
-                self.border_color_unfocused = c.clone();
+            IpcCommand::BorderColorUnfocused(color) => {
+                self.border_color_unfocused = *color;
                 self.manage_dirty();
-                Ok(format!("unfocused border color set to {c}"))
+                Ok(format!("unfocused border color set to {color}"))
             }
-            IpcCommand::BorderColorUrgent(c) => {
-                crate::state::parse_hex_color(c)?;
-                self.border_color_urgent = c.clone();
+            IpcCommand::BorderColorUrgent(color) => {
+                self.border_color_urgent = *color;
                 self.manage_dirty();
-                Ok(format!("urgent border color set to {c}"))
+                Ok(format!("urgent border color set to {color}"))
             }
             IpcCommand::MainRatio(r) => self.set_main_ratio_arg(r),
             IpcCommand::StackRatio(r) => self.set_stack_ratio_arg(r),
