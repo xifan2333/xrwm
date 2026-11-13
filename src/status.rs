@@ -348,7 +348,7 @@ pub fn format_json_status(state: &AppState) -> String {
         },
         "layout": if state.layout_config.monocle { "monocle" } else { "master-stack" },
         "main_location": format!("{:?}", state.layout_config.main_location).to_lowercase(),
-        "mode": state.active_mode,
+        "mode": state.bindings.active_mode,
         "focused_window_id": focused_id,
         "hovered_window_id": hovered_id,
         "pointer": { "x": state.pointer.0, "y": state.pointer.1 },
@@ -420,10 +420,10 @@ pub fn format_waybar_status(state: &AppState) -> String {
     let tooltip = if is_floating_hidden {
         format!(
             "Mode: [{}], Focused: {} (floating views hidden)",
-            state.active_mode, title
+            state.bindings.active_mode, title
         )
     } else {
-        format!("Mode: [{}], Focused: {}", state.active_mode, title)
+        format!("Mode: [{}], Focused: {}", state.bindings.active_mode, title)
     };
     let tooltip = if capturing {
         format!("{tooltip} (recording)")

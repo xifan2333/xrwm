@@ -609,17 +609,7 @@ impl Dispatch<RiverSeatV1, ()> for AppState {
                     for pb in seat.pointer_bindings.values() {
                         pb.proxy.destroy();
                     }
-                    let to_remove: Vec<wayland_backend::client::ObjectId> = state
-                        .key_bindings
-                        .iter()
-                        .filter(|(_, b)| b.seat_id == seat_id)
-                        .map(|(id, _)| id.clone())
-                        .collect();
-                    for id in to_remove {
-                        if let Some(b) = state.key_bindings.remove(&id) {
-                            b.proxy.destroy();
-                        }
-                    }
+                    state.bindings.remove_seat_bindings(&seat_id);
                 }
                 proxy.destroy();
             }

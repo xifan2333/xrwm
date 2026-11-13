@@ -53,3 +53,56 @@ fn test_parse_button() {
     assert_eq!(parse_button("0x110"), Some(0x110));
     assert_eq!(parse_button("272"), Some(272));
 }
+
+#[test]
+fn test_binding_manager_mode_lifecycle() {
+    let mut bm = BindingManager::new();
+    assert_eq!(bm.active_mode, "normal");
+    assert!(!bm.session_locked);
+
+    // Declare mode
+    assert!(bm.declare_mode("passthrough").is_ok());
+    assert!(bm.modes.contains(&"passthrough".to_string()));
+
+    // Enter mode
+    assert!(bm.enter_mode("passthrough").is_ok());
+    assert_eq!(bm.active_mode, "passthrough");
+    assert!(bm.mode_dirty);
+
+    // Lock session
+    assert!(bm.handle_session_locked());
+    assert_eq!(bm.active_mode, "locked");
+    assert!(bm.session_locked);
+    assert_eq!(bm.pre_lock_mode, Some("passthrough".to_string()));
+
+    // Unlock session restores pre-lock mode
+    assert!(bm.handle_session_unlocked());
+    assert_eq!(bm.active_mode, "passthrough");
+    assert!(!bm.session_locked);
+}
+
+#[test]
+fn test_binding_manager_key_mapping() {
+    let mut bm = BindingManager::new();
+    bm.map_key("normal", Modifiers::Mod4, 0x71, vec!["close".to_string()]);
+    assert_eq!(bm.configured_key_bindings.len(), 1);
+    assert_eq!(bm.pending_key_bindings.len(), 1);
+
+    // Duplicate replaces existing
+    bm.map_key(
+        "normal",
+        Modifiers::Mod4,
+        0x71,
+        vec!["close-other".to_string()],
+    );
+    assert_eq!(bm.configured_key_bindings.len(), 1);
+    assert_eq!(
+        bm.configured_key_bindings[0].action,
+        vec!["close-other".to_string()]
+    );
+
+    // Unmap removes configured and pending
+    assert!(bm.unmap_key("normal", Modifiers::Mod4, 0x71));
+    assert!(bm.configured_key_bindings.is_empty());
+    assert!(bm.pending_key_bindings.is_empty());
+}
