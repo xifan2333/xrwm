@@ -139,6 +139,7 @@ pub struct AppState {
     pub tag_slide_dir: Option<crate::animation::SlideDirection>,
     pub tag_anim_old_mask: TagMask,
     pub broadcaster: StatusBroadcaster,
+    pub adapter: crate::adapter::CompositorAdapter,
     pub should_exit: bool,
 }
 
@@ -183,6 +184,7 @@ impl AppState {
             tag_slide_dir: None,
             tag_anim_old_mask: TAG_NONE,
             broadcaster: StatusBroadcaster::new(),
+            adapter: crate::adapter::CompositorAdapter::new(),
             should_exit: false,
         }
     }
@@ -257,6 +259,7 @@ impl AppState {
 
     /// Attaches a new window according to the current `attach_mode`.
     pub fn attach_window(&mut self, item: WindowItem) {
+        self.adapter.register_window(item.id, item.proxy.clone());
         let focused_id = self.focused_window_id();
         let target_out = item.output.clone();
         let is_floating = item.floating;

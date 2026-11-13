@@ -36,6 +36,7 @@ impl Dispatch<wl_registry::WlRegistry, ()> for AppState {
                 "river_window_manager_v1" => {
                     let wm =
                         registry.bind::<RiverWindowManagerV1, _, _>(name, version.min(5), qh, ());
+                    state.adapter.set_river_wm(wm.clone());
                     state.river_wm = Some(wm);
                 }
                 "river_xkb_bindings_v1" => {
@@ -140,6 +141,7 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                     .map(|ls| ls.get_output(&id, qh, id.id()));
 
                 let out_id = id.id();
+                state.adapter.register_output(out_id.clone(), id.clone());
                 state.outputs.insert(
                     out_id.clone(),
                     OutputItem {
@@ -172,6 +174,7 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppState {
                     .map(|ls| ls.get_seat(&id, qh, id.id()));
                 let mut seat = SeatItem::new(id.clone());
                 seat.ls_seat = ls_seat;
+                state.adapter.register_seat(id.id(), id.clone());
                 state.seats.insert(id.id(), seat);
                 state.manage_dirty();
             }
@@ -385,6 +388,7 @@ impl Dispatch<RiverOutputV1, ()> for AppState {
             }
             Event::Removed => {
                 let out_id = proxy.id();
+                state.adapter.remove_output(&out_id);
                 let removed_usable_area = state.outputs.get(&out_id).map(|o| o.usable_area);
                 if let Some(mut out) = state.outputs.remove(&out_id) {
                     if let Some(ls_out) = out.ls_output.take() {
@@ -594,6 +598,7 @@ impl Dispatch<RiverSeatV1, ()> for AppState {
             Event::ShellSurfaceInteraction { .. } => {}
             Event::Removed => {
                 let seat_id = proxy.id();
+                state.adapter.remove_seat(&seat_id);
                 if let Some(mut seat) = state.seats.remove(&seat_id) {
                     if let Some(ls_seat) = seat.ls_seat.take() {
                         ls_seat.destroy();
