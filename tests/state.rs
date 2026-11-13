@@ -50,14 +50,14 @@ fn test_broadcast_status_preserves_healthy_subscribers() {
     let (server2, _client2) = UnixStream::pair().unwrap();
 
     state
-        .status_listeners
-        .push(StatusListener::new(server1, StatusSubscription::FullJson));
+        .broadcaster
+        .add_listener(StatusListener::new(server1, StatusSubscription::FullJson));
     state
-        .status_listeners
-        .push(StatusListener::new(server2, StatusSubscription::FullJson));
+        .broadcaster
+        .add_listener(StatusListener::new(server2, StatusSubscription::FullJson));
 
     state.broadcast_status();
-    assert_eq!(state.status_listeners.len(), 2);
+    assert_eq!(state.broadcaster.len(), 2);
 }
 
 #[test]
@@ -69,15 +69,15 @@ fn test_broadcast_status_drops_broken_pipe_subscriber() {
     drop(client1); // peer disconnected
 
     state
-        .status_listeners
-        .push(StatusListener::new(server1, StatusSubscription::FullJson));
+        .broadcaster
+        .add_listener(StatusListener::new(server1, StatusSubscription::FullJson));
     state
-        .status_listeners
-        .push(StatusListener::new(server2, StatusSubscription::FullJson));
+        .broadcaster
+        .add_listener(StatusListener::new(server2, StatusSubscription::FullJson));
 
     state.broadcast_status();
     // Broken pipe subscriber should be evicted, while healthy one remains
-    assert_eq!(state.status_listeners.len(), 1);
+    assert_eq!(state.broadcaster.len(), 1);
 }
 
 #[test]
@@ -278,11 +278,11 @@ fn test_differential_broadcasting_deduplication() {
     client.set_nonblocking(true).unwrap();
 
     let listener = StatusListener::new(server, StatusSubscription::Tag(1));
-    state.status_listeners.push(listener);
+    state.broadcaster.add_listener(listener);
 
     // Initial broadcast: state changed from None -> Some(snapshot)
     state.broadcast_status();
-    assert_eq!(state.status_listeners.len(), 1);
+    assert_eq!(state.broadcaster.len(), 1);
 
     // Read initial message
     let mut reader = BufReader::new(client);
@@ -293,7 +293,7 @@ fn test_differential_broadcasting_deduplication() {
 
     // Second broadcast with identical state: MUST NOT SEND ANYTHING (0 bytes written)
     state.broadcast_status();
-    assert_eq!(state.status_listeners.len(), 1);
+    assert_eq!(state.broadcaster.len(), 1);
     // Because stream is non-blocking, reading should encounter WouldBlock (no new bytes)
     let res = reader.get_mut().read(&mut [0u8; 64]);
     assert!(matches!(res, Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock));
@@ -317,16 +317,16 @@ fn test_differential_broadcasting_scratchpad_and_pinned() {
     let (server_pin, client_pin) = UnixStream::pair().unwrap();
     client_pin.set_nonblocking(true).unwrap();
 
-    state.status_listeners.push(StatusListener::new(
+    state.broadcaster.add_listener(StatusListener::new(
         server_sp,
         StatusSubscription::Scratchpad,
     ));
     state
-        .status_listeners
-        .push(StatusListener::new(server_pin, StatusSubscription::Pinned));
+        .broadcaster
+        .add_listener(StatusListener::new(server_pin, StatusSubscription::Pinned));
 
     state.broadcast_status();
-    assert_eq!(state.status_listeners.len(), 2);
+    assert_eq!(state.broadcaster.len(), 2);
 
     let mut reader_sp = BufReader::new(client_sp);
     let mut line = String::new();
@@ -343,6 +343,24 @@ fn test_differential_broadcasting_scratchpad_and_pinned() {
     state.broadcast_status();
     let res = reader_sp.get_mut().read(&mut [0u8; 64]);
     assert!(matches!(res, Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock));
+}
+
+#[test]
+fn test_status_broadcaster_module_invariants() {
+    let mut broadcaster = StatusBroadcaster::new();
+    assert!(broadcaster.is_empty());
+    assert_eq!(broadcaster.len(), 0);
+
+    let (s1, _c1) = UnixStream::pair().unwrap();
+    broadcaster.subscribe(s1, StatusSubscription::FullJson);
+    assert!(!broadcaster.is_empty());
+    assert_eq!(broadcaster.len(), 1);
+    assert_eq!(broadcaster.listeners().len(), 1);
+
+    let (s2, _c2) = UnixStream::pair().unwrap();
+    broadcaster.register(s2, StatusSubscription::Window, None);
+    assert_eq!(broadcaster.len(), 2);
+    assert_eq!(broadcaster.listeners_mut().len(), 2);
 }
 
 #[test]
