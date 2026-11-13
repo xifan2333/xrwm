@@ -245,16 +245,25 @@ Can be absolute (e.g. `0.65`) or relative (e.g. `+0.05`, `-0.05`). Defaults to `
 - **fullscreen**: Automatically launch window in fullscreen mode.
 - **output** _name|id_: Assign initial target display.
 
+Actions are validated when the command is parsed: unknown keywords, missing
+action arguments, an empty tag mask, and dimensions beyond the signed geometry
+range are all rejected before a rule is stored.
+
 Windows that report a parent window through the compositor (dialogs, file
 pickers, transient popup menus) float by default. An explicit **no-float** rule
 takes precedence, so individual applications can still be forced back into the
 tiling layout.
 
 **rule-del** [**-app-id** _glob_] [**-title** _glob_] _action_
-: Deletes a previously added window rule matching the criteria.
+: Deletes a previously added window rule matching the criteria. _action_ is a
+single action keyword (for example **float**, **csd**, **tags**, **dimensions**);
+rule arguments are not accepted, and unknown keywords are rejected before any
+rule is removed.
 
 **list-rules** [_action_]
-: Prints all active window rules, optionally filtered by action type.
+: Prints all active window rules, optionally filtered by action type. The filter
+accepts the same keywords as **rule-add** (including the **csd**/**ssd**
+synonyms); unknown keywords are reported as errors instead of matching nothing.
 
 ## STATUS & QUERY
 

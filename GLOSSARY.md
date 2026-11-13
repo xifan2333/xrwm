@@ -82,6 +82,16 @@ _Avoid_: Tag manager, workspace router
 The per-output, per-tag visibility mask (`floating_hidden_tags`) toggled via `toggle-floating-views` that collapses `WorkspaceFloating` windows offscreen on the active tag(s) while preserving geometry, exempting `Pinned` (`TAG_ALL`) and `Scratchpad` overlays, and transferring focus to a visible tiled window.
 _Avoid_: Minimize all, float hide, output-wide float collapse
 
+## Window Rules
+
+**Rule Action**:
+The closed, strongly typed vocabulary (`RuleAction`: `Float`, `Ssd`, `Tags`, `Dimensions`, `Position`, `Fullscreen`, `Output`) that a window rule configures, decoded once at the IPC parsing seam from its CLI tokens and rendered back canonically by `list-rules`.
+_Avoid_: Rule token list, action string, raw rule argv
+
+**Rule Action Kind**:
+The payload-free projection of a rule action (`RuleActionKind`) naming which `WindowRule` property is targeted, used by `rule-del` and `list-rules` selectors.
+_Avoid_: Action prefix, action name string
+
 ## Capture & Privacy
 
 **Capture Session**:

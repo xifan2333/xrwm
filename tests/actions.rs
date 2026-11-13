@@ -1301,3 +1301,97 @@ fn test_toggle_floating_views_ipc_command_parsing() {
         Err("no focused output".to_string())
     );
 }
+
+#[test]
+fn test_rule_cli_tokens_round_trip_through_ipc_into_rule_store() {
+    let mut state = AppState::new();
+
+    // Every documented spelling is decoded once at the seam, applied without any
+    // further token matching, and rendered back in its canonical form.
+    let cases: &[(&[&str], &str)] = &[
+        (&["float"], "-app-id demo float"),
+        (&["no-float"], "-app-id demo no-float"),
+        (&["ssd"], "-app-id demo ssd"),
+        (&["csd"], "-app-id demo csd"),
+        (&["no-border"], "-app-id demo csd"),
+        (&["tags", "0x80000000"], "-app-id demo tags 2147483648"),
+        (
+            &["dimensions", "960", "540"],
+            "-app-id demo dimensions 960 540",
+        ),
+        (&["position", "-40", "25"], "-app-id demo position -40 25"),
+        (&["fullscreen"], "-app-id demo fullscreen"),
+        (&["output", "DP-2"], "-app-id demo output DP-2"),
+    ];
+
+    for (raw, expected_line) in cases {
+        state.rules.clear();
+        let mut argv = vec![
+            "rule-add".to_string(),
+            "-app-id".to_string(),
+            "demo".to_string(),
+        ];
+        argv.extend(raw.iter().map(|s| (*s).to_string()));
+
+        let cmd = parse_cli_args(&argv).unwrap();
+        state.handle_ipc_command(&cmd).unwrap();
+
+        assert_eq!(state.rules.len(), 1, "{raw:?} did not add exactly one rule");
+        let listed = state.list_rules(None).unwrap();
+        assert!(
+            listed.contains(expected_line),
+            "{raw:?} listed as {listed:?}, expected {expected_line:?}"
+        );
+    }
+}
+
+#[test]
+fn test_rule_del_and_list_rules_use_the_typed_selector() {
+    let mut state = AppState::new();
+
+    for action in [
+        RuleAction::Float(true),
+        RuleAction::Ssd(false),
+        RuleAction::Tags(4),
+        RuleAction::Output("eDP-1".into()),
+    ] {
+        state
+            .handle_ipc_command(&IpcCommand::RuleAdd {
+                app_id: Some("multi".into()),
+                title: None,
+                action,
+            })
+            .unwrap();
+    }
+    assert_eq!(state.rules.len(), 4);
+
+    // Filtering by one property yields exactly the matching line.
+    assert_eq!(
+        state.list_rules(Some(RuleActionKind::Tags)).unwrap(),
+        "-app-id multi tags 4"
+    );
+    assert_eq!(
+        state.list_rules(Some(RuleActionKind::Output)).unwrap(),
+        "-app-id multi output eDP-1"
+    );
+
+    // Each delete removes only the rule configuring that property.
+    let del = |kind| IpcCommand::RuleDel {
+        app_id: Some("multi".into()),
+        title: None,
+        action: kind,
+    };
+    assert!(state.handle_ipc_command(&del(RuleActionKind::Ssd)).is_ok());
+    assert_eq!(state.rules.len(), 3);
+    assert_eq!(
+        state.list_rules(Some(RuleActionKind::Ssd)).unwrap(),
+        "no matching rules"
+    );
+
+    // Deleting an already-removed property is a no-op.
+    assert_eq!(
+        state.handle_ipc_command(&del(RuleActionKind::Ssd)).unwrap(),
+        "no matching rule found"
+    );
+    assert_eq!(state.rules.len(), 3);
+}
