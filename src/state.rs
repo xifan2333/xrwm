@@ -16,6 +16,7 @@ use crate::protocol::{
     river_window_v1::RiverWindowV1, river_xkb_bindings_v1::RiverXkbBindingsV1,
     wp_cursor_shape_manager_v1::WpCursorShapeManagerV1,
 };
+use crate::render::Rgba;
 use crate::seat::{LayerShellFocus, PointerAction, SeatItem, SeatOp};
 use crate::tag::TAG_NONE;
 use crate::tag::TagMask;
@@ -120,9 +121,9 @@ pub struct AppState {
     pub previous_focused_tags: TagMask,
     pub layout_config: LayoutConfig,
     pub border_width: u32,
-    pub border_color_focused: String,
-    pub border_color_unfocused: String,
-    pub border_color_urgent: String,
+    pub border_color_focused: Rgba,
+    pub border_color_unfocused: Rgba,
+    pub border_color_urgent: Rgba,
     pub rules: Vec<WindowRule>,
     pub bindings: crate::binds::BindingManager,
     pub next_view_id: u32,
@@ -166,9 +167,9 @@ impl AppState {
             previous_focused_tags: 1,
             layout_config: LayoutConfig::default(),
             border_width: 2,
-            border_color_focused: "0x7aa2f7".to_string(),
-            border_color_unfocused: "0x414868".to_string(),
-            border_color_urgent: "0xf7768e".to_string(),
+            border_color_focused: Rgba::from_rgb8(0x7a, 0xa2, 0xf7),
+            border_color_unfocused: Rgba::from_rgb8(0x41, 0x48, 0x68),
+            border_color_urgent: Rgba::from_rgb8(0xf7, 0x76, 0x8e),
             rules: Vec::new(),
             bindings: crate::binds::BindingManager::new(),
             next_view_id: 1,

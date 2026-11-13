@@ -193,9 +193,9 @@ pub fn compute_frame_plan(state: &AppState) -> FramePlan {
     }
 
     let border_width = (state.border_width.min(i32::MAX as u32)) as i32;
-    let (fr, fg, fb, fa) = hex_to_river_rgba(&state.border_color_focused);
-    let (ur, ug, ub, ua) = hex_to_river_rgba(&state.border_color_unfocused);
-    let (er, eg, eb, ea) = hex_to_river_rgba(&state.border_color_urgent);
+    let (fr, fg, fb, fa) = state.border_color_focused.channels();
+    let (ur, ug, ub, ua) = state.border_color_unfocused.channels();
+    let (er, eg, eb, ea) = state.border_color_urgent.channels();
 
     let border_palette = [
         (0u32, 0u32, 0u32, 0u32), // BorderRole::None

@@ -429,7 +429,7 @@ fn test_pick_adjacent_output() {
 #[test]
 fn test_border_color_ipc_rejection_and_retention() {
     let mut state = AppState::new();
-    let original_focused = state.border_color_focused.clone();
+    let original_focused = state.border_color_focused;
 
     // Non-ASCII input rejected
     let res = state.handle_ipc_command(&IpcCommand::BorderColorFocused("你好".into()));
@@ -444,7 +444,11 @@ fn test_border_color_ipc_rejection_and_retention() {
     // Valid hex accepted
     let res3 = state.handle_ipc_command(&IpcCommand::BorderColorFocused("#112233".into()));
     assert!(res3.is_ok());
-    assert_eq!(state.border_color_focused, "#112233");
+    assert_eq!(
+        state.border_color_focused,
+        Rgba::from_rgb8(0x11, 0x22, 0x33)
+    );
+    assert_eq!(state.border_color_focused.to_string(), "#112233");
 }
 
 #[test]

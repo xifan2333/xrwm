@@ -12,6 +12,7 @@ use crate::animation::{AnimationController, SlideDirection};
 use crate::binds::{PendingKeyBinding, PendingPointerBinding};
 use crate::layout::{LayoutConfig, Rect};
 use crate::protocol::river_window_v1::Edges;
+use crate::render::Rgba;
 use crate::rule::{WindowRule, glob_match};
 use crate::seat::{
     CursorWarp, FocusFollowsCursor, LayerShellFocus, PointerAction, SeatItem, SeatOp,
@@ -513,9 +514,9 @@ pub struct DomainModel {
     pub previous_focused_tags: TagMask,
     pub layout_config: LayoutConfig,
     pub border_width: u32,
-    pub border_color_focused: String,
-    pub border_color_unfocused: String,
-    pub border_color_urgent: String,
+    pub border_color_focused: Rgba,
+    pub border_color_unfocused: Rgba,
+    pub border_color_urgent: Rgba,
     pub rules: Vec<WindowRule>,
     pub bindings: BindingModel,
     pub next_view_id: u32,
@@ -548,9 +549,9 @@ impl DomainModel {
             previous_focused_tags: 1,
             layout_config: LayoutConfig::default(),
             border_width: 2,
-            border_color_focused: "0x7aa2f7".to_string(),
-            border_color_unfocused: "0x414868".to_string(),
-            border_color_urgent: "0xf7768e".to_string(),
+            border_color_focused: Rgba::from_rgb8(0x7a, 0xa2, 0xf7),
+            border_color_unfocused: Rgba::from_rgb8(0x41, 0x48, 0x68),
+            border_color_urgent: Rgba::from_rgb8(0xf7, 0x76, 0x8e),
             rules: Vec::new(),
             bindings: BindingModel::new(),
             next_view_id: 1,
@@ -593,9 +594,9 @@ impl DomainModel {
             previous_focused_tags: state.previous_focused_tags,
             layout_config: state.layout_config.clone(),
             border_width: state.border_width,
-            border_color_focused: state.border_color_focused.clone(),
-            border_color_unfocused: state.border_color_unfocused.clone(),
-            border_color_urgent: state.border_color_urgent.clone(),
+            border_color_focused: state.border_color_focused,
+            border_color_unfocused: state.border_color_unfocused,
+            border_color_urgent: state.border_color_urgent,
             rules: state.rules.clone(),
             bindings: BindingModel::from_binding_manager(&state.bindings),
             next_view_id: state.next_view_id,
@@ -618,9 +619,9 @@ impl DomainModel {
         state.previous_focused_tags = self.previous_focused_tags;
         state.layout_config = self.layout_config.clone();
         state.border_width = self.border_width;
-        state.border_color_focused = self.border_color_focused.clone();
-        state.border_color_unfocused = self.border_color_unfocused.clone();
-        state.border_color_urgent = self.border_color_urgent.clone();
+        state.border_color_focused = self.border_color_focused;
+        state.border_color_unfocused = self.border_color_unfocused;
+        state.border_color_urgent = self.border_color_urgent;
         state.rules = self.rules.clone();
         self.bindings.sync_to_binding_manager(&mut state.bindings);
         state.attach_mode = self.attach_mode;
