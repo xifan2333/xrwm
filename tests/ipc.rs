@@ -5,6 +5,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 
 use xrwm::ipc::*;
+use xrwm::rule::{RuleAction, RuleActionKind};
 
 #[test]
 fn test_parse_cli_args() {
@@ -39,7 +40,7 @@ fn test_parse_cli_args() {
         IpcCommand::RuleAdd {
             app_id: Some("mpv".into()),
             title: None,
-            action: vec!["float".into()],
+            action: RuleAction::Float(true),
         }
     );
 
@@ -56,7 +57,10 @@ fn test_parse_cli_args() {
         IpcCommand::RuleAdd {
             app_id: Some("mpv".into()),
             title: None,
-            action: vec!["dimensions".into(), "960".into(), "540".into()],
+            action: RuleAction::Dimensions {
+                width: 960,
+                height: 540
+            },
         }
     );
 
@@ -71,7 +75,7 @@ fn test_parse_cli_args() {
         IpcCommand::RuleDel {
             app_id: Some("mpv".into()),
             title: None,
-            action: vec!["float".into()],
+            action: RuleActionKind::Float,
         }
     );
 
@@ -82,7 +86,7 @@ fn test_parse_cli_args() {
     assert_eq!(
         parse_cli_args(&["list-rules".into(), "float".into()]).unwrap(),
         IpcCommand::ListRules {
-            action: Some("float".into())
+            action: Some(RuleActionKind::Float)
         }
     );
 
@@ -896,7 +900,7 @@ fn test_parse_cli_args_rule_missing_selector_value() {
         IpcCommand::RuleAdd {
             app_id: Some("firefox".into()),
             title: Some("Picture-in-Picture".into()),
-            action: vec!["float".into()],
+            action: RuleAction::Float(true),
         }
     );
 }

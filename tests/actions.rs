@@ -24,7 +24,7 @@ fn test_app_state_ipc_rules() {
     let cmd = IpcCommand::RuleAdd {
         app_id: Some("mpv".into()),
         title: None,
-        action: vec!["float".into()],
+        action: RuleAction::Float(true),
     };
     let res = state.handle_ipc_command(&cmd);
     assert!(res.is_ok());
@@ -35,7 +35,7 @@ fn test_app_state_ipc_rules() {
     let csd_cmd = IpcCommand::RuleAdd {
         app_id: Some("foot".into()),
         title: None,
-        action: vec!["csd".into()],
+        action: RuleAction::Ssd(false),
     };
     let res_csd = state.handle_ipc_command(&csd_cmd);
     assert!(res_csd.is_ok());
@@ -44,7 +44,10 @@ fn test_app_state_ipc_rules() {
     let dim_cmd = IpcCommand::RuleAdd {
         app_id: Some("imv".into()),
         title: None,
-        action: vec!["dimensions".into(), "960".into(), "540".into()],
+        action: RuleAction::Dimensions {
+            width: 960,
+            height: 540,
+        },
     };
     assert!(state.handle_ipc_command(&dim_cmd).is_ok());
     assert_eq!(state.rules[2].dimensions, Some((960, 540)));
@@ -52,7 +55,7 @@ fn test_app_state_ipc_rules() {
     let tag_cmd = IpcCommand::RuleAdd {
         app_id: Some("firefox".into()),
         title: None,
-        action: vec!["tags".into(), "2".into()],
+        action: RuleAction::Tags(2),
     };
     assert!(state.handle_ipc_command(&tag_cmd).is_ok());
     assert_eq!(state.rules[3].tags, Some(2));
@@ -60,7 +63,7 @@ fn test_app_state_ipc_rules() {
     let pos_cmd = IpcCommand::RuleAdd {
         app_id: Some("calc".into()),
         title: None,
-        action: vec!["position".into(), "100".into(), "200".into()],
+        action: RuleAction::Position { x: 100, y: 200 },
     };
     assert!(state.handle_ipc_command(&pos_cmd).is_ok());
     assert_eq!(state.rules[4].position, Some((100, 200)));
@@ -68,7 +71,7 @@ fn test_app_state_ipc_rules() {
     let fs_cmd = IpcCommand::RuleAdd {
         app_id: Some("gamescope".into()),
         title: None,
-        action: vec!["fullscreen".into()],
+        action: RuleAction::Fullscreen(true),
     };
     assert!(state.handle_ipc_command(&fs_cmd).is_ok());
     assert_eq!(state.rules[5].fullscreen, Some(true));
@@ -76,7 +79,7 @@ fn test_app_state_ipc_rules() {
     let out_cmd = IpcCommand::RuleAdd {
         app_id: Some("wechat".into()),
         title: None,
-        action: vec!["output".into(), "DP-1".into()],
+        action: RuleAction::Output("DP-1".into()),
     };
     assert!(state.handle_ipc_command(&out_cmd).is_ok());
     assert_eq!(state.rules[6].output, Some("DP-1".into()));
@@ -87,7 +90,7 @@ fn test_app_state_ipc_rules() {
     assert!(all_rules.contains("-app-id calc position 100 200"));
     assert!(all_rules.contains("-app-id gamescope fullscreen"));
 
-    let float_rules = state.list_rules(Some("float")).unwrap();
+    let float_rules = state.list_rules(Some(RuleActionKind::Float)).unwrap();
     assert!(float_rules.contains("-app-id mpv float"));
     assert!(!float_rules.contains("position"));
 
@@ -95,7 +98,7 @@ fn test_app_state_ipc_rules() {
     let del_cmd = IpcCommand::RuleDel {
         app_id: Some("mpv".into()),
         title: None,
-        action: vec!["float".into()],
+        action: RuleActionKind::Float,
     };
     assert!(state.handle_ipc_command(&del_cmd).is_ok());
     assert_eq!(state.rules.len(), 6);
@@ -103,7 +106,7 @@ fn test_app_state_ipc_rules() {
     let del_not_found = IpcCommand::RuleDel {
         app_id: Some("nonexistent".into()),
         title: None,
-        action: vec!["float".into()],
+        action: RuleActionKind::Float,
     };
     assert_eq!(
         state.handle_ipc_command(&del_not_found).unwrap(),
@@ -471,7 +474,10 @@ fn test_i32_bounds_ipc_rejection() {
     let res_rule = state.handle_ipc_command(&IpcCommand::RuleAdd {
         app_id: Some("mpv".into()),
         title: None,
-        action: vec!["dimensions".into(), "4294967295".into(), "600".into()],
+        action: RuleAction::Dimensions {
+            width: 4294967295,
+            height: 600,
+        },
     });
     assert!(res_rule.is_err());
     assert_eq!(state.rules.len(), orig_rules_len);
@@ -480,7 +486,10 @@ fn test_i32_bounds_ipc_rejection() {
     let res_valid = state.handle_ipc_command(&IpcCommand::RuleAdd {
         app_id: Some("mpv".into()),
         title: None,
-        action: vec!["dimensions".into(), "960".into(), "540".into()],
+        action: RuleAction::Dimensions {
+            width: 960,
+            height: 540,
+        },
     });
     assert!(res_valid.is_ok());
     assert_eq!(state.rules.len(), orig_rules_len + 1);
@@ -1237,14 +1246,14 @@ fn test_rule_add_tags_direct_bitmask_and_zero_rejection() {
     let zero_cmd = IpcCommand::RuleAdd {
         app_id: Some("demo".into()),
         title: None,
-        action: vec!["tags".into(), "0".into()],
+        action: RuleAction::Tags(0),
     };
     assert!(state.handle_ipc_command(&zero_cmd).is_err());
 
     let zero_hex_cmd = IpcCommand::RuleAdd {
         app_id: Some("demo".into()),
         title: None,
-        action: vec!["tags".into(), "0x0".into()],
+        action: RuleAction::Tags(0x0),
     };
     assert!(state.handle_ipc_command(&zero_hex_cmd).is_err());
     assert!(state.rules.is_empty());
@@ -1260,10 +1269,11 @@ fn test_rule_add_tags_direct_bitmask_and_zero_rejection() {
         ("511", 511),
         ("0x80000000", 2147483648),
     ] {
+        let action = RuleAction::parse(&["tags".to_string(), input.to_string()]).unwrap();
         let cmd = IpcCommand::RuleAdd {
             app_id: Some(format!("app_{input}")),
             title: None,
-            action: vec!["tags".into(), input.into()],
+            action,
         };
         assert!(state.handle_ipc_command(&cmd).is_ok());
         let rule = state
@@ -1275,7 +1285,7 @@ fn test_rule_add_tags_direct_bitmask_and_zero_rejection() {
     }
 
     // 3. list-rules output displays the exact bitmask stored
-    let list = state.list_rules(Some("tags")).unwrap();
+    let list = state.list_rules(Some(RuleActionKind::Tags)).unwrap();
     assert!(list.contains("-app-id app_3 tags 3"));
     assert!(list.contains("-app-id app_4 tags 4"));
     assert!(list.contains("-app-id app_16 tags 16"));

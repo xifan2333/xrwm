@@ -19,6 +19,7 @@ use xrwm::protocol::{
     river_node_v1 as node, river_output_v1 as output, river_seat_v1 as seat,
     river_window_manager_v1 as wm, river_window_v1 as window,
 };
+use xrwm::rule::RuleAction;
 use xrwm::seat::LayerShellFocus;
 use xrwm::state::{AppState, WindowItem};
 
@@ -311,21 +312,23 @@ impl Harness {
     }
 
     fn rule(&mut self, action: &[&str]) {
+        let tokens: Vec<String> = action.iter().map(|s| (*s).to_owned()).collect();
         self.state
             .handle_ipc_command(&IpcCommand::RuleAdd {
                 app_id: Some("demo".into()),
                 title: None,
-                action: action.iter().map(|s| (*s).to_owned()).collect(),
+                action: RuleAction::parse(&tokens).unwrap(),
             })
             .unwrap();
     }
 
     fn rule_with_match(&mut self, app_id: Option<&str>, title: Option<&str>, action: &[&str]) {
+        let tokens: Vec<String> = action.iter().map(|s| (*s).to_owned()).collect();
         self.state
             .handle_ipc_command(&IpcCommand::RuleAdd {
                 app_id: app_id.map(Into::into),
                 title: title.map(Into::into),
-                action: action.iter().map(|s| (*s).to_owned()).collect(),
+                action: RuleAction::parse(&tokens).unwrap(),
             })
             .unwrap();
     }
@@ -1390,7 +1393,7 @@ fn dimensions_rule_combined_with_output_rule_centers_on_target_output() {
         .handle_ipc_command(&IpcCommand::RuleAdd {
             app_id: Some("target_right".into()),
             title: None,
-            action: vec!["output".into(), out2_id.to_string()],
+            action: RuleAction::Output(out2_id.to_string()),
         })
         .unwrap();
     harness
@@ -1398,7 +1401,10 @@ fn dimensions_rule_combined_with_output_rule_centers_on_target_output() {
         .handle_ipc_command(&IpcCommand::RuleAdd {
             app_id: Some("target_right".into()),
             title: None,
-            action: vec!["dimensions".into(), "800".into(), "600".into()],
+            action: RuleAction::Dimensions {
+                width: 800,
+                height: 600,
+            },
         })
         .unwrap();
 
@@ -1423,7 +1429,10 @@ fn dimensions_rule_combined_with_output_rule_centers_on_target_output() {
         .handle_ipc_command(&IpcCommand::RuleAdd {
             app_id: Some("rev_order".into()),
             title: None,
-            action: vec!["dimensions".into(), "800".into(), "600".into()],
+            action: RuleAction::Dimensions {
+                width: 800,
+                height: 600,
+            },
         })
         .unwrap();
     harness
@@ -1431,7 +1440,7 @@ fn dimensions_rule_combined_with_output_rule_centers_on_target_output() {
         .handle_ipc_command(&IpcCommand::RuleAdd {
             app_id: Some("rev_order".into()),
             title: None,
-            action: vec!["output".into(), out2_id.to_string()],
+            action: RuleAction::Output(out2_id.to_string()),
         })
         .unwrap();
 
@@ -1460,7 +1469,7 @@ fn dimensions_rule_combined_with_output_rule_centers_on_target_output() {
         .handle_ipc_command(&IpcCommand::RuleAdd {
             app_id: Some("target_margins".into()),
             title: None,
-            action: vec!["output".into(), out2_id.to_string()],
+            action: RuleAction::Output(out2_id.to_string()),
         })
         .unwrap();
     harness
@@ -1468,7 +1477,10 @@ fn dimensions_rule_combined_with_output_rule_centers_on_target_output() {
         .handle_ipc_command(&IpcCommand::RuleAdd {
             app_id: Some("target_margins".into()),
             title: None,
-            action: vec!["dimensions".into(), "800".into(), "600".into()],
+            action: RuleAction::Dimensions {
+                width: 800,
+                height: 600,
+            },
         })
         .unwrap();
     // Re-apply rules via set_title
@@ -1520,7 +1532,7 @@ fn output_rule_matching_by_name_and_deterministic_index() {
         .handle_ipc_command(&IpcCommand::RuleAdd {
             app_id: Some("by_name".into()),
             title: None,
-            action: vec!["output".into(), "DP-1".into()],
+            action: RuleAction::Output("DP-1".into()),
         })
         .unwrap();
 
@@ -1541,7 +1553,7 @@ fn output_rule_matching_by_name_and_deterministic_index() {
         .handle_ipc_command(&IpcCommand::RuleAdd {
             app_id: Some("by_lower_name".into()),
             title: None,
-            action: vec!["output".into(), "edp-1".into()],
+            action: RuleAction::Output("edp-1".into()),
         })
         .unwrap();
 
@@ -1562,7 +1574,7 @@ fn output_rule_matching_by_name_and_deterministic_index() {
         .handle_ipc_command(&IpcCommand::RuleAdd {
             app_id: Some("by_idx_1".into()),
             title: None,
-            action: vec!["output".into(), "1".into()],
+            action: RuleAction::Output("1".into()),
         })
         .unwrap();
     harness
@@ -1570,7 +1582,7 @@ fn output_rule_matching_by_name_and_deterministic_index() {
         .handle_ipc_command(&IpcCommand::RuleAdd {
             app_id: Some("by_idx_2".into()),
             title: None,
-            action: vec!["output".into(), "2".into()],
+            action: RuleAction::Output("2".into()),
         })
         .unwrap();
 
@@ -1607,7 +1619,7 @@ fn window_rules_support_multi_segment_wildcards_in_app_id_and_title() {
         .handle_ipc_command(&IpcCommand::RuleAdd {
             app_id: Some("org.*.App".into()),
             title: None,
-            action: vec!["float".into()],
+            action: RuleAction::Float(true),
         })
         .unwrap();
 
@@ -1617,7 +1629,7 @@ fn window_rules_support_multi_segment_wildcards_in_app_id_and_title() {
         .handle_ipc_command(&IpcCommand::RuleAdd {
             app_id: None,
             title: Some("* - Mozilla Firefox*".into()),
-            action: vec!["tags".into(), "4".into()],
+            action: RuleAction::Tags(4),
         })
         .unwrap();
 
@@ -1659,7 +1671,7 @@ fn title_change_does_not_reset_manual_tags_geometry_or_output() {
         .handle_ipc_command(&IpcCommand::RuleAdd {
             app_id: Some("terminal".into()),
             title: None,
-            action: vec!["tags".into(), "2".into()],
+            action: RuleAction::Tags(2),
         })
         .unwrap();
     harness
@@ -1667,7 +1679,7 @@ fn title_change_does_not_reset_manual_tags_geometry_or_output() {
         .handle_ipc_command(&IpcCommand::RuleAdd {
             app_id: Some("terminal".into()),
             title: None,
-            action: vec!["float".into()],
+            action: RuleAction::Float(true),
         })
         .unwrap();
     harness
@@ -1675,7 +1687,10 @@ fn title_change_does_not_reset_manual_tags_geometry_or_output() {
         .handle_ipc_command(&IpcCommand::RuleAdd {
             app_id: Some("terminal".into()),
             title: None,
-            action: vec!["dimensions".into(), "400".into(), "300".into()],
+            action: RuleAction::Dimensions {
+                width: 400,
+                height: 300,
+            },
         })
         .unwrap();
     harness
@@ -1683,7 +1698,7 @@ fn title_change_does_not_reset_manual_tags_geometry_or_output() {
         .handle_ipc_command(&IpcCommand::RuleAdd {
             app_id: None,
             title: Some("*vim*".into()),
-            action: vec!["tags".into(), "2".into()],
+            action: RuleAction::Tags(2),
         })
         .unwrap();
 
@@ -1723,7 +1738,7 @@ fn title_change_does_not_reset_manual_tags_geometry_or_output() {
         .handle_ipc_command(&IpcCommand::RuleAdd {
             app_id: None,
             title: Some("*dialog*".into()),
-            action: vec!["csd".into()],
+            action: RuleAction::Ssd(false),
         })
         .unwrap();
 
@@ -1747,7 +1762,7 @@ fn focus_view_skip_floating_navigates_from_floating_to_tiled_windows() {
         .handle_ipc_command(&IpcCommand::RuleAdd {
             app_id: Some("float_app".into()),
             title: None,
-            action: vec!["float".into()],
+            action: RuleAction::Float(true),
         })
         .unwrap();
 
@@ -1897,7 +1912,7 @@ fn multi_output_zoom_attach_and_drag_resize_column_determination() {
         .handle_ipc_command(&IpcCommand::RuleAdd {
             app_id: Some("app1".into()),
             title: None,
-            action: vec!["output".into(), "OUT-1".into()],
+            action: RuleAction::Output("OUT-1".into()),
         })
         .unwrap();
     let win1 = harness.add_window();
@@ -1909,7 +1924,7 @@ fn multi_output_zoom_attach_and_drag_resize_column_determination() {
         .handle_ipc_command(&IpcCommand::RuleAdd {
             app_id: Some("app2".into()),
             title: None,
-            action: vec!["output".into(), "OUT-2".into()],
+            action: RuleAction::Output("OUT-2".into()),
         })
         .unwrap();
     harness
@@ -1917,7 +1932,7 @@ fn multi_output_zoom_attach_and_drag_resize_column_determination() {
         .handle_ipc_command(&IpcCommand::RuleAdd {
             app_id: Some("app3".into()),
             title: None,
-            action: vec!["output".into(), "OUT-2".into()],
+            action: RuleAction::Output("OUT-2".into()),
         })
         .unwrap();
 
@@ -2050,7 +2065,7 @@ fn per_output_tags_state_isolation_and_current_tags() {
         .handle_ipc_command(&IpcCommand::RuleAdd {
             app_id: Some("w1".into()),
             title: None,
-            action: vec!["output".into(), out1_id.to_string()],
+            action: RuleAction::Output(out1_id.to_string()),
         })
         .unwrap();
     harness
@@ -2058,7 +2073,7 @@ fn per_output_tags_state_isolation_and_current_tags() {
         .handle_ipc_command(&IpcCommand::RuleAdd {
             app_id: Some("w2".into()),
             title: None,
-            action: vec!["output".into(), out2_id.to_string()],
+            action: RuleAction::Output(out2_id.to_string()),
         })
         .unwrap();
 
@@ -3051,7 +3066,7 @@ fn spatial_focus_navigation_does_not_reverse_wrap() {
         .handle_ipc_command(&IpcCommand::RuleAdd {
             app_id: Some("float_app".into()),
             title: None,
-            action: vec!["float".into()],
+            action: RuleAction::Float(true),
         })
         .unwrap();
 
@@ -3119,7 +3134,7 @@ fn test_toggle_floating_views_hides_and_restores() {
         .handle_ipc_command(&IpcCommand::RuleAdd {
             app_id: Some("float_demo".into()),
             title: None,
-            action: vec!["float".into()],
+            action: RuleAction::Float(true),
         })
         .unwrap();
 

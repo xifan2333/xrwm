@@ -3,6 +3,7 @@
 use std::time::Duration;
 
 use crate::ipc::IpcCommand;
+use crate::rule::RuleActionKind;
 use crate::state::AppState;
 use crate::state::AttachMode;
 use crate::state::WindowLayer;
@@ -922,8 +923,8 @@ impl AppState {
         ))
     }
 
-    /// Lists active window rules, optionally filtered by action.
-    pub fn list_rules(&self, filter_action: Option<&str>) -> Result<String, String> {
+    /// Lists active window rules, optionally filtered by action kind.
+    pub fn list_rules(&self, filter_action: Option<RuleActionKind>) -> Result<String, String> {
         let mut lines = Vec::new();
 
         for r in &self.rules {
@@ -940,45 +941,9 @@ impl AppState {
                 match_desc.join(" ")
             };
 
-            let mut actions = Vec::new();
-            if let Some(fl) = r.float {
-                if fl {
-                    actions.push("float".to_string());
-                } else {
-                    actions.push("no-float".to_string());
-                }
-            }
-            if let Some(ssd) = r.ssd {
-                if ssd {
-                    actions.push("ssd".to_string());
-                } else {
-                    actions.push("csd".to_string());
-                }
-            }
-            if let Some(tags) = r.tags {
-                actions.push(format!("tags {tags}"));
-            }
-            if let Some((w, h)) = r.dimensions {
-                actions.push(format!("dimensions {w} {h}"));
-            }
-            if let Some((x, y)) = r.position {
-                actions.push(format!("position {x} {y}"));
-            }
-            if let Some(fs) = r.fullscreen
-                && fs
-            {
-                actions.push("fullscreen".to_string());
-            }
-            if let Some(ref out) = r.output {
-                actions.push(format!("output {out}"));
-            }
-
-            for act in actions {
-                if let Some(filter) = filter_action {
-                    let act_prefix = act.split_whitespace().next().unwrap_or(&act);
-                    if !act_prefix.eq_ignore_ascii_case(filter) {
-                        continue;
-                    }
+            for act in r.actions() {
+                if filter_action.is_some_and(|filter| filter != act.kind()) {
+                    continue;
                 }
                 lines.push(format!("{match_str} {act}"));
             }
@@ -991,42 +956,23 @@ impl AppState {
         }
     }
 
-    /// Deletes a rule matching app_id, title, and action.
+    /// Deletes every rule matching app_id, title, and the targeted action kind.
     pub fn rule_del(
         &mut self,
         app_id: Option<&str>,
         title: Option<&str>,
-        action: &[String],
+        action: RuleActionKind,
     ) -> Result<String, String> {
-        if action.is_empty() {
-            return Err("Rule action cannot be empty".to_string());
-        }
-
-        let act = action[0].to_ascii_lowercase();
         let initial_len = self.rules.len();
 
         self.rules.retain(|r| {
-            let app_match = r.app_id.as_deref() == app_id;
-            let title_match = r.title.as_deref() == title;
-            if !app_match || !title_match {
-                return true;
-            }
-            let action_match = match act.as_str() {
-                "float" | "no-float" => r.float.is_some(),
-                "ssd" | "csd" | "no-ssd" | "no-border" => r.ssd.is_some(),
-                "tags" => r.tags.is_some(),
-                "dimensions" => r.dimensions.is_some(),
-                "position" => r.position.is_some(),
-                "fullscreen" | "no-fullscreen" => r.fullscreen.is_some(),
-                "output" => r.output.is_some(),
-                _ => false,
-            };
-            !action_match
+            r.app_id.as_deref() != app_id || r.title.as_deref() != title || !action.is_set_for(r)
         });
 
         if self.rules.len() < initial_len {
             Ok(format!(
-                "rule deleted for app_id={app_id:?} title={title:?} action={action:?}"
+                "rule deleted for app_id={app_id:?} title={title:?} action={}",
+                action.keyword()
             ))
         } else {
             Ok("no matching rule found".to_string())
@@ -1117,109 +1063,21 @@ impl AppState {
                 title,
                 action,
             } => {
-                if action.is_empty() {
-                    return Err("Rule action cannot be empty".to_string());
-                }
-                let mut float = None;
-                let mut ssd = None;
-                let mut tags = None;
-                let mut dimensions = None;
-                let mut position = None;
-                let mut fullscreen = None;
-                let mut output = None;
-
-                let act = action[0].to_ascii_lowercase();
-                match act.as_str() {
-                    "float" => float = Some(true),
-                    "no-float" => float = Some(false),
-                    "ssd" => ssd = Some(true),
-                    "csd" | "no-ssd" | "no-border" => ssd = Some(false),
-                    "fullscreen" => fullscreen = Some(true),
-                    "no-fullscreen" => fullscreen = Some(false),
-                    "tags" => {
-                        if action.len() > 1 {
-                            let raw = action[1].trim();
-                            let mask = if let Some(hex) =
-                                raw.strip_prefix("0x").or_else(|| raw.strip_prefix("0X"))
-                            {
-                                u32::from_str_radix(hex, 16)
-                                    .map_err(|_| "Invalid tag mask".to_string())?
-                            } else {
-                                raw.parse::<u32>()
-                                    .map_err(|_| "Invalid tag mask".to_string())?
-                            };
-                            if mask == 0 {
-                                return Err(
-                                    "a window rule must specify at least one tag".to_string()
-                                );
-                            }
-                            tags = Some(mask);
-                        } else {
-                            return Err("Usage: rule-add ... tags <mask>".to_string());
-                        }
-                    }
-                    "dimensions" => {
-                        if action.len() > 2 {
-                            let w = action[1].parse::<u32>().map_err(|_| "Invalid width")?;
-                            let h = action[2].parse::<u32>().map_err(|_| "Invalid height")?;
-                            if w > i32::MAX as u32 || h > i32::MAX as u32 {
-                                return Err(
-                                    "window dimensions exceed maximum allowed value".to_string()
-                                );
-                            }
-                            dimensions = Some((w, h));
-                        } else {
-                            return Err(
-                                "Usage: rule-add ... dimensions <width> <height>".to_string()
-                            );
-                        }
-                    }
-                    "position" => {
-                        if action.len() > 2 {
-                            let x = action[1]
-                                .parse::<i32>()
-                                .map_err(|_| "Invalid x coordinate")?;
-                            let y = action[2]
-                                .parse::<i32>()
-                                .map_err(|_| "Invalid y coordinate")?;
-                            position = Some((x, y));
-                        } else {
-                            return Err("Usage: rule-add ... position <x> <y>".to_string());
-                        }
-                    }
-                    "output" => {
-                        if action.len() > 1 {
-                            output = Some(action[1].clone());
-                        } else {
-                            return Err("Usage: rule-add ... output <name|id>".to_string());
-                        }
-                    }
-                    other => {
-                        return Err(format!("Unknown rule action: {other}"));
-                    }
-                }
-
-                self.rules.push(WindowRule {
-                    app_id: app_id.clone(),
-                    title: title.clone(),
-                    float,
-                    ssd,
-                    tags,
-                    dimensions,
-                    position,
-                    fullscreen,
-                    output,
-                });
+                // Defence in depth: commands can also arrive as raw IPC JSON, so
+                // re-assert the domain invariants before mutating the rule store.
+                action.validate()?;
+                self.rules
+                    .push(WindowRule::new(app_id.clone(), title.clone(), action));
                 Ok(format!(
-                    "rule added for app_id={app_id:?} title={title:?} action={action:?}"
+                    "rule added for app_id={app_id:?} title={title:?} action={action}"
                 ))
             }
             IpcCommand::RuleDel {
                 app_id,
                 title,
                 action,
-            } => self.rule_del(app_id.as_deref(), title.as_deref(), action),
-            IpcCommand::ListRules { action } => self.list_rules(action.as_deref()),
+            } => self.rule_del(app_id.as_deref(), title.as_deref(), *action),
+            IpcCommand::ListRules { action } => self.list_rules(*action),
             IpcCommand::Map {
                 mode,
                 modifiers,
