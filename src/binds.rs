@@ -1,5 +1,8 @@
 //! XKB keybinding parsing and mapping for River 0.4.
 
+use std::collections::HashMap;
+
+use wayland_backend::client::ObjectId;
 use xkbcommon::xkb;
 
 use crate::protocol::{river_seat_v1::Modifiers, river_xkb_binding_v1::RiverXkbBindingV1};
@@ -155,4 +158,220 @@ pub struct ActiveKeyBinding {
     pub modifiers: Modifiers,
     pub keysym: u32,
     pub action: Vec<String>,
+}
+
+/// Deep module managing modal states, key/pointer binding configurations,
+/// and River compositor proxy synchronization.
+#[derive(Debug)]
+pub struct BindingManager {
+    pub configured_key_bindings: Vec<PendingKeyBinding>,
+    pub pending_key_bindings: Vec<PendingKeyBinding>,
+    pub key_bindings: HashMap<ObjectId, ActiveKeyBinding>,
+    pub configured_pointer_bindings: Vec<PendingPointerBinding>,
+    pub pending_pointer_bindings: Vec<PendingPointerBinding>,
+    pub active_mode: String,
+    pub modes: Vec<String>,
+    pub mode_dirty: bool,
+    pub session_locked: bool,
+    pub pre_lock_mode: Option<String>,
+}
+
+impl Default for BindingManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl BindingManager {
+    pub fn new() -> Self {
+        Self {
+            configured_key_bindings: Vec::new(),
+            pending_key_bindings: Vec::new(),
+            key_bindings: HashMap::new(),
+            configured_pointer_bindings: Vec::new(),
+            pending_pointer_bindings: Vec::new(),
+            active_mode: "normal".to_string(),
+            modes: vec!["normal".to_string(), "locked".to_string()],
+            mode_dirty: false,
+            session_locked: false,
+            pre_lock_mode: None,
+        }
+    }
+
+    pub fn declare_mode(&mut self, mode: &str) -> Result<String, String> {
+        let trimmed = mode.trim();
+        if trimmed.is_empty() {
+            return Err("mode name cannot be empty".to_string());
+        }
+        if self.modes.iter().any(|m| m.eq_ignore_ascii_case(trimmed)) {
+            return Ok(format!("mode '{trimmed}' already declared"));
+        }
+        self.modes.push(trimmed.to_string());
+        Ok(format!("declared mode '{trimmed}'"))
+    }
+
+    pub fn enter_mode(&mut self, mode: &str) -> Result<String, String> {
+        let trimmed = mode.trim();
+        if trimmed.is_empty() {
+            return Err("mode name cannot be empty".to_string());
+        }
+        if self.session_locked && !trimmed.eq_ignore_ascii_case("locked") {
+            return Err("Cannot switch mode while session is locked".to_string());
+        }
+        let matched = self
+            .modes
+            .iter()
+            .find(|m| m.eq_ignore_ascii_case(trimmed))
+            .cloned();
+
+        let Some(target) = matched else {
+            return Err(format!("Unknown mode '{trimmed}'"));
+        };
+
+        if self.active_mode != target {
+            self.active_mode = target.clone();
+            self.mode_dirty = true;
+        }
+        Ok(format!("entered mode '{target}'"))
+    }
+
+    pub fn handle_session_locked(&mut self) -> bool {
+        self.session_locked = true;
+        if self.active_mode != "locked" {
+            self.pre_lock_mode = Some(self.active_mode.clone());
+            self.active_mode = "locked".to_string();
+            self.mode_dirty = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn handle_session_unlocked(&mut self) -> bool {
+        self.session_locked = false;
+        let target_mode = self
+            .pre_lock_mode
+            .take()
+            .filter(|m| {
+                self.modes
+                    .iter()
+                    .any(|existing| existing.eq_ignore_ascii_case(m))
+            })
+            .unwrap_or_else(|| "normal".to_string());
+
+        if self.active_mode != target_mode {
+            self.active_mode = target_mode;
+            self.mode_dirty = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn map_key(&mut self, mode: &str, modifiers: Modifiers, keysym: u32, action: Vec<String>) {
+        // Replace existing binding for same (mode, modifiers, keysym)
+        self.configured_key_bindings.retain(|b| {
+            !(b.mode.eq_ignore_ascii_case(mode) && b.modifiers == modifiers && b.keysym == keysym)
+        });
+        self.pending_key_bindings.retain(|b| {
+            !(b.mode.eq_ignore_ascii_case(mode) && b.modifiers == modifiers && b.keysym == keysym)
+        });
+        let pending = PendingKeyBinding {
+            mode: mode.to_string(),
+            modifiers,
+            keysym,
+            action,
+        };
+        self.configured_key_bindings.push(pending.clone());
+        self.pending_key_bindings.push(pending);
+    }
+
+    pub fn unmap_key(&mut self, mode: &str, modifiers: Modifiers, keysym: u32) -> bool {
+        let before_configured = self.configured_key_bindings.len();
+        self.configured_key_bindings.retain(|b| {
+            !(b.mode.eq_ignore_ascii_case(mode) && b.modifiers == modifiers && b.keysym == keysym)
+        });
+        self.pending_key_bindings.retain(|b| {
+            !(b.mode.eq_ignore_ascii_case(mode) && b.modifiers == modifiers && b.keysym == keysym)
+        });
+
+        let to_remove: Vec<ObjectId> = self
+            .key_bindings
+            .iter()
+            .filter(|(_, b)| {
+                b.mode.eq_ignore_ascii_case(mode) && b.modifiers == modifiers && b.keysym == keysym
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+
+        for id in &to_remove {
+            if let Some(b) = self.key_bindings.remove(id) {
+                b.proxy.destroy();
+            }
+        }
+
+        before_configured != self.configured_key_bindings.len() || !to_remove.is_empty()
+    }
+
+    pub fn map_pointer(
+        &mut self,
+        mode: &str,
+        modifiers: Modifiers,
+        button: u32,
+        action: crate::seat::PointerAction,
+    ) {
+        self.configured_pointer_bindings.retain(|b| {
+            !(b.mode.eq_ignore_ascii_case(mode) && b.modifiers == modifiers && b.button == button)
+        });
+        self.pending_pointer_bindings.retain(|b| {
+            !(b.mode.eq_ignore_ascii_case(mode) && b.modifiers == modifiers && b.button == button)
+        });
+        let pending = PendingPointerBinding {
+            mode: mode.to_string(),
+            modifiers,
+            button,
+            action,
+        };
+        self.configured_pointer_bindings.push(pending.clone());
+        self.pending_pointer_bindings.push(pending);
+    }
+
+    pub fn unmap_pointer(
+        &mut self,
+        mode: &str,
+        modifiers: Modifiers,
+        button: u32,
+        seats: &mut HashMap<ObjectId, crate::seat::SeatItem>,
+    ) -> bool {
+        let before_configured = self.configured_pointer_bindings.len();
+        self.configured_pointer_bindings.retain(|b| {
+            !(b.mode.eq_ignore_ascii_case(mode) && b.modifiers == modifiers && b.button == button)
+        });
+        self.pending_pointer_bindings.retain(|b| {
+            !(b.mode.eq_ignore_ascii_case(mode) && b.modifiers == modifiers && b.button == button)
+        });
+
+        let mut removed_active = false;
+        for seat in seats.values_mut() {
+            let to_remove: Vec<ObjectId> = seat
+                .pointer_bindings
+                .iter()
+                .filter(|(_, b)| {
+                    b.mode.eq_ignore_ascii_case(mode)
+                        && b.modifiers == modifiers
+                        && b.button == button
+                })
+                .map(|(id, _)| id.clone())
+                .collect();
+
+            for id in &to_remove {
+                if let Some(b) = seat.pointer_bindings.remove(id) {
+                    b.proxy.destroy();
+                    removed_active = true;
+                }
+            }
+        }
+
+        before_configured != self.configured_pointer_bindings.len() || removed_active
+    }
 }
