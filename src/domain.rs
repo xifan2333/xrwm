@@ -207,7 +207,7 @@ impl WindowModel {
             WindowLayer::Fullscreen
         } else if self.tags == TAG_ALL {
             WindowLayer::Pinned
-        } else if self.tags == (1 << 31) {
+        } else if (self.tags & (1 << 31)) != 0 {
             WindowLayer::Scratchpad
         } else if self.floating {
             WindowLayer::WorkspaceFloating
@@ -634,15 +634,34 @@ impl DomainModel {
         state.should_exit = self.should_exit;
         state.focused_output = self.focused_output.clone();
 
-        for win_model in &self.windows {
-            if let Some(w) = state.windows.iter_mut().find(|w| w.id == win_model.id) {
-                win_model.sync_to_window_item(w);
-            }
-        }
-
         for (id, out_model) in &self.outputs {
             if let Some(o) = state.outputs.get_mut(id) {
                 out_model.sync_to_output_item(o);
+            }
+        }
+
+        // Rebuild windows in domain model order, retaining existing WindowItems by ID
+        let mut new_windows = Vec::with_capacity(self.windows.len());
+        for win_model in &self.windows {
+            if let Some(pos) = state.windows.iter().position(|w| w.id == win_model.id) {
+                let mut w = state.windows.remove(pos);
+                win_model.sync_to_window_item(&mut w);
+                new_windows.push(w);
+            }
+        }
+        state.windows = new_windows;
+
+        // Sync seats
+        for (seat_id, seat_model) in &self.seats {
+            if let Some(seat_item) = state.seats.get_mut(seat_id) {
+                let target_proxy = seat_model.focused_window.and_then(|id| {
+                    state
+                        .windows
+                        .iter()
+                        .find(|w| w.id == id)
+                        .map(|w| w.proxy.clone())
+                });
+                seat_item.set_focused_window(target_proxy);
             }
         }
     }
@@ -692,6 +711,19 @@ impl DomainModel {
                     window.x = x;
                     window.y = y;
                 }
+                if let Some(ref out_str) = rule.output {
+                    let trimmed = out_str.trim();
+                    let matched_out = self.outputs.iter().find(|(id, o)| {
+                        o.name
+                            .as_deref()
+                            .is_some_and(|n| n.eq_ignore_ascii_case(trimmed))
+                            || id.to_string() == trimmed
+                            || id.protocol_id().to_string() == trimmed
+                    });
+                    if let Some((id, _)) = matched_out {
+                        window.output = Some(id.clone());
+                    }
+                }
             }
         }
     }
@@ -709,16 +741,55 @@ impl DomainModel {
             });
         }
 
-        let focused_idx = self
-            .seats
-            .values()
-            .find_map(|s| s.focused_window)
-            .and_then(|f_id| self.windows.iter().position(|w| w.id == f_id));
+        // Uncollapse floating for this window's tags if workspace floating
+        if window.layer() == WindowLayer::WorkspaceFloating {
+            if let Some(out_id) = &window.output {
+                if let Some(out) = self.outputs.get_mut(out_id) {
+                    out.floating_hidden_tags &= !window.tags;
+                }
+            } else {
+                for out in self.outputs.values_mut() {
+                    out.floating_hidden_tags &= !window.tags;
+                }
+            }
+        }
 
-        let insert_idx = self
-            .attach_mode
-            .calculate_insert_index(focused_idx, self.windows.len());
-        self.windows.insert(insert_idx, window);
+        let focused_id = self.focused_window_id();
+        let target_out = window.output.clone();
+        let is_floating = window.floating;
+
+        let output_indices: Vec<usize> = self
+            .windows
+            .iter()
+            .enumerate()
+            .filter(|(_, w)| {
+                (target_out.is_none() || w.output == target_out) && w.floating == is_floating
+            })
+            .map(|(i, _)| i)
+            .collect();
+
+        if output_indices.is_empty() {
+            self.windows.push(window);
+        } else {
+            let focused_pos = focused_id.and_then(|id| {
+                output_indices
+                    .iter()
+                    .position(|&idx| self.windows.get(idx).is_some_and(|w| w.id == id))
+            });
+
+            let insert_pos = self
+                .attach_mode
+                .calculate_insert_index(focused_pos, output_indices.len());
+
+            if insert_pos >= output_indices.len() {
+                let last_idx = *output_indices.last().unwrap_or(&0);
+                self.windows
+                    .insert((last_idx + 1).min(self.windows.len()), window);
+            } else {
+                let target_idx = output_indices[insert_pos];
+                self.windows.insert(target_idx, window);
+            }
+        }
 
         effects
     }
@@ -726,9 +797,25 @@ impl DomainModel {
     /// Removes a window by ID and clears any seat references holding it.
     pub fn remove_window(&mut self, id: u32) -> Vec<DomainEffect> {
         let mut effects = Vec::new();
-        effects.push(DomainEffect::DestroyWindow { window_id: id });
 
         for seat in self.seats.values_mut() {
+            let hit = match &seat.op {
+                SeatOpModel::Move { window_id, .. }
+                | SeatOpModel::Resize { window_id, .. }
+                | SeatOpModel::TiledMove { window_id, .. } => *window_id == id,
+                SeatOpModel::None
+                | SeatOpModel::TiledResize { .. }
+                | SeatOpModel::TiledStackResize { .. } => false,
+            };
+            if hit {
+                if matches!(&seat.op, SeatOpModel::Resize { .. }) {
+                    effects.push(DomainEffect::InformResizeEnd { window_id: id });
+                }
+                effects.push(DomainEffect::SeatOpEnd {
+                    seat_id: seat.id.clone(),
+                });
+                seat.op = SeatOpModel::None;
+            }
             if seat.focused_window == Some(id) {
                 seat.focused_window = None;
                 effects.push(DomainEffect::SetSeatFocus {
@@ -741,6 +828,7 @@ impl DomainModel {
             }
         }
 
+        effects.push(DomainEffect::DestroyWindow { window_id: id });
         self.windows.retain(|w| w.id != id);
         effects
     }
@@ -748,7 +836,9 @@ impl DomainModel {
     /// Reconciles focus for all active seats.
     pub fn reconcile_focus(&mut self) -> Vec<DomainEffect> {
         let focused_out_id = self.get_focused_output_id();
-        let visible_win_ids: Vec<u32> = self
+
+        // 1. Windows alive and visible on the focused output
+        let focused_out_wins: Vec<u32> = self
             .windows
             .iter()
             .filter(|w| {
@@ -758,13 +848,31 @@ impl DomainModel {
             })
             .map(|w| w.id)
             .collect();
-        let fallback_id = visible_win_ids.first().copied();
+
+        // 2. Windows alive and visible anywhere
+        let any_visible_wins: Vec<u32> = self
+            .windows
+            .iter()
+            .filter(|w| !w.closed && self.is_window_visible(w))
+            .map(|w| w.id)
+            .collect();
+
+        let fallback_id = focused_out_wins
+            .first()
+            .copied()
+            .or_else(|| any_visible_wins.first().copied());
 
         let mut effects = Vec::new();
         for seat in self.seats.values_mut() {
-            if let Some(target_id) = seat.focused_window
-                && !visible_win_ids.contains(&target_id)
-            {
+            if seat.layer_focus != LayerShellFocus::None {
+                continue;
+            }
+
+            let current_valid = seat
+                .focused_window
+                .is_some_and(|target_id| any_visible_wins.contains(&target_id));
+
+            if !current_valid {
                 seat.focused_window = fallback_id;
                 effects.push(DomainEffect::SetSeatFocus {
                     seat_id: seat.id.clone(),
@@ -795,6 +903,9 @@ impl DomainModel {
 
     /// Resolves the effective tag state for a specific output.
     pub fn tag_state_for_output(&self, output_id: Option<&ObjectId>) -> TagState {
+        if self.outputs.len() <= 1 {
+            return self.tag_state;
+        }
         if let Some(out) = output_id.and_then(|id| self.outputs.get(id)) {
             out.tag_state
         } else {
@@ -812,9 +923,11 @@ impl DomainModel {
             .map(|o| o.floating_hidden_tags)
             .unwrap_or(TAG_NONE);
 
+        let active_tags = w.tags & tag_state.focused;
         let is_tag_visible = tag_state.is_view_visible(w.tags);
-        let is_floating_collapsed =
-            w.layer_policy().collapsible && (floating_hidden_tags & tag_state.focused != TAG_NONE);
+        let is_floating_collapsed = w.layer_policy().collapsible
+            && active_tags != 0
+            && (active_tags & !floating_hidden_tags) == 0;
 
         if !is_tag_visible {
             WindowVisibility::HiddenByTags
@@ -833,24 +946,22 @@ impl DomainModel {
 
     /// Synchronizes occupied tags across outputs based on active windows.
     pub fn sync_occupied_tags(&mut self) {
-        if self.outputs.is_empty() {
+        let mut global_occupied = TAG_NONE;
+        for w in &self.windows {
+            if !w.closed && w.tags != TAG_ALL {
+                global_occupied |= w.tags;
+            }
+        }
+        self.tag_state.occupied = global_occupied;
+
+        for (out_id, out) in &mut self.outputs {
             let mut occupied = TAG_NONE;
             for w in &self.windows {
-                if !w.closed && w.tags != TAG_ALL {
+                if !w.closed && w.tags != TAG_ALL && w.output.as_ref() == Some(out_id) {
                     occupied |= w.tags;
                 }
             }
-            self.tag_state.occupied = occupied;
-        } else {
-            for (out_id, out) in &mut self.outputs {
-                let mut occupied = TAG_NONE;
-                for w in &self.windows {
-                    if !w.closed && w.tags != TAG_ALL && w.output.as_ref() == Some(out_id) {
-                        occupied |= w.tags;
-                    }
-                }
-                out.tag_state.occupied = occupied;
-            }
+            out.tag_state.occupied = occupied;
         }
     }
 }

@@ -30,7 +30,7 @@ fn test_compositor_adapter_proxy_queries() {
 #[test]
 fn test_compositor_adapter_effects_execution_graceful_on_missing_proxies() {
     let mut adapter = CompositorAdapter::new();
-    let state = AppState::new();
+    let mut state = AppState::new();
 
     // Invariant: executing effects against unregistered proxies must be safe, non-panicking, and no-op.
     let effects = vec![
@@ -70,5 +70,5 @@ fn test_compositor_adapter_effects_execution_graceful_on_missing_proxies() {
         DomainEffect::BroadcastStatus,
     ];
 
-    adapter.execute_effects(&effects, &state);
+    adapter.execute_effects(&effects, &mut state);
 }

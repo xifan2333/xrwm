@@ -39,6 +39,10 @@ fn test_window_model_layer_and_propose_dimensions() {
     win.tags = 1 << 31;
     assert_eq!(win.layer(), WindowLayer::Scratchpad);
 
+    // Scratchpad bit combined with another tag still classifies as Scratchpad (unless TAG_ALL)
+    win.tags = (1 << 31) | 1;
+    assert_eq!(win.layer(), WindowLayer::Scratchpad);
+
     win.tags = TAG_ALL;
     assert_eq!(win.layer(), WindowLayer::Pinned);
 
@@ -202,6 +206,62 @@ fn test_output_model_invariants() {
     };
     assert_eq!(out.name.as_deref(), Some("DP-1"));
     assert_eq!(out.usable_area.width, 1920);
+}
+
+#[test]
+fn test_remove_window_ends_active_gesture() {
+    let mut domain = DomainModel::new();
+    let win = WindowModel::new(10, 1, None);
+    domain.attach_window(win);
+
+    let seat_id = ObjectId::null();
+    domain.seats.insert(
+        seat_id.clone(),
+        SeatModel {
+            id: seat_id.clone(),
+            focused_window: Some(10),
+            hovered_window: Some(10),
+            op: SeatOpModel::Resize {
+                window_id: 10,
+                start_x: 0,
+                start_y: 0,
+                start_width: 100,
+                start_height: 100,
+                edges: Edges::all(),
+            },
+            pending_action: PointerAction::None,
+            layer_focus: LayerShellFocus::None,
+        },
+    );
+
+    let effects = domain.remove_window(10);
+    assert!(effects.contains(&DomainEffect::InformResizeEnd { window_id: 10 }));
+    assert!(effects.contains(&DomainEffect::SeatOpEnd {
+        seat_id: seat_id.clone()
+    }));
+    assert!(effects.contains(&DomainEffect::DestroyWindow { window_id: 10 }));
+    assert!(domain.windows.is_empty());
+}
+
+#[test]
+fn test_reconcile_focus_layer_shell_protection() {
+    let mut domain = DomainModel::new();
+    let seat_id = ObjectId::null();
+    domain.seats.insert(
+        seat_id.clone(),
+        SeatModel {
+            id: seat_id.clone(),
+            focused_window: None,
+            hovered_window: None,
+            op: SeatOpModel::None,
+            pending_action: PointerAction::None,
+            layer_focus: LayerShellFocus::Exclusive,
+        },
+    );
+
+    let effects = domain.reconcile_focus();
+    // Invariant: layer shell exclusive seat must NOT be modified by reconcile_focus
+    assert!(effects.is_empty());
 }
 
 #[test]

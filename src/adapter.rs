@@ -87,7 +87,7 @@ impl CompositorAdapter {
     }
 
     /// Executes a single domain effect against registered Wayland proxies.
-    pub fn execute_effect(&mut self, effect: &DomainEffect, state: &crate::state::AppState) {
+    pub fn execute_effect(&mut self, effect: &DomainEffect, state: &mut crate::state::AppState) {
         match effect {
             DomainEffect::ProposeDimensions {
                 window_id,
@@ -188,14 +188,20 @@ impl CompositorAdapter {
                 }
             }
             DomainEffect::BroadcastStatus => {
-                self.broadcaster.broadcast(state);
+                state.broadcast_status();
             }
-            DomainEffect::ExecuteAction { tokens: _ } => {}
+            DomainEffect::ExecuteAction { tokens } => {
+                state.execute_action_tokens(tokens);
+            }
         }
     }
 
     /// Executes an ordered sequence of domain effects.
-    pub fn execute_effects(&mut self, effects: &[DomainEffect], state: &crate::state::AppState) {
+    pub fn execute_effects(
+        &mut self,
+        effects: &[DomainEffect],
+        state: &mut crate::state::AppState,
+    ) {
         for effect in effects {
             self.execute_effect(effect, state);
         }

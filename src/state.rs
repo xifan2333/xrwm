@@ -674,6 +674,9 @@ impl AppState {
                     seat.hovered = None;
                 }
             }
+            for w in self.windows.iter().filter(|w| w.closed) {
+                self.adapter.remove_window(w.id);
+            }
             for c in &closed {
                 c.destroy();
             }
