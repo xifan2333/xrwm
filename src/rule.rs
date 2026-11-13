@@ -6,7 +6,7 @@ use wayland_backend::client::ObjectId;
 
 use crate::layout::Rect;
 use crate::state::{OutputItem, WindowItem};
-use crate::tag::TagMask;
+use crate::tag::{TAG_NONE, TagMask};
 
 #[derive(Debug, Clone)]
 pub struct WindowRule {
@@ -165,11 +165,9 @@ impl RuleAction {
         match kind {
             RuleActionKind::Tags => {
                 expect_arity(token, args, 1)?;
-                let mask = parse_tag_mask(&args[0])?;
-                if mask == crate::tag::TAG_NONE {
-                    return Err("a window rule must specify at least one tag".to_string());
-                }
-                Ok(RuleAction::Tags(mask))
+                let action = RuleAction::Tags(parse_tag_mask(&args[0])?);
+                action.validate()?;
+                Ok(action)
             }
             RuleActionKind::Dimensions => {
                 expect_arity(token, args, 2)?;
@@ -216,7 +214,7 @@ impl RuleAction {
     /// rejected before it mutates state.
     pub fn validate(&self) -> Result<(), String> {
         match self {
-            RuleAction::Tags(crate::tag::TAG_NONE) => {
+            RuleAction::Tags(TAG_NONE) => {
                 Err("a window rule must specify at least one tag".to_string())
             }
             RuleAction::Dimensions { width, height }
