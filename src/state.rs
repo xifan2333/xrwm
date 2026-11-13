@@ -4,11 +4,11 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use wayland_backend::client::ObjectId;
+use wayland_client::QueueHandle;
 use wayland_client::protocol::wl_registry;
-use wayland_client::{Proxy, QueueHandle};
 
 use crate::animation::AnimationController;
-use crate::binds::{ActiveKeyBinding, PendingKeyBinding};
+
 use crate::layout::{LayoutConfig, Rect};
 use crate::protocol::{
     river_layer_shell_output_v1::RiverLayerShellOutputV1, river_layer_shell_v1::RiverLayerShellV1,
@@ -123,16 +123,7 @@ pub struct AppState {
     pub border_color_unfocused: String,
     pub border_color_urgent: String,
     pub rules: Vec<WindowRule>,
-    pub configured_key_bindings: Vec<PendingKeyBinding>,
-    pub pending_key_bindings: Vec<PendingKeyBinding>,
-    pub key_bindings: HashMap<ObjectId, ActiveKeyBinding>,
-    pub configured_pointer_bindings: Vec<crate::binds::PendingPointerBinding>,
-    pub pending_pointer_bindings: Vec<crate::binds::PendingPointerBinding>,
-    pub active_mode: String,
-    pub modes: Vec<String>,
-    pub mode_dirty: bool,
-    pub session_locked: bool,
-    pub pre_lock_mode: Option<String>,
+    pub bindings: crate::binds::BindingManager,
     pub next_view_id: u32,
     pub attach_mode: AttachMode,
     pub cursor_warp: crate::seat::CursorWarp,
@@ -177,16 +168,7 @@ impl AppState {
             border_color_unfocused: "0x414868".to_string(),
             border_color_urgent: "0xf7768e".to_string(),
             rules: Vec::new(),
-            configured_key_bindings: Vec::new(),
-            pending_key_bindings: Vec::new(),
-            key_bindings: HashMap::new(),
-            configured_pointer_bindings: Vec::new(),
-            pending_pointer_bindings: Vec::new(),
-            active_mode: "normal".to_string(),
-            modes: vec!["normal".to_string(), "locked".to_string()],
-            mode_dirty: false,
-            session_locked: false,
-            pre_lock_mode: None,
+            bindings: crate::binds::BindingManager::new(),
             next_view_id: 1,
             attach_mode: AttachMode::default(),
             cursor_warp: crate::seat::CursorWarp::default(),
@@ -213,30 +195,14 @@ impl AppState {
 
     /// Handles session_locked event from the compositor.
     pub fn handle_session_locked(&mut self) {
-        self.session_locked = true;
-        if self.active_mode != "locked" {
-            self.pre_lock_mode = Some(self.active_mode.clone());
-            self.active_mode = "locked".to_string();
-            self.mode_dirty = true;
+        if self.bindings.handle_session_locked() {
             self.manage_dirty();
         }
     }
 
     /// Handles session_unlocked event from the compositor.
     pub fn handle_session_unlocked(&mut self) {
-        self.session_locked = false;
-        let target_mode = self
-            .pre_lock_mode
-            .take()
-            .filter(|m| {
-                self.modes
-                    .iter()
-                    .any(|existing| existing.eq_ignore_ascii_case(m))
-            })
-            .unwrap_or_else(|| "normal".to_string());
-        if self.active_mode != target_mode {
-            self.active_mode = target_mode;
-            self.mode_dirty = true;
+        if self.bindings.handle_session_unlocked() {
             self.manage_dirty();
         }
     }
@@ -640,137 +606,8 @@ impl AppState {
 
     pub fn handle_manage_start(&mut self, _proxy: &RiverWindowManagerV1, qh: &QueueHandle<Self>) {
         self.reconcile_focus();
-        // Register keybindings during the manage sequence
-        if let Some(ref xkb_mgr) = self.river_xkb {
-            for seat in self.seats.values_mut() {
-                if seat.needs_key_binding_sync {
-                    for def in &self.configured_key_bindings {
-                        let binding =
-                            xkb_mgr.get_xkb_binding(&seat.proxy, def.keysym, def.modifiers, qh, ());
-                        if def.mode.eq_ignore_ascii_case(&self.active_mode) {
-                            binding.enable();
-                        } else {
-                            binding.disable();
-                        }
-                        self.key_bindings.insert(
-                            binding.id(),
-                            ActiveKeyBinding {
-                                proxy: binding,
-                                seat_id: seat.proxy.id(),
-                                mode: def.mode.clone(),
-                                modifiers: def.modifiers,
-                                keysym: def.keysym,
-                                action: def.action.clone(),
-                            },
-                        );
-                    }
-                    seat.needs_key_binding_sync = false;
-                } else if !self.pending_key_bindings.is_empty() {
-                    for pending in &self.pending_key_bindings {
-                        let binding = xkb_mgr.get_xkb_binding(
-                            &seat.proxy,
-                            pending.keysym,
-                            pending.modifiers,
-                            qh,
-                            (),
-                        );
-                        if pending.mode.eq_ignore_ascii_case(&self.active_mode) {
-                            binding.enable();
-                        } else {
-                            binding.disable();
-                        }
-                        self.key_bindings.insert(
-                            binding.id(),
-                            ActiveKeyBinding {
-                                proxy: binding,
-                                seat_id: seat.proxy.id(),
-                                mode: pending.mode.clone(),
-                                modifiers: pending.modifiers,
-                                keysym: pending.keysym,
-                                action: pending.action.clone(),
-                            },
-                        );
-                    }
-                }
-            }
-            self.pending_key_bindings.clear();
-        }
-
-        // Register pointer bindings during the manage sequence
-        for (seat_id, seat) in self.seats.iter_mut() {
-            if seat.needs_pointer_binding_sync {
-                for def in &self.configured_pointer_bindings {
-                    let pb = seat.proxy.get_pointer_binding(
-                        def.button,
-                        def.modifiers,
-                        qh,
-                        seat_id.clone(),
-                    );
-                    if def.mode.eq_ignore_ascii_case(&self.active_mode) {
-                        pb.enable();
-                    } else {
-                        pb.disable();
-                    }
-                    seat.pointer_bindings.insert(
-                        pb.id(),
-                        crate::seat::PointerBinding {
-                            proxy: pb,
-                            mode: def.mode.clone(),
-                            modifiers: def.modifiers,
-                            button: def.button,
-                            action: def.action.clone(),
-                        },
-                    );
-                }
-                seat.needs_pointer_binding_sync = false;
-            } else if !self.pending_pointer_bindings.is_empty() {
-                for pending in &self.pending_pointer_bindings {
-                    let pb = seat.proxy.get_pointer_binding(
-                        pending.button,
-                        pending.modifiers,
-                        qh,
-                        seat_id.clone(),
-                    );
-                    if pending.mode.eq_ignore_ascii_case(&self.active_mode) {
-                        pb.enable();
-                    } else {
-                        pb.disable();
-                    }
-                    seat.pointer_bindings.insert(
-                        pb.id(),
-                        crate::seat::PointerBinding {
-                            proxy: pb,
-                            mode: pending.mode.clone(),
-                            modifiers: pending.modifiers,
-                            button: pending.button,
-                            action: pending.action.clone(),
-                        },
-                    );
-                }
-            }
-        }
-        self.pending_pointer_bindings.clear();
-
-        // Sync mode activation (enable active mode bindings, disable others)
-        if self.mode_dirty {
-            for kb in self.key_bindings.values() {
-                if kb.mode.eq_ignore_ascii_case(&self.active_mode) {
-                    kb.proxy.enable();
-                } else {
-                    kb.proxy.disable();
-                }
-            }
-            for seat in self.seats.values() {
-                for pb in seat.pointer_bindings.values() {
-                    if pb.mode.eq_ignore_ascii_case(&self.active_mode) {
-                        pb.proxy.enable();
-                    } else {
-                        pb.proxy.disable();
-                    }
-                }
-            }
-            self.mode_dirty = false;
-        }
+        self.bindings
+            .sync_compositor(self.river_xkb.as_ref(), &mut self.seats, qh);
 
         // 0. Process any pending close requests inside the manage sequence
         for w in &mut self.windows {
@@ -1095,7 +932,7 @@ impl AppState {
                 SubscriberSnapshot::WaybarLegacy {
                     active_tags: tags_text,
                     focused_title: focused_win.and_then(|w| w.title.clone()),
-                    active_mode: self.active_mode.clone(),
+                    active_mode: self.bindings.active_mode.clone(),
                     monocle: self.layout_config.monocle,
                     floating_hidden: is_floating_hidden,
                     hidden_floating_count,

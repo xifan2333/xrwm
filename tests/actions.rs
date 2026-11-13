@@ -189,7 +189,7 @@ fn test_app_state_ipc_map() {
     };
     let res = state.handle_ipc_command(&map_cmd);
     assert!(res.is_ok());
-    assert_eq!(state.pending_key_bindings.len(), 1);
+    assert_eq!(state.bindings.pending_key_bindings.len(), 1);
 
     let unmap_cmd = IpcCommand::Unmap {
         mode: "normal".into(),
@@ -198,7 +198,7 @@ fn test_app_state_ipc_map() {
     };
     let res_unmap = state.handle_ipc_command(&unmap_cmd);
     assert!(res_unmap.is_ok());
-    assert_eq!(state.pending_key_bindings.len(), 0);
+    assert_eq!(state.bindings.pending_key_bindings.len(), 0);
 }
 
 #[test]
@@ -211,8 +211,8 @@ fn test_app_state_ipc_map_pointer() {
         action: vec!["move-view".into()],
     };
     assert!(state.handle_ipc_command(&cmd).is_ok());
-    assert_eq!(state.pending_pointer_bindings.len(), 1);
-    assert_eq!(state.pending_pointer_bindings[0].button, 0x110);
+    assert_eq!(state.bindings.pending_pointer_bindings.len(), 1);
+    assert_eq!(state.bindings.pending_pointer_bindings[0].button, 0x110);
 
     let unmap_ptr_cmd = IpcCommand::UnmapPointer {
         mode: "normal".into(),
@@ -221,7 +221,7 @@ fn test_app_state_ipc_map_pointer() {
     };
     let res_unmap_ptr = state.handle_ipc_command(&unmap_ptr_cmd);
     assert!(res_unmap_ptr.is_ok());
-    assert_eq!(state.pending_pointer_bindings.len(), 0);
+    assert_eq!(state.bindings.pending_pointer_bindings.len(), 0);
 }
 
 #[test]
@@ -238,16 +238,16 @@ fn test_app_state_status_formatting() {
 #[test]
 fn test_app_state_modal_modes_and_relative_ratio() {
     let mut state = AppState::new();
-    assert_eq!(state.active_mode, "normal");
+    assert_eq!(state.bindings.active_mode, "normal");
 
     state.declare_mode("resize").unwrap();
-    assert!(state.modes.contains(&"resize".to_string()));
+    assert!(state.bindings.modes.contains(&"resize".to_string()));
 
     state.enter_mode("resize").unwrap();
-    assert_eq!(state.active_mode, "resize");
+    assert_eq!(state.bindings.active_mode, "resize");
 
     state.enter_mode("normal").unwrap();
-    assert_eq!(state.active_mode, "normal");
+    assert_eq!(state.bindings.active_mode, "normal");
 
     // Relative ratio adjustment
     let initial_ratio = state.layout_config.split_ratio;
@@ -899,57 +899,57 @@ fn test_hide_cursor_unsupported_rejection_and_disable_acceptance() {
 #[test]
 fn test_session_locked_and_unlocked_lifecycle() {
     let mut state = AppState::new();
-    assert_eq!(state.active_mode, "normal");
-    assert!(!state.session_locked);
-    assert!(state.pre_lock_mode.is_none());
+    assert_eq!(state.bindings.active_mode, "normal");
+    assert!(!state.bindings.session_locked);
+    assert!(state.bindings.pre_lock_mode.is_none());
 
     // 1. Normal -> Locked
     state.handle_session_locked();
-    assert!(state.session_locked);
-    assert_eq!(state.active_mode, "locked");
-    assert_eq!(state.pre_lock_mode.as_deref(), Some("normal"));
-    assert!(state.mode_dirty);
+    assert!(state.bindings.session_locked);
+    assert_eq!(state.bindings.active_mode, "locked");
+    assert_eq!(state.bindings.pre_lock_mode.as_deref(), Some("normal"));
+    assert!(state.bindings.mode_dirty);
 
     // While locked, switching to normal or another mode via enter_mode is blocked
     assert!(state.enter_mode("normal").is_err());
-    assert_eq!(state.active_mode, "locked");
+    assert_eq!(state.bindings.active_mode, "locked");
 
     // Entering "locked" while locked is allowed
     assert!(state.enter_mode("locked").is_ok());
 
     // Redundant SessionLocked event preserves the original pre_lock_mode
     state.handle_session_locked();
-    assert_eq!(state.pre_lock_mode.as_deref(), Some("normal"));
-    assert_eq!(state.active_mode, "locked");
+    assert_eq!(state.bindings.pre_lock_mode.as_deref(), Some("normal"));
+    assert_eq!(state.bindings.active_mode, "locked");
 
     // Unlock restores pre-lock mode ("normal")
-    state.mode_dirty = false;
+    state.bindings.mode_dirty = false;
     state.handle_session_unlocked();
-    assert!(!state.session_locked);
-    assert_eq!(state.active_mode, "normal");
-    assert!(state.pre_lock_mode.is_none());
-    assert!(state.mode_dirty);
+    assert!(!state.bindings.session_locked);
+    assert_eq!(state.bindings.active_mode, "normal");
+    assert!(state.bindings.pre_lock_mode.is_none());
+    assert!(state.bindings.mode_dirty);
 
     // 2. Custom mode -> Locked -> Custom mode
     state.declare_mode("passthrough").unwrap();
     state.enter_mode("passthrough").unwrap();
-    assert_eq!(state.active_mode, "passthrough");
+    assert_eq!(state.bindings.active_mode, "passthrough");
 
     state.handle_session_locked();
-    assert!(state.session_locked);
-    assert_eq!(state.active_mode, "locked");
-    assert_eq!(state.pre_lock_mode.as_deref(), Some("passthrough"));
+    assert!(state.bindings.session_locked);
+    assert_eq!(state.bindings.active_mode, "locked");
+    assert_eq!(state.bindings.pre_lock_mode.as_deref(), Some("passthrough"));
 
     state.handle_session_unlocked();
-    assert!(!state.session_locked);
-    assert_eq!(state.active_mode, "passthrough");
-    assert!(state.pre_lock_mode.is_none());
+    assert!(!state.bindings.session_locked);
+    assert_eq!(state.bindings.active_mode, "passthrough");
+    assert!(state.bindings.pre_lock_mode.is_none());
 
     // 3. Fallback to normal if pre_lock_mode is missing or invalid
     state.handle_session_locked();
-    state.pre_lock_mode = None;
+    state.bindings.pre_lock_mode = None;
     state.handle_session_unlocked();
-    assert_eq!(state.active_mode, "normal");
+    assert_eq!(state.bindings.active_mode, "normal");
 }
 
 #[test]
@@ -957,10 +957,10 @@ fn test_configured_bindings_retention_and_seat_inheritance() {
     let mut state = AppState::new();
 
     // 1. Initial state has zero configured or pending bindings
-    assert!(state.configured_key_bindings.is_empty());
-    assert!(state.pending_key_bindings.is_empty());
-    assert!(state.configured_pointer_bindings.is_empty());
-    assert!(state.pending_pointer_bindings.is_empty());
+    assert!(state.bindings.configured_key_bindings.is_empty());
+    assert!(state.bindings.pending_key_bindings.is_empty());
+    assert!(state.bindings.configured_pointer_bindings.is_empty());
+    assert!(state.bindings.pending_pointer_bindings.is_empty());
 
     // 2. Configure keybindings before any seat exists
     let map_cmd1 = IpcCommand::Map {
@@ -979,8 +979,8 @@ fn test_configured_bindings_retention_and_seat_inheritance() {
     };
     state.handle_ipc_command(&map_cmd2).unwrap();
 
-    assert_eq!(state.configured_key_bindings.len(), 2);
-    assert_eq!(state.pending_key_bindings.len(), 2);
+    assert_eq!(state.bindings.configured_key_bindings.len(), 2);
+    assert_eq!(state.bindings.pending_key_bindings.len(), 2);
 
     // Re-mapping Super+Return with a new action replaces it in configured_key_bindings
     let map_cmd1_update = IpcCommand::Map {
@@ -990,9 +990,9 @@ fn test_configured_bindings_retention_and_seat_inheritance() {
         action: vec!["spawn".into(), "alacritty".into()],
     };
     state.handle_ipc_command(&map_cmd1_update).unwrap();
-    assert_eq!(state.configured_key_bindings.len(), 2);
+    assert_eq!(state.bindings.configured_key_bindings.len(), 2);
     assert_eq!(
-        state.configured_key_bindings[1].action,
+        state.bindings.configured_key_bindings[1].action,
         vec!["spawn".to_string(), "alacritty".to_string()]
     );
 
@@ -1013,8 +1013,8 @@ fn test_configured_bindings_retention_and_seat_inheritance() {
     };
     state.handle_ipc_command(&ptr_cmd2).unwrap();
 
-    assert_eq!(state.configured_pointer_bindings.len(), 2);
-    assert_eq!(state.pending_pointer_bindings.len(), 2);
+    assert_eq!(state.bindings.configured_pointer_bindings.len(), 2);
+    assert_eq!(state.bindings.pending_pointer_bindings.len(), 2);
 
     // 4. Unmapping removes from configured_key_bindings and configured_pointer_bindings
     let unmap_key_cmd = IpcCommand::Unmap {
@@ -1023,7 +1023,7 @@ fn test_configured_bindings_retention_and_seat_inheritance() {
         key: "Q".into(),
     };
     state.handle_ipc_command(&unmap_key_cmd).unwrap();
-    assert_eq!(state.configured_key_bindings.len(), 1);
+    assert_eq!(state.bindings.configured_key_bindings.len(), 1);
 
     let unmap_ptr_cmd = IpcCommand::UnmapPointer {
         mode: "normal".into(),
@@ -1031,7 +1031,7 @@ fn test_configured_bindings_retention_and_seat_inheritance() {
         button: "BTN_RIGHT".into(),
     };
     state.handle_ipc_command(&unmap_ptr_cmd).unwrap();
-    assert_eq!(state.configured_pointer_bindings.len(), 1);
+    assert_eq!(state.bindings.configured_pointer_bindings.len(), 1);
 }
 
 #[test]
@@ -1049,8 +1049,8 @@ fn test_unknown_modifiers_rejected_without_state_mutation() {
     assert!(res.is_err());
     let err = res.unwrap_err();
     assert!(err.contains("Unknown modifier: Supr"));
-    assert!(state.configured_key_bindings.is_empty());
-    assert!(state.pending_key_bindings.is_empty());
+    assert!(state.bindings.configured_key_bindings.is_empty());
+    assert!(state.bindings.pending_key_bindings.is_empty());
 
     // 2. MapPointer command with unknown modifier must return Err
     let bad_map_ptr = IpcCommand::MapPointer {
@@ -1061,8 +1061,8 @@ fn test_unknown_modifiers_rejected_without_state_mutation() {
     };
     let res_ptr = state.handle_ipc_command(&bad_map_ptr);
     assert!(res_ptr.is_err());
-    assert!(state.configured_pointer_bindings.is_empty());
-    assert!(state.pending_pointer_bindings.is_empty());
+    assert!(state.bindings.configured_pointer_bindings.is_empty());
+    assert!(state.bindings.pending_pointer_bindings.is_empty());
 
     // 3. Unmap commands with unknown modifier must return Err
     let bad_unmap = IpcCommand::Unmap {
@@ -1087,7 +1087,7 @@ fn test_unknown_modifiers_rejected_without_state_mutation() {
         "q".into(),
         "close".into(),
     ]);
-    assert!(state.configured_key_bindings.is_empty());
+    assert!(state.bindings.configured_key_bindings.is_empty());
 }
 
 #[test]
@@ -1095,9 +1095,9 @@ fn test_mode_case_insensitivity_and_binding_retention() {
     let mut state = AppState::new();
 
     // 1. Enter built-in normal mode with uppercase NORMAL
-    assert_eq!(state.active_mode, "normal");
+    assert_eq!(state.bindings.active_mode, "normal");
     state.enter_mode("NORMAL").unwrap();
-    assert_eq!(state.active_mode, "normal");
+    assert_eq!(state.bindings.active_mode, "normal");
 
     // 2. Map keys with mixed case mode "Normal"
     let map_cmd = IpcCommand::Map {
@@ -1107,16 +1107,16 @@ fn test_mode_case_insensitivity_and_binding_retention() {
         action: vec!["spawn".into(), "foot".into()],
     };
     state.handle_ipc_command(&map_cmd).unwrap();
-    assert_eq!(state.configured_key_bindings.len(), 1);
-    assert_eq!(state.configured_key_bindings[0].mode, "normal");
+    assert_eq!(state.bindings.configured_key_bindings.len(), 1);
+    assert_eq!(state.bindings.configured_key_bindings[0].mode, "normal");
 
     // 3. Declare custom mode with mixed case and leading/trailing whitespace
     state.declare_mode("  ReSize  ").unwrap();
-    assert!(state.modes.contains(&"resize".to_string()));
+    assert!(state.bindings.modes.contains(&"resize".to_string()));
 
     // Enter custom mode using all caps
     state.enter_mode("RESIZE").unwrap();
-    assert_eq!(state.active_mode, "resize");
+    assert_eq!(state.bindings.active_mode, "resize");
 
     // Map pointer using all caps mode "RESIZE"
     let ptr_cmd = IpcCommand::MapPointer {
@@ -1126,8 +1126,8 @@ fn test_mode_case_insensitivity_and_binding_retention() {
         action: vec!["move-view".into()],
     };
     state.handle_ipc_command(&ptr_cmd).unwrap();
-    assert_eq!(state.configured_pointer_bindings.len(), 1);
-    assert_eq!(state.configured_pointer_bindings[0].mode, "resize");
+    assert_eq!(state.bindings.configured_pointer_bindings.len(), 1);
+    assert_eq!(state.bindings.configured_pointer_bindings[0].mode, "resize");
 
     // 4. Unmap using mixed case
     let unmap_ptr = IpcCommand::UnmapPointer {
@@ -1136,7 +1136,7 @@ fn test_mode_case_insensitivity_and_binding_retention() {
         button: "BTN_LEFT".into(),
     };
     state.handle_ipc_command(&unmap_ptr).unwrap();
-    assert!(state.configured_pointer_bindings.is_empty());
+    assert!(state.bindings.configured_pointer_bindings.is_empty());
 
     let unmap_key = IpcCommand::Unmap {
         mode: "NORMAL".into(),
@@ -1144,7 +1144,7 @@ fn test_mode_case_insensitivity_and_binding_retention() {
         key: "Return".into(),
     };
     state.handle_ipc_command(&unmap_key).unwrap();
-    assert!(state.configured_key_bindings.is_empty());
+    assert!(state.bindings.configured_key_bindings.is_empty());
 
     // 5. Undeclared mode fails
     assert!(state.enter_mode("NonExistentMode").is_err());
@@ -1162,9 +1162,12 @@ fn test_remapping_replaces_duplicate_bindings_without_accumulation() {
         action: vec!["close".into()],
     };
     state.handle_ipc_command(&map_cmd1).unwrap();
-    assert_eq!(state.configured_key_bindings.len(), 1);
-    assert_eq!(state.pending_key_bindings.len(), 1);
-    assert_eq!(state.configured_key_bindings[0].action, vec!["close"]);
+    assert_eq!(state.bindings.configured_key_bindings.len(), 1);
+    assert_eq!(state.bindings.pending_key_bindings.len(), 1);
+    assert_eq!(
+        state.bindings.configured_key_bindings[0].action,
+        vec!["close"]
+    );
 
     // Re-map with different action replaces the binding
     let map_cmd2 = IpcCommand::Map {
@@ -1174,10 +1177,10 @@ fn test_remapping_replaces_duplicate_bindings_without_accumulation() {
         action: vec!["toggle-float".into()],
     };
     state.handle_ipc_command(&map_cmd2).unwrap();
-    assert_eq!(state.configured_key_bindings.len(), 1);
-    assert_eq!(state.pending_key_bindings.len(), 1);
+    assert_eq!(state.bindings.configured_key_bindings.len(), 1);
+    assert_eq!(state.bindings.pending_key_bindings.len(), 1);
     assert_eq!(
-        state.configured_key_bindings[0].action,
+        state.bindings.configured_key_bindings[0].action,
         vec!["toggle-float"]
     );
 
@@ -1185,8 +1188,8 @@ fn test_remapping_replaces_duplicate_bindings_without_accumulation() {
     for _ in 0..3 {
         state.handle_ipc_command(&map_cmd2).unwrap();
     }
-    assert_eq!(state.configured_key_bindings.len(), 1);
-    assert_eq!(state.pending_key_bindings.len(), 1);
+    assert_eq!(state.bindings.configured_key_bindings.len(), 1);
+    assert_eq!(state.bindings.pending_key_bindings.len(), 1);
 
     // 2. Initial pointer mapping
     let ptr_cmd1 = IpcCommand::MapPointer {
@@ -1196,10 +1199,10 @@ fn test_remapping_replaces_duplicate_bindings_without_accumulation() {
         action: vec!["move-view".into()],
     };
     state.handle_ipc_command(&ptr_cmd1).unwrap();
-    assert_eq!(state.configured_pointer_bindings.len(), 1);
-    assert_eq!(state.pending_pointer_bindings.len(), 1);
+    assert_eq!(state.bindings.configured_pointer_bindings.len(), 1);
+    assert_eq!(state.bindings.pending_pointer_bindings.len(), 1);
     assert_eq!(
-        state.configured_pointer_bindings[0].action,
+        state.bindings.configured_pointer_bindings[0].action,
         xrwm::seat::PointerAction::Move
     );
 
@@ -1211,10 +1214,10 @@ fn test_remapping_replaces_duplicate_bindings_without_accumulation() {
         action: vec!["resize-view".into()],
     };
     state.handle_ipc_command(&ptr_cmd2).unwrap();
-    assert_eq!(state.configured_pointer_bindings.len(), 1);
-    assert_eq!(state.pending_pointer_bindings.len(), 1);
+    assert_eq!(state.bindings.configured_pointer_bindings.len(), 1);
+    assert_eq!(state.bindings.pending_pointer_bindings.len(), 1);
     assert_eq!(
-        state.configured_pointer_bindings[0].action,
+        state.bindings.configured_pointer_bindings[0].action,
         xrwm::seat::PointerAction::Resize
     );
 
@@ -1222,8 +1225,8 @@ fn test_remapping_replaces_duplicate_bindings_without_accumulation() {
     for _ in 0..3 {
         state.handle_ipc_command(&ptr_cmd2).unwrap();
     }
-    assert_eq!(state.configured_pointer_bindings.len(), 1);
-    assert_eq!(state.pending_pointer_bindings.len(), 1);
+    assert_eq!(state.bindings.configured_pointer_bindings.len(), 1);
+    assert_eq!(state.bindings.pending_pointer_bindings.len(), 1);
 }
 
 #[test]

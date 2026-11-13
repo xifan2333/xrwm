@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use wayland_backend::client::ObjectId;
+use wayland_client::Proxy;
 use xkbcommon::xkb;
 
 use crate::protocol::{river_seat_v1::Modifiers, river_xkb_binding_v1::RiverXkbBindingV1};
@@ -199,40 +200,33 @@ impl BindingManager {
     }
 
     pub fn declare_mode(&mut self, mode: &str) -> Result<String, String> {
-        let trimmed = mode.trim();
-        if trimmed.is_empty() {
+        let name = mode.trim();
+        if name.is_empty() {
             return Err("mode name cannot be empty".to_string());
         }
-        if self.modes.iter().any(|m| m.eq_ignore_ascii_case(trimmed)) {
-            return Ok(format!("mode '{trimmed}' already declared"));
+        let canonical = name.to_ascii_lowercase();
+        if !self.modes.iter().any(|m| m == &canonical) {
+            self.modes.push(canonical.clone());
         }
-        self.modes.push(trimmed.to_string());
-        Ok(format!("declared mode '{trimmed}'"))
+        Ok(format!("declared mode {canonical}"))
     }
 
     pub fn enter_mode(&mut self, mode: &str) -> Result<String, String> {
-        let trimmed = mode.trim();
-        if trimmed.is_empty() {
-            return Err("mode name cannot be empty".to_string());
-        }
-        if self.session_locked && !trimmed.eq_ignore_ascii_case("locked") {
-            return Err("Cannot switch mode while session is locked".to_string());
-        }
-        let matched = self
+        let name = mode.trim();
+        let canonical = self
             .modes
             .iter()
-            .find(|m| m.eq_ignore_ascii_case(trimmed))
-            .cloned();
-
-        let Some(target) = matched else {
-            return Err(format!("Unknown mode '{trimmed}'"));
-        };
-
-        if self.active_mode != target {
-            self.active_mode = target.clone();
+            .find(|m| m.eq_ignore_ascii_case(name))
+            .cloned()
+            .ok_or_else(|| format!("unknown mode '{name}', declare it first"))?;
+        if self.session_locked && canonical != "locked" {
+            return Err("cannot switch mode while session is locked".to_string());
+        }
+        if self.active_mode != canonical {
+            self.active_mode = canonical.clone();
             self.mode_dirty = true;
         }
-        Ok(format!("entered mode '{target}'"))
+        Ok(format!("entered mode {canonical}"))
     }
 
     pub fn handle_session_locked(&mut self) -> bool {
@@ -276,6 +270,22 @@ impl BindingManager {
         self.pending_key_bindings.retain(|b| {
             !(b.mode.eq_ignore_ascii_case(mode) && b.modifiers == modifiers && b.keysym == keysym)
         });
+
+        let to_remove: Vec<ObjectId> = self
+            .key_bindings
+            .iter()
+            .filter(|(_, b)| {
+                b.mode.eq_ignore_ascii_case(mode) && b.modifiers == modifiers && b.keysym == keysym
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+
+        for id in to_remove {
+            if let Some(b) = self.key_bindings.remove(&id) {
+                b.proxy.destroy();
+            }
+        }
+
         let pending = PendingKeyBinding {
             mode: mode.to_string(),
             modifiers,
@@ -373,5 +383,158 @@ impl BindingManager {
         }
 
         before_configured != self.configured_pointer_bindings.len() || removed_active
+    }
+
+    /// Cleans up active keybindings associated with a removed seat.
+    pub fn remove_seat_bindings(&mut self, seat_id: &ObjectId) {
+        let to_remove: Vec<ObjectId> = self
+            .key_bindings
+            .iter()
+            .filter(|(_, b)| &b.seat_id == seat_id)
+            .map(|(id, _)| id.clone())
+            .collect();
+
+        for id in to_remove {
+            if let Some(b) = self.key_bindings.remove(&id) {
+                b.proxy.destroy();
+            }
+        }
+    }
+
+    /// Synchronizes key and pointer bindings with the River compositor during the manage sequence.
+    pub fn sync_compositor(
+        &mut self,
+        river_xkb: Option<&crate::protocol::river_xkb_bindings_v1::RiverXkbBindingsV1>,
+        seats: &mut HashMap<ObjectId, crate::seat::SeatItem>,
+        qh: &wayland_client::QueueHandle<crate::state::AppState>,
+    ) {
+        if let Some(xkb_mgr) = river_xkb {
+            for seat in seats.values_mut() {
+                if seat.needs_key_binding_sync {
+                    for def in &self.configured_key_bindings {
+                        let binding =
+                            xkb_mgr.get_xkb_binding(&seat.proxy, def.keysym, def.modifiers, qh, ());
+                        if def.mode.eq_ignore_ascii_case(&self.active_mode) {
+                            binding.enable();
+                        } else {
+                            binding.disable();
+                        }
+                        self.key_bindings.insert(
+                            binding.id(),
+                            ActiveKeyBinding {
+                                proxy: binding,
+                                seat_id: seat.proxy.id(),
+                                mode: def.mode.clone(),
+                                modifiers: def.modifiers,
+                                keysym: def.keysym,
+                                action: def.action.clone(),
+                            },
+                        );
+                    }
+                    seat.needs_key_binding_sync = false;
+                } else if !self.pending_key_bindings.is_empty() {
+                    for pending in &self.pending_key_bindings {
+                        let binding = xkb_mgr.get_xkb_binding(
+                            &seat.proxy,
+                            pending.keysym,
+                            pending.modifiers,
+                            qh,
+                            (),
+                        );
+                        if pending.mode.eq_ignore_ascii_case(&self.active_mode) {
+                            binding.enable();
+                        } else {
+                            binding.disable();
+                        }
+                        self.key_bindings.insert(
+                            binding.id(),
+                            ActiveKeyBinding {
+                                proxy: binding,
+                                seat_id: seat.proxy.id(),
+                                mode: pending.mode.clone(),
+                                modifiers: pending.modifiers,
+                                keysym: pending.keysym,
+                                action: pending.action.clone(),
+                            },
+                        );
+                    }
+                }
+            }
+            self.pending_key_bindings.clear();
+        }
+
+        for (seat_id, seat) in seats.iter_mut() {
+            if seat.needs_pointer_binding_sync {
+                for def in &self.configured_pointer_bindings {
+                    let pb = seat.proxy.get_pointer_binding(
+                        def.button,
+                        def.modifiers,
+                        qh,
+                        seat_id.clone(),
+                    );
+                    if def.mode.eq_ignore_ascii_case(&self.active_mode) {
+                        pb.enable();
+                    } else {
+                        pb.disable();
+                    }
+                    seat.pointer_bindings.insert(
+                        pb.id(),
+                        crate::seat::PointerBinding {
+                            proxy: pb,
+                            mode: def.mode.clone(),
+                            modifiers: def.modifiers,
+                            button: def.button,
+                            action: def.action.clone(),
+                        },
+                    );
+                }
+                seat.needs_pointer_binding_sync = false;
+            } else if !self.pending_pointer_bindings.is_empty() {
+                for pending in &self.pending_pointer_bindings {
+                    let pb = seat.proxy.get_pointer_binding(
+                        pending.button,
+                        pending.modifiers,
+                        qh,
+                        seat_id.clone(),
+                    );
+                    if pending.mode.eq_ignore_ascii_case(&self.active_mode) {
+                        pb.enable();
+                    } else {
+                        pb.disable();
+                    }
+                    seat.pointer_bindings.insert(
+                        pb.id(),
+                        crate::seat::PointerBinding {
+                            proxy: pb,
+                            mode: pending.mode.clone(),
+                            modifiers: pending.modifiers,
+                            button: pending.button,
+                            action: pending.action.clone(),
+                        },
+                    );
+                }
+            }
+        }
+        self.pending_pointer_bindings.clear();
+
+        if self.mode_dirty {
+            for kb in self.key_bindings.values() {
+                if kb.mode.eq_ignore_ascii_case(&self.active_mode) {
+                    kb.proxy.enable();
+                } else {
+                    kb.proxy.disable();
+                }
+            }
+            for seat in seats.values() {
+                for pb in seat.pointer_bindings.values() {
+                    if pb.mode.eq_ignore_ascii_case(&self.active_mode) {
+                        pb.proxy.enable();
+                    } else {
+                        pb.proxy.disable();
+                    }
+                }
+            }
+            self.mode_dirty = false;
+        }
     }
 }
