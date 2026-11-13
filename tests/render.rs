@@ -582,3 +582,34 @@ fn test_rgba_transparent_and_serde() {
     let decoded: Rgba = serde_json::from_str(&json).unwrap();
     assert_eq!(decoded, Rgba::from_rgb8(1, 2, 3));
 }
+
+#[test]
+fn test_rgba_display_round_trips_translucent_colors() {
+    // Non-saturated translucent channels are quantized during premultiplication, so
+    // the rendered bytes must round to nearest rather than truncate.
+    for spelling in ["#01000080", "#7f7f7f40", "#123456a0", "#ffffff01"] {
+        let color = Rgba::parse(spelling).unwrap();
+        assert_eq!(color.to_string(), spelling, "{spelling} did not round-trip");
+    }
+}
+
+#[test]
+fn test_rgba_rejects_non_premultiplied_channels_on_deserialize() {
+    // A hand-written IPC payload cannot bypass the premultiplied-color invariant.
+    let err = serde_json::from_str::<Rgba>(r#"{"r":4294967295,"g":0,"b":0,"a":0}"#).unwrap_err();
+    assert!(
+        err.to_string().contains("must not exceed alpha"),
+        "unexpected error: {err}"
+    );
+
+    // `IpcCommand` shares the same validation, since socket JSON deserializes into it.
+    let invalid = r#"{"type":"BorderColorFocused","payload":{"r":4294967295,"g":0,"b":0,"a":0}}"#;
+    assert!(serde_json::from_str::<xrwm::ipc::IpcCommand>(invalid).is_err());
+
+    let valid = r#"{"type":"BorderColorFocused","payload":{"r":16843009,"g":16843009,"b":16843009,"a":4294967295}}"#;
+    let cmd: xrwm::ipc::IpcCommand = serde_json::from_str(valid).unwrap();
+    assert_eq!(
+        cmd,
+        xrwm::ipc::IpcCommand::BorderColorFocused(Rgba::from_rgb8(1, 1, 1))
+    );
+}

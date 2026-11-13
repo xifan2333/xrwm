@@ -21,14 +21,42 @@ const CHANNEL_SCALE: u32 = u32::MAX / 255;
 /// as this `Copy` value through the domain state machine and the frame plan. Raw
 /// color text therefore never survives past the seam, and no render tick has to
 /// parse anything.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize)]
 pub struct Rgba {
     pub r: u32,
     pub g: u32,
     pub b: u32,
     pub a: u32,
+}
+
+/// Channel quadruple as carried on the IPC wire.
+#[derive(serde::Deserialize)]
+struct RgbaChannels {
+    r: u32,
+    g: u32,
+    b: u32,
+    a: u32,
+}
+
+impl<'de> serde::Deserialize<'de> for Rgba {
+    /// Rejects channel values that are not premultiplied, so a hand-written IPC
+    /// payload cannot smuggle a color past the invariant `Rgba::parse` enforces.
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = RgbaChannels::deserialize(deserializer)?;
+        let color = Self {
+            r: raw.r,
+            g: raw.g,
+            b: raw.b,
+            a: raw.a,
+        };
+        if color.is_premultiplied() {
+            Ok(color)
+        } else {
+            Err(serde::de::Error::custom(format!(
+                "color channels must not exceed alpha (got {color:?})"
+            )))
+        }
+    }
 }
 
 /// Scales one 8-bit channel by `alpha` (already in River's 32-bit range).
@@ -105,20 +133,29 @@ impl Rgba {
     pub const fn channels(self) -> (u32, u32, u32, u32) {
         (self.r, self.g, self.b, self.a)
     }
+
+    /// Whether every color channel is bounded by the alpha channel.
+    ///
+    /// This is River's premultiplied-color invariant, the one property that the
+    /// payload types alone cannot express.
+    pub const fn is_premultiplied(self) -> bool {
+        self.r <= self.a && self.g <= self.a && self.b <= self.a
+    }
 }
 
 impl fmt::Display for Rgba {
     /// Renders `#rrggbb` (or `#rrggbbaa` when translucent), undoing the
     /// premultiplication applied by [`Rgba::parse`].
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Recovers an 8-bit component from its premultiplied representation.
+        // Recovers an 8-bit component from its premultiplied representation,
+        // rounding to the nearest integer so translucent colors survive a round-trip.
         let byte = |channel: u32, alpha: u32| -> u8 {
             if alpha == 0 {
                 return 0;
             }
-            let restored =
-                (channel as u64 * u32::MAX as u64) / (alpha as u64 * CHANNEL_SCALE as u64);
-            restored.min(255) as u8
+            let denominator = alpha as u128 * CHANNEL_SCALE as u128;
+            let rounded = (channel as u128 * u32::MAX as u128 + denominator / 2) / denominator;
+            rounded.min(255) as u8
         };
 
         let (r, g, b) = (
