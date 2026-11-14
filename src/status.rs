@@ -2,14 +2,76 @@
 
 use crate::state::AppState;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Target of a status query or streaming subscription.
+///
+/// The target is resolved once at the IPC parsing seam and carried as this `Copy`
+/// value into both one-shot queries (`handle_ipc_command`) and streaming
+/// subscriptions (`StatusBroadcaster`), so no consumer has to re-match the raw
+/// CLI flags.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize)]
+#[serde(tag = "target", content = "tag", rename_all = "kebab-case")]
 pub enum StatusSubscription {
+    #[default]
     FullJson,
     WaybarLegacy,
     Tag(u8),
     Window,
     Scratchpad,
     Pinned,
+}
+
+/// Wire representation prior to tag-index validation.
+#[derive(serde::Deserialize)]
+#[serde(tag = "target", content = "tag", rename_all = "kebab-case")]
+enum RawStatusSubscription {
+    FullJson,
+    WaybarLegacy,
+    Tag(u8),
+    Window,
+    Scratchpad,
+    Pinned,
+}
+
+impl<'de> serde::Deserialize<'de> for StatusSubscription {
+    /// Rejects out-of-range tag indices (`0` or `> 32`) on the IPC wire, matching
+    /// the invariant enforced by the CLI parser.
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let sub = match RawStatusSubscription::deserialize(deserializer)? {
+            RawStatusSubscription::FullJson => Self::FullJson,
+            RawStatusSubscription::WaybarLegacy => Self::WaybarLegacy,
+            RawStatusSubscription::Tag(tag) => Self::Tag(tag),
+            RawStatusSubscription::Window => Self::Window,
+            RawStatusSubscription::Scratchpad => Self::Scratchpad,
+            RawStatusSubscription::Pinned => Self::Pinned,
+        };
+        sub.validate().map_err(serde::de::Error::custom)?;
+        Ok(sub)
+    }
+}
+
+impl StatusSubscription {
+    /// Enforces the 1-indexed workspace invariant (`1..=32`) for `Tag`.
+    pub fn validate(self) -> Result<(), String> {
+        match self {
+            StatusSubscription::Tag(1..=32) => Ok(()),
+            StatusSubscription::Tag(other) => {
+                Err(format!("Tag index must be between 1 and 32 (got {other})"))
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Formats a single status payload (without trailing newline) for this target.
+    pub fn format(self, state: &AppState) -> String {
+        match self {
+            StatusSubscription::FullJson => format_json_status(state),
+            StatusSubscription::WaybarLegacy => format_waybar_status(state),
+            StatusSubscription::Tag(tag) => format_tag_status(state, tag),
+            StatusSubscription::Window => format_window_status(state),
+            StatusSubscription::Scratchpad => format_scratchpad_status(state),
+            StatusSubscription::Pinned => format_pinned_status(state),
+        }
+    }
 }
 
 /// Subscription snapshot used to deduplicate broadcasts and prevent redundant I/O.

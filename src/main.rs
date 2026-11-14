@@ -213,56 +213,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         continue;
                     };
 
-                    if let ipc::IpcCommand::Status {
-                        stream: true,
-                        format,
-                        tag,
-                        window,
-                        scratchpad,
-                        pinned,
-                    } = cmd
+                    if let ipc::IpcCommand::Status { stream: true, kind } = cmd
+                        && kind.validate().is_ok()
                     {
-                        let (sub, text) = if scratchpad {
-                            (
-                                xrwm::status::StatusSubscription::Scratchpad,
-                                state.format_scratchpad_status(),
-                            )
-                        } else if pinned {
-                            (
-                                xrwm::status::StatusSubscription::Pinned,
-                                state.format_pinned_status(),
-                            )
-                        } else if window {
-                            (
-                                xrwm::status::StatusSubscription::Window,
-                                state.format_window_status(),
-                            )
-                        } else if let Some(t) = tag {
-                            (
-                                xrwm::status::StatusSubscription::Tag(t),
-                                state.format_tag_status(t),
-                            )
-                        } else if format.as_deref() == Some("waybar") {
-                            (
-                                xrwm::status::StatusSubscription::WaybarLegacy,
-                                state.format_waybar_status(),
-                            )
-                        } else {
-                            (
-                                xrwm::status::StatusSubscription::FullJson,
-                                state.format_json_status(),
-                            )
-                        };
-                        let mut msg = text.into_bytes();
+                        let mut msg = state.format_status(kind).into_bytes();
                         msg.push(b'\n');
                         let write_deadline = (std::time::Instant::now()
                             + std::time::Duration::from_millis(ipc::IPC_PER_REQUEST_TIMEOUT_MS))
                         .min(ipc_deadline);
                         if ipc::write_ipc_response(&mut stream, &msg, write_deadline).is_ok() {
-                            let initial_snapshot = state.current_subscriber_snapshot(&sub);
+                            let initial_snapshot = state.current_subscriber_snapshot(&kind);
                             state
                                 .broadcaster
-                                .register(stream, sub, Some(initial_snapshot));
+                                .register(stream, kind, Some(initial_snapshot));
                         }
                     } else {
                         let response = match state.handle_ipc_command(&cmd) {

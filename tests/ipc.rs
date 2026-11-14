@@ -7,6 +7,7 @@ use std::path::Path;
 use xrwm::ipc::*;
 use xrwm::render::Rgba;
 use xrwm::rule::{RuleAction, RuleActionKind};
+use xrwm::status::StatusSubscription;
 
 #[test]
 fn test_parse_cli_args() {
@@ -278,11 +279,7 @@ fn test_parse_cli_args() {
         parse_cli_args(&["status".into(), "--format".into(), "waybar".into()]).unwrap(),
         IpcCommand::Status {
             stream: false,
-            format: Some("waybar".into()),
-            tag: None,
-            window: false,
-            scratchpad: false,
-            pinned: false,
+            kind: StatusSubscription::WaybarLegacy,
         }
     );
     assert_eq!(
@@ -295,11 +292,7 @@ fn test_parse_cli_args() {
         .unwrap(),
         IpcCommand::Status {
             stream: true,
-            format: None,
-            tag: Some(3),
-            window: false,
-            scratchpad: false,
-            pinned: false,
+            kind: StatusSubscription::Tag(3),
         }
     );
     assert_eq!(
@@ -312,11 +305,7 @@ fn test_parse_cli_args() {
         .unwrap(),
         IpcCommand::Status {
             stream: true,
-            format: None,
-            tag: None,
-            window: false,
-            scratchpad: true,
-            pinned: false,
+            kind: StatusSubscription::Scratchpad,
         }
     );
     assert_eq!(
@@ -329,44 +318,28 @@ fn test_parse_cli_args() {
         .unwrap(),
         IpcCommand::Status {
             stream: true,
-            format: None,
-            tag: None,
-            window: false,
-            scratchpad: false,
-            pinned: true,
+            kind: StatusSubscription::Pinned,
         }
     );
     assert_eq!(
         parse_cli_args(&["status".into(), "--scratchpad".into(), "--stream".into()]).unwrap(),
         IpcCommand::Status {
             stream: true,
-            format: None,
-            tag: None,
-            window: false,
-            scratchpad: true,
-            pinned: false,
+            kind: StatusSubscription::Scratchpad,
         }
     );
     assert_eq!(
         parse_cli_args(&["status".into(), "--pinned".into(), "--stream".into()]).unwrap(),
         IpcCommand::Status {
             stream: true,
-            format: None,
-            tag: None,
-            window: false,
-            scratchpad: false,
-            pinned: true,
+            kind: StatusSubscription::Pinned,
         }
     );
     assert_eq!(
         parse_cli_args(&["status".into(), "--window".into(), "--stream".into()]).unwrap(),
         IpcCommand::Status {
             stream: true,
-            format: None,
-            tag: None,
-            window: true,
-            scratchpad: false,
-            pinned: false,
+            kind: StatusSubscription::Window,
         }
     );
     assert_eq!(
@@ -1034,4 +1007,76 @@ fn test_parse_cli_args_rule_del_rejects_trailing_arguments() {
 
     let err_filter = parse_cli_args(&["list-rules".into(), "bogus-action".into()]).unwrap_err();
     assert_eq!(err_filter, "Unknown rule action: bogus-action");
+}
+
+#[test]
+fn test_parse_cli_args_status_resolves_and_validates_at_the_seam() {
+    let decode = |raw: &[&str]| {
+        let args: Vec<String> = raw.iter().map(|s| (*s).to_string()).collect();
+        parse_cli_args(&args)
+    };
+
+    assert_eq!(
+        decode(&["status"]).unwrap(),
+        IpcCommand::Status {
+            stream: false,
+            kind: StatusSubscription::FullJson,
+        }
+    );
+    assert_eq!(
+        decode(&["status", "--format", "json"]).unwrap(),
+        IpcCommand::Status {
+            stream: false,
+            kind: StatusSubscription::FullJson,
+        }
+    );
+
+    let bad_cases: &[(&[&str], &str)] = &[
+        (&["status", "--format"], "Missing value for --format"),
+        (&["status", "--format", "xml"], "Unknown status format: xml"),
+        (&["status", "--tag"], "Missing value for --tag"),
+        (
+            &["status", "--tag", "0"],
+            "Tag index must be between 1 and 32",
+        ),
+        (
+            &["status", "--tag", "33"],
+            "Tag index must be between 1 and 32",
+        ),
+        (&["status", "--tag", "abc"], "Invalid --tag value: abc"),
+        (&["status", "--bogus"], "Unknown status option: --bogus"),
+    ];
+
+    for (raw, expected) in bad_cases {
+        let err = decode(raw).unwrap_err();
+        assert!(
+            err.contains(expected),
+            "{raw:?} produced {err:?}, expected it to contain {expected:?}"
+        );
+    }
+
+    // Legacy wire fields (`format`, `tag`, `window`, `scratchpad`, `pinned`) must be
+    // rejected on deserialization instead of silently defaulting `kind` to `FullJson`.
+    for legacy_json in [
+        r#"{"type":"Status","payload":{"format":"waybar"}}"#,
+        r#"{"type":"Status","payload":{"tag":3}}"#,
+        r#"{"type":"Status","payload":{"window":true}}"#,
+        r#"{"type":"Status","payload":{"scratchpad":true}}"#,
+        r#"{"type":"Status","payload":{"pinned":true}}"#,
+    ] {
+        assert!(
+            serde_json::from_str::<IpcCommand>(legacy_json).is_err(),
+            "{legacy_json} must be rejected instead of defaulting to FullJson"
+        );
+    }
+
+    let ok_json =
+        r#"{"type":"Status","payload":{"stream":true,"kind":{"target":"waybar-legacy"}}}"#;
+    assert_eq!(
+        serde_json::from_str::<IpcCommand>(ok_json).unwrap(),
+        IpcCommand::Status {
+            stream: true,
+            kind: StatusSubscription::WaybarLegacy,
+        }
+    );
 }

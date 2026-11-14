@@ -1412,3 +1412,35 @@ fn test_rule_del_and_list_rules_use_the_typed_selector() {
     );
     assert_eq!(state.rules.len(), 3);
 }
+
+#[test]
+fn test_status_ipc_command_dispatches_through_typed_subscription() {
+    let mut state = AppState::new();
+
+    for kind in [
+        StatusSubscription::FullJson,
+        StatusSubscription::WaybarLegacy,
+        StatusSubscription::Tag(1),
+        StatusSubscription::Window,
+        StatusSubscription::Scratchpad,
+        StatusSubscription::Pinned,
+    ] {
+        let out = state
+            .handle_ipc_command(&IpcCommand::Status {
+                stream: false,
+                kind,
+            })
+            .unwrap();
+        assert_eq!(out, state.format_status(kind));
+    }
+
+    // Defence in depth: an out-of-range tag index is rejected before formatting.
+    assert!(
+        state
+            .handle_ipc_command(&IpcCommand::Status {
+                stream: false,
+                kind: StatusSubscription::Tag(0),
+            })
+            .is_err()
+    );
+}

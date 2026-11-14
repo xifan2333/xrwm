@@ -884,6 +884,12 @@ impl AppState {
         crate::status::format_pinned_status(self)
     }
 
+    /// Formats a status payload for the resolved subscription target.
+    #[inline]
+    pub fn format_status(&self, sub: StatusSubscription) -> String {
+        sub.format(self)
+    }
+
     /// Resolves the current snapshot representation for a subscriber to detect state changes.
     /// Computes the current deduplication snapshot for the given status subscription type.
     pub fn current_subscriber_snapshot(&self, sub: &StatusSubscription) -> SubscriberSnapshot {
