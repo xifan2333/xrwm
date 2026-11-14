@@ -1008,3 +1008,50 @@ fn test_parse_cli_args_rule_del_rejects_trailing_arguments() {
     let err_filter = parse_cli_args(&["list-rules".into(), "bogus-action".into()]).unwrap_err();
     assert_eq!(err_filter, "Unknown rule action: bogus-action");
 }
+
+#[test]
+fn test_parse_cli_args_status_resolves_and_validates_at_the_seam() {
+    let decode = |raw: &[&str]| {
+        let args: Vec<String> = raw.iter().map(|s| (*s).to_string()).collect();
+        parse_cli_args(&args)
+    };
+
+    assert_eq!(
+        decode(&["status"]).unwrap(),
+        IpcCommand::Status {
+            stream: false,
+            kind: StatusSubscription::FullJson,
+        }
+    );
+    assert_eq!(
+        decode(&["status", "--format", "json"]).unwrap(),
+        IpcCommand::Status {
+            stream: false,
+            kind: StatusSubscription::FullJson,
+        }
+    );
+
+    let bad_cases: &[(&[&str], &str)] = &[
+        (&["status", "--format"], "Missing value for --format"),
+        (&["status", "--format", "xml"], "Unknown status format: xml"),
+        (&["status", "--tag"], "Missing value for --tag"),
+        (
+            &["status", "--tag", "0"],
+            "Tag index must be between 1 and 32",
+        ),
+        (
+            &["status", "--tag", "33"],
+            "Tag index must be between 1 and 32",
+        ),
+        (&["status", "--tag", "abc"], "Invalid --tag value: abc"),
+        (&["status", "--bogus"], "Unknown status option: --bogus"),
+    ];
+
+    for (raw, expected) in bad_cases {
+        let err = decode(raw).unwrap_err();
+        assert!(
+            err.contains(expected),
+            "{raw:?} produced {err:?}, expected it to contain {expected:?}"
+        );
+    }
+}

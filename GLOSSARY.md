@@ -115,3 +115,7 @@ _Avoid_: Ad-hoc seat ops, pointer drag flags
 **Border Color**:
 A validated `Rgba` value (premultiplied River channel form) decoded once at the IPC seam from `#RRGGBB`/`#RRGGBBAA` text, stored in the domain model as a `Copy` value, and consumed by the frame plan without any per-frame parsing.
 _Avoid_: Color string, hex text in state, runtime color parsing
+
+**Status Subscription**:
+The mutually exclusive status target (`StatusSubscription`: `FullJson`, `WaybarLegacy`, `Tag(1..=32)`, `Window`, `Scratchpad`, `Pinned`) resolved once at the IPC parsing seam and shared by both one-shot `status` queries and streaming `StatusBroadcaster` listeners.
+_Avoid_: Status flag booleans, repeated `if/else` target resolution
