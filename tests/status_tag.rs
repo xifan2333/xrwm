@@ -1,6 +1,7 @@
 use xrwm::state::AppState;
 use xrwm::status::{
-    format_pinned_status, format_scratchpad_status, format_tag_status, format_window_status,
+    StatusSubscription, format_pinned_status, format_scratchpad_status, format_tag_status,
+    format_window_status,
 };
 
 #[test]
@@ -86,4 +87,62 @@ fn test_format_pinned_special_status() {
     assert_eq!(p_empty["text"], "");
     assert_eq!(p_empty["class"], serde_json::json!(["pinned", "empty"]));
     assert_eq!(p_empty["count"], 0);
+}
+
+#[test]
+fn test_status_subscription_formats_every_target() {
+    let state = AppState::new();
+
+    assert_eq!(StatusSubscription::default(), StatusSubscription::FullJson);
+    assert_eq!(
+        state.format_status(StatusSubscription::FullJson),
+        state.format_json_status()
+    );
+    assert_eq!(
+        state.format_status(StatusSubscription::WaybarLegacy),
+        state.format_waybar_status()
+    );
+    assert_eq!(
+        state.format_status(StatusSubscription::Tag(1)),
+        state.format_tag_status(1)
+    );
+    assert_eq!(
+        state.format_status(StatusSubscription::Window),
+        state.format_window_status()
+    );
+    assert_eq!(
+        state.format_status(StatusSubscription::Scratchpad),
+        state.format_scratchpad_status()
+    );
+    assert_eq!(
+        state.format_status(StatusSubscription::Pinned),
+        state.format_pinned_status()
+    );
+}
+
+#[test]
+fn test_status_subscription_validates_tag_range_and_serde() {
+    for valid in [
+        StatusSubscription::FullJson,
+        StatusSubscription::WaybarLegacy,
+        StatusSubscription::Tag(1),
+        StatusSubscription::Tag(32),
+        StatusSubscription::Window,
+        StatusSubscription::Scratchpad,
+        StatusSubscription::Pinned,
+    ] {
+        assert!(valid.validate().is_ok());
+        let json = serde_json::to_string(&valid).unwrap();
+        let decoded: StatusSubscription = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded, valid);
+    }
+
+    for invalid_tag in [0u8, 33, u8::MAX] {
+        assert!(StatusSubscription::Tag(invalid_tag).validate().is_err());
+        let bad_json = format!(r#"{{"target":"tag","tag":{invalid_tag}}}"#);
+        assert!(
+            serde_json::from_str::<StatusSubscription>(&bad_json).is_err(),
+            "{bad_json} must be rejected on deserialize"
+        );
+    }
 }
