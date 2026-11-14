@@ -103,6 +103,8 @@ pub enum IpcCommand {
     Status {
         #[serde(default)]
         stream: bool,
+        /// Target status stream; `deny_unknown_fields` on [`IpcCommand`] ensures
+        /// legacy wire fields are rejected rather than defaulting to `FullJson`.
         #[serde(default)]
         kind: crate::status::StatusSubscription,
     },
