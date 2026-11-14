@@ -1054,4 +1054,29 @@ fn test_parse_cli_args_status_resolves_and_validates_at_the_seam() {
             "{raw:?} produced {err:?}, expected it to contain {expected:?}"
         );
     }
+
+    // Legacy wire fields (`format`, `tag`, `window`, `scratchpad`, `pinned`) must be
+    // rejected on deserialization instead of silently defaulting `kind` to `FullJson`.
+    for legacy_json in [
+        r#"{"type":"Status","payload":{"format":"waybar"}}"#,
+        r#"{"type":"Status","payload":{"tag":3}}"#,
+        r#"{"type":"Status","payload":{"window":true}}"#,
+        r#"{"type":"Status","payload":{"scratchpad":true}}"#,
+        r#"{"type":"Status","payload":{"pinned":true}}"#,
+    ] {
+        assert!(
+            serde_json::from_str::<IpcCommand>(legacy_json).is_err(),
+            "{legacy_json} must be rejected instead of defaulting to FullJson"
+        );
+    }
+
+    let ok_json =
+        r#"{"type":"Status","payload":{"stream":true,"kind":{"target":"waybar-legacy"}}}"#;
+    assert_eq!(
+        serde_json::from_str::<IpcCommand>(ok_json).unwrap(),
+        IpcCommand::Status {
+            stream: true,
+            kind: StatusSubscription::WaybarLegacy,
+        }
+    );
 }

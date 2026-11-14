@@ -12,7 +12,7 @@ pub const IPC_TOTAL_BUDGET_MS: u64 = 15;
 pub const IPC_PER_REQUEST_TIMEOUT_MS: u64 = 5;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type", content = "payload")]
+#[serde(tag = "type", content = "payload", deny_unknown_fields)]
 pub enum IpcCommand {
     Close,
     ToggleFloat,
