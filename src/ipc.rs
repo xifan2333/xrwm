@@ -104,15 +104,7 @@ pub enum IpcCommand {
         #[serde(default)]
         stream: bool,
         #[serde(default)]
-        format: Option<String>,
-        #[serde(default)]
-        tag: Option<u8>,
-        #[serde(default)]
-        window: bool,
-        #[serde(default)]
-        scratchpad: bool,
-        #[serde(default)]
-        pinned: bool,
+        kind: crate::status::StatusSubscription,
     },
     Exit,
     Reload,
@@ -561,6 +553,80 @@ fn parse_border_color(args: &[String]) -> Result<crate::render::Rgba, String> {
     crate::render::Rgba::parse(raw)
 }
 
+/// Decodes `xrwm status` flags into a streaming bit and a validated subscription target.
+fn parse_status_args(args: &[String]) -> Result<IpcCommand, String> {
+    use crate::status::StatusSubscription;
+
+    let mut stream = false;
+    let mut scratchpad = false;
+    let mut pinned = false;
+    let mut window = false;
+    let mut waybar = false;
+    let mut tag = None;
+
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--stream" => stream = true,
+            "--scratchpad" => scratchpad = true,
+            "--pinned" => pinned = true,
+            "--window" => window = true,
+            "--format" => {
+                i += 1;
+                let fmt = args
+                    .get(i)
+                    .ok_or_else(|| "Missing value for --format in status".to_string())?;
+                match fmt.as_str() {
+                    "waybar" => waybar = true,
+                    "json" => waybar = false,
+                    other => {
+                        return Err(format!(
+                            "Unknown status format: {other}, expected waybar|json"
+                        ));
+                    }
+                }
+            }
+            "--tag" => {
+                i += 1;
+                let raw = args
+                    .get(i)
+                    .ok_or_else(|| "Missing value for --tag in status".to_string())?;
+                match raw.as_str() {
+                    "scratchpad" => scratchpad = true,
+                    "pinned" => pinned = true,
+                    other => {
+                        let n = other.parse::<u8>().map_err(|_| {
+                            format!(
+                                "Invalid --tag value: {other}, expected 1..32|scratchpad|pinned"
+                            )
+                        })?;
+                        StatusSubscription::Tag(n).validate()?;
+                        tag = Some(n);
+                    }
+                }
+            }
+            other => return Err(format!("Unknown status option: {other}")),
+        }
+        i += 1;
+    }
+
+    let kind = if scratchpad {
+        StatusSubscription::Scratchpad
+    } else if pinned {
+        StatusSubscription::Pinned
+    } else if window {
+        StatusSubscription::Window
+    } else if let Some(t) = tag {
+        StatusSubscription::Tag(t)
+    } else if waybar {
+        StatusSubscription::WaybarLegacy
+    } else {
+        StatusSubscription::FullJson
+    };
+
+    Ok(IpcCommand::Status { stream, kind })
+}
+
 pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
     if args.is_empty() {
         return Err("No arguments provided".to_string());
@@ -926,38 +992,7 @@ pub fn parse_cli_args(args: &[String]) -> Result<IpcCommand, String> {
             };
             Ok(IpcCommand::ListRules { action })
         }
-        "status" => {
-            let stream = args.iter().any(|a| a == "--stream");
-            let window = args.iter().any(|a| a == "--window");
-            let mut pinned = args.iter().any(|a| a == "--pinned");
-            let mut scratchpad = args.iter().any(|a| a == "--scratchpad");
-            let format = args
-                .iter()
-                .position(|a| a == "--format")
-                .and_then(|idx| args.get(idx + 1).cloned());
-            let tag_arg = args
-                .iter()
-                .position(|a| a == "--tag")
-                .and_then(|idx| args.get(idx + 1));
-            let mut tag = None;
-            if let Some(t_str) = tag_arg {
-                if t_str == "scratchpad" {
-                    scratchpad = true;
-                } else if t_str == "pinned" {
-                    pinned = true;
-                } else if let Ok(n) = t_str.parse::<u8>() {
-                    tag = Some(n);
-                }
-            }
-            Ok(IpcCommand::Status {
-                stream,
-                format,
-                tag,
-                window,
-                scratchpad,
-                pinned,
-            })
-        }
+        "status" => parse_status_args(args),
         other => Err(format!("Unknown command: {other}")),
     }
 }

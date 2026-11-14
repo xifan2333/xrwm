@@ -7,6 +7,7 @@ use std::path::Path;
 use xrwm::ipc::*;
 use xrwm::render::Rgba;
 use xrwm::rule::{RuleAction, RuleActionKind};
+use xrwm::status::StatusSubscription;
 
 #[test]
 fn test_parse_cli_args() {
@@ -278,11 +279,7 @@ fn test_parse_cli_args() {
         parse_cli_args(&["status".into(), "--format".into(), "waybar".into()]).unwrap(),
         IpcCommand::Status {
             stream: false,
-            format: Some("waybar".into()),
-            tag: None,
-            window: false,
-            scratchpad: false,
-            pinned: false,
+            kind: StatusSubscription::WaybarLegacy,
         }
     );
     assert_eq!(
@@ -295,11 +292,7 @@ fn test_parse_cli_args() {
         .unwrap(),
         IpcCommand::Status {
             stream: true,
-            format: None,
-            tag: Some(3),
-            window: false,
-            scratchpad: false,
-            pinned: false,
+            kind: StatusSubscription::Tag(3),
         }
     );
     assert_eq!(
@@ -312,11 +305,7 @@ fn test_parse_cli_args() {
         .unwrap(),
         IpcCommand::Status {
             stream: true,
-            format: None,
-            tag: None,
-            window: false,
-            scratchpad: true,
-            pinned: false,
+            kind: StatusSubscription::Scratchpad,
         }
     );
     assert_eq!(
@@ -329,44 +318,28 @@ fn test_parse_cli_args() {
         .unwrap(),
         IpcCommand::Status {
             stream: true,
-            format: None,
-            tag: None,
-            window: false,
-            scratchpad: false,
-            pinned: true,
+            kind: StatusSubscription::Pinned,
         }
     );
     assert_eq!(
         parse_cli_args(&["status".into(), "--scratchpad".into(), "--stream".into()]).unwrap(),
         IpcCommand::Status {
             stream: true,
-            format: None,
-            tag: None,
-            window: false,
-            scratchpad: true,
-            pinned: false,
+            kind: StatusSubscription::Scratchpad,
         }
     );
     assert_eq!(
         parse_cli_args(&["status".into(), "--pinned".into(), "--stream".into()]).unwrap(),
         IpcCommand::Status {
             stream: true,
-            format: None,
-            tag: None,
-            window: false,
-            scratchpad: false,
-            pinned: true,
+            kind: StatusSubscription::Pinned,
         }
     );
     assert_eq!(
         parse_cli_args(&["status".into(), "--window".into(), "--stream".into()]).unwrap(),
         IpcCommand::Status {
             stream: true,
-            format: None,
-            tag: None,
-            window: true,
-            scratchpad: false,
-            pinned: false,
+            kind: StatusSubscription::Window,
         }
     );
     assert_eq!(
